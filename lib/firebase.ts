@@ -66,6 +66,8 @@ export const COLLECTIONS = {
   announcements: 'announcements', // admin announcements (banner / popup)
   audit: 'audit_logs', // append-only moderation log (admin-writable)
   animeFavs: 'anime_favs', // private per-user anime favourites
+  bans: 'bans', // moderation ban bookkeeping (admin)
+  appeals: 'appeals', // banned-user appeals (WhatsApp-style keterangan)
   config: 'config', // config/platform — maintenance mode, feature flags
   fcmTokens: 'fcm_tokens',
   mail: 'mail', // Trigger Email extension (Gmail SMTP)

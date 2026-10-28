@@ -3,6 +3,7 @@ import { useSyncExternalStore } from 'react';
 export type Banner = { id: string; title: string; body: string; icon?: string; avatar?: string | null; color?: string; onPress?: () => void };
 
 let banners: Banner[] = [];
+let lastPush: { key: string; at: number } | null = null;
 const ls = new Set<() => void>();
 const emit = () => ls.forEach((l) => l());
 const sub = (l: () => void) => {
@@ -11,6 +12,12 @@ const sub = (l: () => void) => {
 };
 
 export function pushBanner(b: Omit<Banner, 'id'>) {
+  // dedupe: saat Firestore/rules error, beberapa listener bisa memicu banner
+  // yang sama dalam waktu bersamaan — cukup satu yang tampil.
+  const key = `${b.title}::${b.body}`;
+  const now = Date.now();
+  if (lastPush && lastPush.key === key && now - lastPush.at < 4000) return;
+  lastPush = { key, at: now };
   const id = Math.random().toString(36).slice(2);
   banners = [...banners.slice(-2), { ...b, id }];
   emit();

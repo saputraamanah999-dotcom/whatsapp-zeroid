@@ -192,6 +192,14 @@ export default function ChatRoom() {
           </View>
         }
       />
+      {chat.type === 'direct' && peer?.blueCheck && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginBottom: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: R.md, backgroundColor: 'rgba(30,107,255,0.10)', borderWidth: 1, borderColor: 'rgba(30,107,255,0.25)' }}>
+          <Ionicons name="checkmark-circle" size={15} color={t.accent} />
+          <T v="caption" color={t.accent} style={{ flex: 1, fontWeight: '700' }}>
+            {title} terverifikasi centang biru — akun resmi, aman untuk chat dan transaksi.
+          </T>
+        </View>
+      )}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
         <View style={{ flex: 1, marginHorizontal: 8, borderRadius: R.xl, backgroundColor: t.bg, boxShadow: t.inset, overflow: 'hidden' } as any}>
           <FlatList

@@ -11,7 +11,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 
-import { useStore, initStore, acceptCall, declineCall, sendMessage, markRead, adminEndAnnouncement } from './lib/store';
+import { useStore, initStore, acceptCall, declineCall, sendMessage, markRead, adminEndAnnouncement, bannedNow, myAppeal } from './lib/store';
 import { useTheme, R } from './lib/theme';
 import { navRef } from './lib/bus';
 import { setupNotifications, registerPushToken } from './lib/notify';
@@ -19,6 +19,8 @@ import { isFirebaseConfigured } from './lib/firebase';
 import { ZeroidLogo, Icon } from './lib/icons';
 import { T } from './components/ui';
 import { BannerHost, PermissionHost, IncomingCallHost, AnnouncementBanner, InstallBanner } from './components/Hosts';
+import MusicBar from './components/MusicBar';
+import BannedScreen from './screens/BannedScreen';
 import { LoginScreen, RegisterScreen, ForgotScreen, VerifyEmailScreen } from './screens/AuthScreens';
 import MainScreen from './screens/MainScreen';
 import ChatRoom from './screens/ChatRoom';
@@ -91,6 +93,45 @@ function useWebHistorySync() {
       }
     }
     lastDepth.current = depth;
+  }, []);
+}
+
+/**
+ * Anti-copy (web) — blok seleksi teks + klik-kanan + salin di seluruh aplikasi
+ * KECUALI di input/textarea (biar tetap bisa ketik/tempel saat chat).
+ * Disuntikkan sekali sebagai <style> global.
+ */
+function useAntiCopy() {
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const style = document.createElement('style');
+    style.id = 'zeroid-anticopy';
+    style.textContent = `
+      * { -webkit-user-select: none; -moz-user-select: none; user-select: none; -webkit-touch-callout: none; }
+      input, textarea, [contenteditable="true"], [data-selectable="true"] {
+        -webkit-user-select: text !important; user-select: text !important; -webkit-touch-callout: default;
+      }
+    `;
+    document.head.appendChild(style);
+    const isEditable = (el: EventTarget | null) => {
+      const n = el as HTMLElement | null;
+      if (!n || !(n instanceof HTMLElement)) return true;
+      return !!n.closest('input, textarea, [contenteditable="true"]');
+    };
+    const noCtx = (e: MouseEvent) => { if (!isEditable(e.target)) e.preventDefault(); };
+    const noCopy = (e: ClipboardEvent) => { if (!isEditable(e.target)) e.preventDefault(); };
+    const noDrag = (e: DragEvent) => { if (!isEditable(e.target)) e.preventDefault(); };
+    document.addEventListener('contextmenu', noCtx);
+    document.addEventListener('copy', noCopy);
+    document.addEventListener('cut', noCopy);
+    document.addEventListener('dragstart', noDrag);
+    return () => {
+      document.removeEventListener('contextmenu', noCtx);
+      document.removeEventListener('copy', noCopy);
+      document.removeEventListener('cut', noCopy);
+      document.removeEventListener('dragstart', noDrag);
+      style.remove();
+    };
   }, []);
 }
 
@@ -181,6 +222,7 @@ export default function App() {
   const tokenFor = useRef<string | null>(null);
   const [dismissedNotices, setDismissedNotices] = useState<string[]>([]);
   const onNavStateChange = useWebHistorySync();
+  useAntiCopy();
 
   useEffect(() => {
     initStore();
@@ -231,17 +273,9 @@ export default function App() {
                 <Stack.Screen name="Register" component={RegisterScreen} />
                 <Stack.Screen name="Forgot" component={ForgotScreen} />
               </Stack.Navigator>
-            ) : me.banned || (me.suspendedUntil ?? 0) > Date.now() ? (
+            ) : bannedNow(me) ? (
               <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.bg } }}>
-                <Stack.Screen name="Banned">{() => (
-                  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.bg, padding: 32, gap: 16 }}>
-                    <ZeroidLogo size={64} />
-                    <T v="h2">Akses dibatasi</T>
-                    <T v="sub" style={{ textAlign: 'center', maxWidth: 360 }}>
-                      {me.banReason || 'Akun kamu dibatasi oleh admin. Hubungi admin jika kamu merasa ini keliru.'}
-                    </T>
-                  </View>
-                )}</Stack.Screen>
+                <Stack.Screen name="Banned">{() => <BannedScreen me={me} appeal={myAppeal(me.id)} />}</Stack.Screen>
               </Stack.Navigator>
             ) : !me.verified ? (
               <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: t.bg } }}>
@@ -287,6 +321,7 @@ export default function App() {
                   <Stack.Screen name="Stickers" component={StickersScreen} />
                 </Stack.Navigator>
                 <AnnouncementBanner dismissed={dismissedNotices} onDismiss={(id) => setDismissedNotices((x) => [...x, id])} />
+                <MusicBar />
               </>
             )}
           </MaintenanceGate>

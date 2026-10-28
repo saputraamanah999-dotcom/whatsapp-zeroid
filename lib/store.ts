@@ -34,7 +34,7 @@ import {
 } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { AppNotification, Call, Chat, DB, Message, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav } from './types';
+import { AppNotification, Call, Chat, DB, Message, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav, Ban, Appeal } from './types';
 import { productOf, rupiah, PAYMENT_METHODS } from './products';
 import { sendMail, otpEmailHtml } from './mail';
 import { uid, hash, isEmail, duration as fmtDur } from './format';
@@ -71,7 +71,7 @@ type Snapshot = { ready: boolean; db: DB; me: User | null; locked: boolean; conf
 
 const EMPTY: DB = {
   version: 2, users: {}, chats: {}, messages: {}, stories: [], calls: [], notifications: [],
-  reports: [], stickers: [], orders: [], announcements: [], audit: [], animeFavs: [], config: null,
+  reports: [], stickers: [], orders: [], announcements: [], audit: [], animeFavs: [], bans: [], appeals: [], config: null,
 };
 
 let db: DB = EMPTY;
@@ -115,11 +115,11 @@ const ts = (v: any): number => {
 function mapUser(id: string, d: DocumentData): User {
   return {
     id, name: d.name ?? 'Pengguna', email: d.email ?? '', about: d.about ?? '', avatar: d.avatar ?? null,
-    banner: d.banner ?? null, color: d.color ?? AVATAR_COLORS[0], phone: d.phone, role: d.role ?? 'user',
+    banner: d.banner ?? null, bannerType: d.bannerType === 'video' ? 'video' : 'image', color: d.color ?? AVATAR_COLORS[0], phone: d.phone, role: d.role ?? 'user',
     username: d.username, developer: !!d.developer, blueCheck: !!d.blueCheck, vipUntil: ts(d.vipUntil),
     memberUntil: ts(d.memberUntil), security: !!d.security, otpVerified: !!d.otpVerified, pin: d.pin, otpCode: d.otpCode, otpExpires: ts(d.otpExpires),
     spotify: d.spotify ?? null, verified: !!d.verified, banned: !!d.banned, suspendedUntil: ts(d.suspendedUntil),
-    banReason: d.banReason, lastSeen: ts(d.lastSeen), createdAt: ts(d.createdAt),
+    banReason: d.banReason, banUntil: ts(d.banUntil), lastSeen: ts(d.lastSeen), createdAt: ts(d.createdAt),
     privacy: { lastSeen: 'everyone', profilePhoto: 'everyone', about: 'everyone', groups: 'everyone', readReceipts: true, storyReplies: true, ...(d.privacy ?? {}) },
     notif: { messages: true, groups: true, stories: true, calls: true, preview: true, sound: true, ...(d.notif ?? {}) },
     blocked: d.blocked ?? [], contacts: d.contacts ?? [],
@@ -300,6 +300,15 @@ function attachUserSubs(fbUid: string) {
     bump();
   }, () => {}));
 
+  // my appeal (terlihat saat dibanned — status banding realtime)
+  miscSubs.push(onSnapshot(doc(fb.db, C.appeals, fbUid), (s) => {
+    const a = s.exists() ? ({ id: s.id, ...(s.data() as any) } as Appeal) : null;
+    db.appeals = a
+      ? [a, ...db.appeals.filter((x) => x.id !== fbUid)]
+      : db.appeals.filter((x) => x.id !== fbUid);
+    bump();
+  }, () => {}));
+
   // my orders
   miscSubs.push(onSnapshot(query(collection(fb.db, C.orders), where('userId', '==', fbUid), orderBy('createdAt', 'desc'), fsLimit(30)), (s) => {
     const byId = new Map(db.orders.map((o) => [o.id, o]));
@@ -336,6 +345,12 @@ function attachUserSubs(fbUid: string) {
     adminSubs.push(onSnapshot(query(collection(fb.db, C.audit), orderBy('createdAt', 'desc'), fsLimit(80)), (s) => {
       db.audit = s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as any; bump();
     }, () => {}));
+    adminSubs.push(onSnapshot(query(collection(fb.db, C.appeals), orderBy('createdAt', 'desc'), fsLimit(100)), (s) => {
+      db.appeals = s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as any; bump();
+    }, (e) => console.warn('appeals sub', e)));
+    adminSubs.push(onSnapshot(query(collection(fb.db, C.bans), orderBy('bannedAt', 'desc'), fsLimit(100)), (s) => {
+      db.bans = s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as any; bump();
+    }, (e) => console.warn('bans sub', e)));
   }, 1500);
 }
 
@@ -535,6 +550,9 @@ function fbError(e: any): string {
   if (c.includes('network')) return 'Tidak ada koneksi internet.';
   if (c.includes('operation-not-allowed')) return 'Metode masuk ini belum diaktifkan di Firebase console.';
   if (c.includes('requires-recent-login')) return 'Sesi sudah lama. Keluar lalu masuk kembali, dan ulangi tindakan ini.';
+  if (c.includes('permission-denied') || c.includes('insufficient permissions'))
+    return 'Server menolak aksi ini (izin Firestore). Admin perlu mempublikasikan Rules v4 terbaru di Firebase Console.';
+  if (c.includes('unavailable') || c.includes('network')) return 'Koneksi ke server terputus. Periksa internet kamu.';
   return e?.message ?? 'Terjadi kesalahan.';
 }
 
@@ -650,7 +668,7 @@ export async function verifyEmail(): Promise<{ ok: boolean; error?: string }> {
   return { ok: false, error: 'Email belum diverifikasi. Klik link di email kamu, lalu cek ulang.' };
 }
 
-type Updatable = Partial<Pick<User, 'name' | 'about' | 'avatar' | 'banner' | 'phone' | 'privacy' | 'notif' | 'spotify' | 'username' | 'pin' | 'color'>>;
+type Updatable = Partial<Pick<User, 'name' | 'about' | 'avatar' | 'banner' | 'bannerType' | 'phone' | 'privacy' | 'notif' | 'spotify' | 'username' | 'pin' | 'color'>>;
 export function updateMe(patch: Updatable) {
   const me = getMe();
   const fb = firebase();
@@ -1321,14 +1339,94 @@ async function audit(action: string, target?: string, detail?: string) {
 
 const isFullAdmin = (u: User | null) => !!u && (u.role === 'admin' || u.role === 'developer');
 
-export function adminToggleBan(userId: string, reason?: string) {
+/** Apakah akun sedang terkena sanksi (ban permanen / sampai waktu tertentu)? */
+export function bannedNow(u: User | null | undefined): boolean {
+  if (!u) return false;
+  return !!u.banned || (u.suspendedUntil ?? 0) > Date.now() || (u.banUntil ?? 0) > Date.now();
+}
+
+/** Sisa waktu ban (ms) — 0 berarti permanen/tidak dibanned. */
+export function banRemaining(u: User): number {
+  if (u.banned) return 0; // permanen
+  const t = Math.max(u.suspendedUntil ?? 0, u.banUntil ?? 0) - Date.now();
+  return t > 0 ? t : 0;
+}
+
+/**
+ * Ban pengguna dengan durasi. durationMs = 0 → permanen.
+ * Menulis: users/{uid}.banned|banReason|banUntil + bans/{uid} (buku admin) +
+ * hapus appeal lama agar bisa banding ulang setelah di-unban.
+ */
+export function adminBan(userId: string, reason: string, durationMs: number) {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb || !isFullAdmin(me)) return;
   const u = db.users[userId];
   if (!u) return;
-  updateDoc(doc(fb.db, C.users, userId), { banned: !u.banned, banReason: u.banned ? null : reason ?? 'Pelanggaran aturan komunitas' }).catch(() => {});
-  audit(u.banned ? 'unban' : 'ban', userId, reason);
+  const until = durationMs > 0 ? Date.now() + durationMs : 0;
+  const permanent = durationMs <= 0;
+  updateDoc(doc(fb.db, C.users, userId), {
+    banned: permanent,
+    banReason: reason || 'Pelanggaran aturan komunitas',
+    suspendedUntil: permanent ? 0 : until,
+    banUntil: permanent ? 0 : until,
+  }).catch((e) => pushBanner({ title: 'Ban gagal', body: fbError(e), icon: 'alert' }));
+  setDoc(doc(fb.db, C.bans, userId), {
+    uid: userId, name: u.name, reason: reason || 'Pelanggaran aturan komunitas',
+    bannedBy: me.id, bannedByName: me.name, bannedAt: Date.now(), until, active: true,
+  }).catch(() => {});
+  deleteDoc(doc(fb.db, C.appeals, userId)).catch(() => {});
+  audit(permanent ? 'ban' : 'ban_temp', userId, `${reason || '-'} · ${permanent ? 'permanen' : fmtDur(durationMs / 1000)}`);
+}
+
+/** Cabut ban + arsipkan catatan. */
+export function adminUnban(userId: string) {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFullAdmin(me)) return;
+  updateDoc(doc(fb.db, C.users, userId), { banned: false, banReason: null, suspendedUntil: 0, banUntil: 0 }).catch((e) => pushBanner({ title: 'Unban gagal', body: fbError(e), icon: 'alert' }));
+  updateDoc(doc(fb.db, C.bans, userId), { active: false }).catch(() => {});
+  audit('unban', userId);
+}
+
+/** Pengguna dibanned menulis keterangannya (WhatsApp-style) — sekali per masa ban. */
+export async function submitAppeal(message: string): Promise<{ ok: boolean; error?: string }> {
+  const me = getMe();
+  const fb = firebase();
+  const text = message.trim();
+  if (!me || !fb) return { ok: false, error: 'Belum masuk.' };
+  if (text.length < 10) return { ok: false, error: 'Tulis keterangan minimal 10 karakter.' };
+  try {
+    await setDoc(doc(fb.db, C.appeals, me.id), {
+      uid: me.id, name: me.name, message: text.slice(0, 600),
+      status: 'pending', createdAt: Date.now(), updatedAt: Date.now(),
+    }, { merge: true });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: fbError(e) };
+  }
+}
+
+/** Admin menyetujui / menolak banding. Setuju = langsung unban. */
+export function adminDecideAppeal(appealId: string, approve: boolean, note?: string) {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFullAdmin(me)) return;
+  updateDoc(doc(fb.db, C.appeals, appealId), {
+    status: approve ? 'approved' : 'rejected',
+    decidedAt: Date.now(),
+    adminNote: (note ?? '').slice(0, 200) || (approve ? 'Bandings diterima — akses dipulihkan.' : 'Keterangan belum cukup untuk pemulihan akses.'),
+  }).catch((e) => pushBanner({ title: 'Gagal memproses banding', body: fbError(e), icon: 'alert' }));
+  if (approve) adminUnban(appealId);
+  const a = db.appeals.find((x) => x.id === appealId);
+  if (a) notifyFor(a.uid, 'admin', approve ? 'Banding diterima' : 'Banding ditolak',
+    approve ? 'Akses akunmu sudah dipulihkan. Selamat datang kembali!' : 'Keteranganmu belum cukup. Hubungi admin lewat chat global.',
+    { chatId: 'c_global' });
+  audit(approve ? 'appeal_approve' : 'appeal_reject', appealId, note ?? '');
+}
+
+export function myAppeal(uidX: string | undefined): Appeal | undefined {
+  return uidX ? db.appeals.find((a) => a.id === uidX) : undefined;
 }
 
 export function adminSetRole(userId: string, role: 'user' | 'moderator' | 'admin') {

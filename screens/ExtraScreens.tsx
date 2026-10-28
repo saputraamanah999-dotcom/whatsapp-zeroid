@@ -4,10 +4,10 @@ import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Header, Screen, Avatar, T, Neu, Card, Row, Btn, NeuInput, Empty, UserBadges, IconBtn, Segmented } from '../components/ui';
+import { Header, Screen, Avatar, T, Neu, Card, Row, Btn, NeuInput, Empty, UserBadges, IconBtn } from '../components/ui';
 import { Sheet, Confirm } from '../components/Sheet';
 import MediaPlayer from '../components/MediaPlayer';
-import AudioBar from '../components/AudioBar';
+import BannerMedia from '../components/BannerMedia';
 import { DEFAULT_STICKERS } from '../components/Emoji';
 import { useTheme, R } from '../lib/theme';
 import {
@@ -33,13 +33,14 @@ import {
   isMemberPlan,
 } from '../lib/store';
 import { PRODUCTS, PAYMENT_METHODS, rupiah, productOf } from '../lib/products';
-import { CURATED, resolveMedia, isYouTube } from '../lib/spotify';
-import { songSearch, ytSearch, fetchLyrics, songPlay, ytDownload, SongResult, YtResult, MediaDirect } from '../lib/jere';
-import { pickGallery, uploadMedia } from '../lib/media';
+import { resolveMedia } from '../lib/spotify';
+import { pickGallery, uploadMedia, pickVideo, uploadMediaDirect } from '../lib/media';
 import { pushBanner } from '../lib/bus';
 import { ago, chatTime } from '../lib/format';
 import { placeCall } from './tabs/CallsTab';
 import { ProductKey } from '../lib/types';
+import { MusicSong, MusicPlaylist, MusicArtist, musicSearch, TRENDING } from '../lib/music';
+import { play as playSong, openFull, usePlayer } from '../lib/player';
 
 // ---------------- Contact / user profile ----------------
 export function UserProfile() {
@@ -68,8 +69,8 @@ export function UserProfile() {
       <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 40, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
         <View style={{ alignItems: 'center', marginBottom: 22 }}>
           {!!u.banner && (
-            <Pressable onPress={() => nav.navigate('MediaViewer', { uri: u.banner, type: 'image' })} style={({ pressed }) => ({ alignSelf: 'stretch', height: 140, borderRadius: R.lg, overflow: 'hidden', marginBottom: -64, opacity: pressed ? 0.92 : 1 })} accessibilityLabel="Banner profil">
-              <Image source={{ uri: u.banner }} style={{ width: '100%', height: '100%' }} contentFit="cover" transition={150} />
+            <Pressable onPress={() => nav.navigate('MediaViewer', { uri: u.banner, type: u.bannerType === 'video' ? 'video' : 'image' })} style={({ pressed }) => ({ alignSelf: 'stretch', height: 150, borderRadius: R.lg, overflow: 'hidden', marginBottom: -64, opacity: pressed ? 0.92 : 1 })} accessibilityLabel="Banner profil">
+              <BannerMedia uri={u.banner} video={u.bannerType === 'video'} height={150} />
             </Pressable>
           )}
           <Pressable disabled={!photo} onPress={() => nav.navigate('MediaViewer', { uri: photo, type: 'image' })}>
@@ -331,232 +332,223 @@ const VIRAL_CHIPS = ['lagu viral 2026', 'top hits indonesia', 'lagu barat terbar
 export function MusicScreen() {
   const t = useTheme();
   const { me } = useStore();
-  const [link, setLink] = useState('');
-  const [playing, setPlaying] = useState(me?.spotify ?? CURATED[0]);
-  const [err, setErr] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  // Jerexd-powered extras
-  const [src, setSrc] = useState<'spotify' | 'youtube'>('spotify');
+  const st = usePlayer();
   const [q, setQ] = useState('');
-  const [songs, setSongs] = useState<SongResult[]>([]);
-  const [vids, setVids] = useState<YtResult[]>([]);
+  const [songs, setSongs] = useState<MusicSong[]>([]);
+  const [pls, setPls] = useState<MusicPlaylist[]>([]);
+  const [arts, setArts] = useState<MusicArtist[]>([]);
   const [searching, setSearching] = useState(false);
-  const [lyr, setLyr] = useState<{ open: boolean; title: string; text: string }>({ open: false, title: '', text: '' });
-  const [audio, setAudio] = useState<MediaDirect | null>(null);
-  const [busy, setBusy] = useState('');
-  if (!me) return null;
+  const [err, setErr] = useState('');
+  const [link, setLink] = useState('');
+  const [linkBusy, setLinkBusy] = useState(false);
 
   const runSearch = async (text: string) => {
     setQ(text);
-    if (!text.trim()) {
-      setSongs([]);
-      setVids([]);
-      return;
-    }
+    const s = text.trim();
+    if (!s) { setSongs([]); setPls([]); setArts([]); setErr(''); return; }
     setSearching(true);
     setErr('');
     try {
-      if (src === 'spotify') setSongs(await songSearch(text.trim()));
-      else setVids(await ytSearch(text.trim()));
+      const r = await musicSearch(s, 'all') as any;
+      // search 'all' → kembalikan songs+playlists+artists sekaligus
+      const list: MusicSong[] = Array.isArray(r) ? r : r?.songs ?? [];
+      setSongs(list);
+      setPls(r?.playlists ?? []);
+      setArts(r?.artists ?? []);
+      if (!list.length && !r?.playlists?.length && !r?.artists?.length) setErr('Tidak ada hasil. Coba kata kunci lain.');
     } catch (e: any) {
       setErr(e?.message ?? 'Pencarian gagal.');
-      setSongs([]);
-      setVids([]);
+      setSongs([]); setPls([]); setArts([]);
     } finally {
       setSearching(false);
     }
   };
 
-  const playSpotifySong = (s: SongResult) => {
-    if (s.id) setPlaying({ id: s.id, kind: 'track', title: s.title, thumb: s.thumb } as any);
-    else if (s.url) {
-      // no spotify id — fall back to direct audio search
-      playDirect(`${s.title} ${s.artist ?? ''}`.trim(), s.title);
+  const openSong = (s: MusicSong) => {
+    void playSong(s, songs.length ? songs : [s]);
+    setTimeout(openFull, 350);
+  };
+
+  const resolveLink = async () => {
+    const l = link.trim();
+    if (!l) return;
+    setLinkBusy(true);
+    setErr('');
+    try {
+      const tr = await resolveMedia(l);
+      if (!tr) { setErr('Link tidak valid. Gunakan link Spotify atau YouTube.'); return; }
+      const query = tr.title ?? '';
+      if (!query) { setErr('Tidak dapat membaca judul dari link itu.'); return; }
+      setLink('');
+      setQ(query);
+      const r = await musicSearch(query, 'songs');
+      const list = r?.songs ?? [];
+      setSongs(list); setPls(r?.playlists ?? []); setArts(r?.artists ?? []);
+      if (list.length) { void playSong(list[0], list); setTimeout(openFull, 350); }
+      else setErr('Lagu tidak ditemukan di katalog — coba cari manual.');
+    } catch (e: any) {
+      setErr(e?.message ?? 'Gagal memproses link.');
+    } finally {
+      setLinkBusy(false);
     }
   };
 
-  const playDirect = async (query: string, title: string) => {
-    setBusy(`memutar ${title}`);
-    setErr('');
-    try {
-      const d = await songPlay(query);
-      setAudio(d);
-    } catch (e: any) {
-      setErr(e?.message ?? 'Gagal memutar.');
-    } finally {
-      setBusy('');
-    }
-  };
-
-  const downloadMp3 = async (title: string, ytUrl?: string) => {
-    setBusy(`mengunduh ${title}`);
-    setErr('');
-    try {
-      let d: MediaDirect;
-      if (ytUrl) d = await ytDownload(ytUrl, 'mp3');
-      else d = await songPlay(title);
-      setAudio(d);
-      pushBanner({ title: 'MP3 siap diputar', body: title, icon: 'musical-note' });
-    } catch (e: any) {
-      setErr(e?.message ?? 'Unduhan gagal.');
-    } finally {
-      setBusy('');
-    }
-  };
-
-  const openLyrics = async (title: string) => {
-    setBusy(`lirik ${title}`);
-    setErr('');
-    try {
-      const text = await fetchLyrics(title);
-      setLyr({ open: true, title, text: text || 'Lirik tidak ditemukan.' });
-    } catch (e: any) {
-      setErr(e?.message ?? 'Lirik gagal dimuat.');
-    } finally {
-      setBusy('');
-    }
+  const glass: any = {
+    backgroundColor: t.dark ? 'rgba(30,36,46,0.72)' : 'rgba(255,255,255,0.66)',
+    borderWidth: 1,
+    borderColor: t.dark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.55)',
+    ...(Platform.OS === 'web' ? ({ backdropFilter: 'blur(18px) saturate(1.5)', WebkitBackdropFilter: 'blur(18px) saturate(1.5)' } as any) : {}),
   };
 
   return (
     <Screen>
-      <Header title="Musik" subtitle="Spotify & YouTube · cari, lirik, MP3" />
-      <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 40, maxWidth: 720, width: '100%', alignSelf: 'center', gap: 16 }} keyboardShouldPersistTaps="handled">
-        <Neu radius={R.lg} style={{ padding: 8 }}>
-          <MediaPlayer key={playing.id} track={playing} />
-        </Neu>
-        <T v="sub" style={{ textAlign: 'center', fontWeight: '600' }}>{playing.title}</T>
-        {!isYouTube(playing) && (
-          <Btn
-            title={me.spotify?.id === playing.id ? 'Lagu profil saat ini' : 'Jadikan lagu profil'}
-            icon="person-circle"
-            variant={me.spotify?.id === playing.id ? 'neu' : 'primary'}
-            onPress={() => (updateMe({ spotify: playing as any }), pushBanner({ title: 'Lagu profil diperbarui', body: playing.title, icon: 'musical-notes' }))}
-          />
-        )}
-        {me.spotify && <Btn small variant="ghost" title="Hapus lagu dari profil" onPress={() => updateMe({ spotify: null })} />}
+      <Header title="ZEROID MUSIC" subtitle="Spotify kita — cari, putar, lirik" />
+      <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 90, maxWidth: 720, width: '100%', alignSelf: 'center', gap: 14 }} keyboardShouldPersistTaps="handled">
 
-        {!!audio && <AudioBar uri={audio.url} title={audio.title ?? 'MP3'} subtitle={audio.quality} onClose={() => setAudio(null)} />}
-        {!!busy && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
-            <ActivityIndicator size="small" color={t.accent} />
-            <T v="caption" color={t.sub}>{busy}…</T>
+        {/* HERO — lagu yang sedang berputar di player global */}
+        <View style={[glass, { borderRadius: R.lg, padding: 14, gap: 12, boxShadow: t.raisedSm }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View style={{ width: 64, height: 64, borderRadius: 18, overflow: 'hidden', backgroundColor: t.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+              {st.current?.thumb ? (
+                <Image source={{ uri: st.current.thumb }} style={{ width: 64, height: 64 }} contentFit="cover" />
+              ) : (
+                <Ionicons name="musical-notes" size={28} color={t.accent} />
+              )}
+            </View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <T v="h3" numberOfLines={1}>{st.current?.title ?? 'Belum ada lagu'}</T>
+              <T v="caption" color={t.sub} numberOfLines={1}>
+                {st.current ? (st.loading ? 'Menyiapkan audio…' : st.current.artist ?? 'ZEROID MUSIC') : 'Cari lagu di bawah untuk mulai memutar'}
+              </T>
+            </View>
+            {!!st.current && (
+              <View style={{ flexDirection: 'row', gap: 4 }}>
+                <IconBtn icon="expand" size={44} color={t.accent} onPress={openFull} label="Perbesar pemutar" />
+              </View>
+            )}
           </View>
-        )}
+          {!!st.current && (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Btn small variant="neu" icon="document-text" title="Lirik" onPress={openFull} style={{ flex: 1 }} />
+              <Btn
+                small
+                variant="neu"
+                icon="person-circle"
+                title={me?.spotify?.id === st.current.videoId ? 'Lagu profil saat ini' : 'Jadikan lagu profil'}
+                disabled={me?.spotify?.id === st.current.videoId}
+                onPress={() => {
+                  updateMe({ spotify: { id: st.current!.videoId, kind: 'track', title: st.current!.title, thumb: st.current!.thumb } as any });
+                  pushBanner({ title: 'Lagu profil diperbarui', body: st.current!.title, icon: 'musical-notes' });
+                }}
+                style={{ flex: 2 }}
+              />
+            </View>
+          )}
+          <T v="caption" color={t.faint}>Lagu tetap menyala di semua halaman — mini-bar bisa disembunyikan (tahan gelembung untuk berhenti).</T>
+        </View>
+
+        {/* pencarian */}
+        <NeuInput
+          icon="search"
+          placeholder="Cari lagu, artis, album…"
+          value={q}
+          onChangeText={(s: string) => {
+            setQ(s);
+            // debounce ringan
+            clearTimeout((runSearch as any)._t);
+            (runSearch as any)._t = setTimeout(() => void runSearch(s), 550);
+          }}
+          onSubmitEditing={() => void runSearch(q)}
+          returnKeyType="search"
+          autoCapitalize="none"
+        />
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 7, paddingHorizontal: 2 }}>
+          {TRENDING.map((c) => (
+            <Pressable
+              key={c}
+              onPress={() => void runSearch(c)}
+              style={({ pressed }) => ({ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: q === c ? t.accent : t.bg2, borderWidth: 1, borderColor: q === c ? t.accent : t.border, opacity: pressed ? 0.85 : 1 })}
+            >
+              <T v="caption" color={q === c ? '#fff' : t.sub} style={{ fontWeight: '800' }}>{c}</T>
+            </Pressable>
+          ))}
+        </ScrollView>
+        {searching && <ActivityIndicator color={t.accent} style={{ paddingVertical: 10 }} />}
         {!!err && <T v="sub" color={t.danger} style={{ textAlign: 'center' }}>{err}</T>}
 
-        <Card title="Cari lagu (Jerexd)">
-          <View style={{ padding: 10, gap: 10 }}>
-            <Segmented
-              value={src}
-              onChange={(v) => {
-                setSrc(v);
-                setSongs([]);
-                setVids([]);
-              }}
-              options={[
-                { value: 'spotify', label: 'Spotify' },
-                { value: 'youtube', label: 'YouTube' },
-              ]}
-            />
-            <NeuInput
-              icon="search"
-              placeholder={src === 'spotify' ? 'Judul lagu atau artis…' : 'Cari video YouTube…'}
-              value={q}
-              onChangeText={runSearch}
-              returnKeyType="search"
-              autoCapitalize="none"
-            />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 7 }}>
-              {VIRAL_CHIPS.map((c) => (
-                <Pressable
-                  key={c}
-                  onPress={() => runSearch(c)}
-                  style={({ pressed }) => ({ paddingHorizontal: 11, paddingVertical: 6, borderRadius: 999, backgroundColor: q === c ? t.accent : t.bg2, borderWidth: 1, borderColor: q === c ? t.accent : t.border, opacity: pressed ? 0.8 : 1 })}
-                >
-                  <T v="caption" color={q === c ? '#fff' : t.sub} style={{ fontWeight: '800' }}>{c}</T>
+        {!!songs.length && (
+          <View style={{ gap: 2 }}>
+            {songs.map((s, i) => {
+              const active = st.current?.videoId === s.videoId;
+              return (
+                <Row
+                  key={`${s.videoId}-${i}`}
+                  icon="musical-note"
+                  iconColor="#1DB954"
+                  title={s.title}
+                  subtitle={[s.artist, s.duration].filter(Boolean).join(' · ') || 'Lagu'}
+                  onPress={() => openSong(s)}
+                  right={
+                    active ? <Ionicons name="volume-high" size={18} color="#1DB954" /> : <Ionicons name="play-circle" size={24} color={t.faint} />
+                  }
+                />
+              );
+            })}
+          </View>
+        )}
+
+        {!!arts.length && (
+          <Card title="Artis">
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, padding: 8 }}>
+              {arts.map((a) => (
+                <Pressable key={a.browseId} onPress={() => void runSearch(a.name)} style={{ alignItems: 'center', width: 86, gap: 6 }}>
+                  {a.thumb ? (
+                    <Image source={{ uri: a.thumb }} style={{ width: 74, height: 74, borderRadius: 37 }} contentFit="cover" />
+                  ) : (
+                    <View style={{ width: 74, height: 74, borderRadius: 37, backgroundColor: t.bg2, alignItems: 'center', justifyContent: 'center' }}>
+                      <Ionicons name="person" size={30} color={t.faint} />
+                    </View>
+                  )}
+                  <T v="caption" numberOfLines={2} style={{ textAlign: 'center', fontWeight: '700' }}>{a.name}</T>
                 </Pressable>
               ))}
             </ScrollView>
-            {searching && <ActivityIndicator color={t.accent} style={{ padding: 8 }} />}
-            {src === 'spotify' && !!songs.length && (
-              <View style={{ gap: 2 }}>
-                {songs.map((s, i) => (
-                  <Row
-                    key={`${s.id}-${i}`}
-                    icon="musical-note"
-                    iconColor="#1DB954"
-                    title={s.title}
-                    subtitle={[s.artist, s.album].filter(Boolean).join(' · ') || 'Spotify'}
-                    onPress={() => playSpotifySong(s)}
-                    right={
-                      <View style={{ flexDirection: 'row', gap: 2 }}>
-                        <IconBtn icon="document-text" size={34} iconSize={16} onPress={() => openLyrics(`${s.title} ${s.artist ?? ''}`.trim())} label="Lirik" />
-                        <IconBtn icon="download" size={34} iconSize={16} onPress={() => downloadMp3(`${s.title} ${s.artist ?? ''}`.trim())} label="MP3" />
-                      </View>
-                    }
-                  />
-                ))}
-              </View>
-            )}
-            {src === 'youtube' && !!vids.length && (
-              <View style={{ gap: 2 }}>
-                {vids.map((v, i) => (
-                  <Row
-                    key={`${v.id}-${i}`}
-                    icon="logo-youtube"
-                    iconColor="#FF0000"
-                    title={v.title}
-                    subtitle={[v.channel, v.duration].filter(Boolean).join(' · ') || 'YouTube'}
-                    onPress={() => setPlaying({ id: v.id, kind: 'youtube', title: v.title, thumb: v.thumb } as any)}
-                    right={
-                      <View style={{ flexDirection: 'row', gap: 2 }}>
-                        <IconBtn icon="document-text" size={34} iconSize={16} onPress={() => openLyrics(v.title)} label="Lirik" />
-                        <IconBtn icon="download" size={34} iconSize={16} onPress={() => downloadMp3(v.title, `https://www.youtube.com/watch?v=${v.id}`)} label="MP3" />
-                      </View>
-                    }
-                  />
-                ))}
-              </View>
-            )}
-          </View>
-        </Card>
+          </Card>
+        )}
 
+        {!!pls.length && (
+          <Card title="Playlist">
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, padding: 8 }}>
+              {pls.map((p) => (
+                <Pressable key={p.browseId} onPress={() => void runSearch(p.title)} style={{ width: 132, gap: 6 }}>
+                  {p.thumb ? (
+                    <Image source={{ uri: p.thumb }} style={{ width: 132, height: 132, borderRadius: 16 }} contentFit="cover" />
+                  ) : (
+                    <View style={{ width: 132, height: 132, borderRadius: 16, backgroundColor: t.bg2, alignItems: 'center', justifyContent: 'center' }}>
+                      <Ionicons name="list" size={40} color={t.faint} />
+                    </View>
+                  )}
+                  <T v="caption" numberOfLines={2} style={{ fontWeight: '700' }}>{p.title}</T>
+                  {!!p.author && <T v="caption" color={t.faint} numberOfLines={1}>{p.author}</T>}
+                </Pressable>
+              ))}
+            </ScrollView>
+          </Card>
+        )}
+
+        {/* tempel link Spotify / YouTube */}
         <Card title="Tempel link Spotify atau YouTube">
           <View style={{ padding: 10, gap: 10 }}>
-            <NeuInput icon="link" placeholder="https://open.spotify.com/... atau https://youtu.be/..." value={link} onChangeText={setLink} autoCapitalize="none" returnKeyType="go" />
-            <Btn
-              small
-              title="Putar"
-              icon="play"
-              loading={loading}
-              onPress={async () => {
-                setErr('');
-                setLoading(true);
-                const tr = await resolveMedia(link);
-                setLoading(false);
-                if (!tr) return setErr('Link tidak valid. Gunakan link lagu/album/playlist Spotify atau video YouTube.');
-                setPlaying(tr);
-                setLink('');
-              }}
-            />
+            <NeuInput icon="link" placeholder="https://open.spotify.com/... atau https://youtu.be/..." value={link} onChangeText={setLink} autoCapitalize="none" returnKeyType="go" onSubmitEditing={() => void resolveLink()} />
+            <Btn small title={linkBusy ? 'Memproses…' : 'Putar dari link'} icon="play" loading={linkBusy} onPress={() => void resolveLink()} />
+            <T v="caption" color={t.faint}>Link Spotify/YouTube akan dicocokkan ke katalog lagu, lalu diputar dengan player ZEROID.</T>
           </View>
         </Card>
-        <Card title="Pilihan">
-          {CURATED.map((c) => (
-            <Row key={c.id} icon={c.kind === 'youtube' ? 'logo-youtube' : c.kind === 'playlist' ? 'list' : 'musical-note'} iconColor={c.kind === 'youtube' ? '#FF0000' : '#1DB954'} title={c.title} subtitle={c.kind === 'youtube' ? 'YouTube' : c.kind === 'playlist' ? 'Playlist' : 'Lagu'} onPress={() => setPlaying(c)} right={playing.id === c.id ? <Ionicons name="volume-high" size={18} color="#1DB954" /> : undefined} />
-          ))}
-        </Card>
+
         <T v="caption" color={t.faint} style={{ textAlign: 'center' }}>
-          Embed resmi Spotify & YouTube · pencarian/lirik/MP3 via layanan Jerexd di server (kunci API tidak pernah ada di aplikasi). Embed tanpa login memutar preview 30 detik; MP3 diputar langsung di AudioBar.
+          Sumber: katalog YouTube Music + lirik LRCLIB (via server sendiri, tanpa kunci API di aplikasi).
         </T>
       </ScrollView>
-
-      <Sheet visible={lyr.open} onClose={() => setLyr((x) => ({ ...x, open: false }))} title={`Lirik — ${lyr.title}`}>
-        <ScrollView style={{ maxHeight: 430 }} contentContainerStyle={{ paddingBottom: 20 }}>
-          <T color={t.sub} style={{ lineHeight: 22 }}>{lyr.text}</T>
-        </ScrollView>
-      </Sheet>
     </Screen>
   );
 }

@@ -47,6 +47,10 @@ export type User = {
   banned: boolean;
   suspendedUntil?: number;
   banReason?: string;
+  /** epoch ms until the ban expires (0/undefined = permanent) */
+  banUntil?: number;
+  /** banner profil: foto atau video loop */
+  bannerType?: 'image' | 'video';
   lastSeen: number;
   createdAt: number;
   privacy: Privacy;
@@ -257,6 +261,33 @@ export type AnimeFav = {
   createdAt: number;
 };
 
+/** Ban record (mirrors user ban fields, admin bookkeeping) */
+export type Ban = {
+  id: string; // = userId
+  uid: string;
+  name: string;
+  reason: string;
+  bannedBy: string;
+  bannedByName?: string;
+  bannedAt: number;
+  /** epoch ms when the ban lifts; 0 = permanent */
+  until: number;
+  active: boolean;
+};
+
+/** User appeal ("kenapa saya di-ban" — WhatsApp-style keterangan) */
+export type Appeal = {
+  id: string; // = userId
+  uid: string;
+  name: string;
+  message: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: number;
+  updatedAt?: number;
+  decidedAt?: number;
+  adminNote?: string;
+};
+
 export type DB = {
   version: number;
   users: Record<string, User>;
@@ -271,5 +302,7 @@ export type DB = {
   announcements: Announcement[];
   audit: AuditLog[];
   animeFavs: AnimeFav[];
+  bans: Ban[];
+  appeals: Appeal[];
   config: PlatformConfig | null;
 };

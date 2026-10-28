@@ -189,6 +189,7 @@ export default function MessageBubble({
         {showName && !mine && (
           <T v="caption" color={senderColor} style={{ fontWeight: '700', marginBottom: 3, paddingHorizontal: isMedia ? 8 : 0, paddingTop: isMedia ? 4 : 0 }}>
             {senderName ?? 'Pengguna'}
+            {sender?.blueCheck ? ' \u2714' : ''}
             {!m.assistant && chat.admins.includes(m.senderId) && chat.type !== 'direct' ? ' · admin' : ''}
           </T>
         )}

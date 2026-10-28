@@ -171,6 +171,8 @@ function normAnimeList(data: any): any[] {
     : [];
   return list.slice(0, 60).map((a: any) => ({
     slug: slugify(txt(a, ['slug', 'id', 'endpoint', 'link', 'url'])),
+    title: txt(a, ['title', 'name', 'judul']) || 'Anime',
+    poster: txt(a, ['poster', 'thumb', 'image', 'img', 'cover']) || undefined,
     rating: txt(a, ['rating', 'score', 'nilai']) || undefined,
     status: txt(a, ['status', 'type']) || undefined,
     synopsis: txt(a, ['synopsis', 'desc', 'description']) || undefined,
@@ -256,6 +258,103 @@ function normNews(data: any): any[] {
 
 const fail = (res: any, status: number, error: string) => res.status(status).json({ error });
 
+// ============================ FALLBACK: JIKAN (MyAnimeList) + ANN ============================
+// 5 endpoint anime JERE (latest/hot/schedule/quotes/news) sering 500 di sisi
+// penyedia. Fallback ini 100% keyless sehingga anime tetap jalan.
+
+async function jikan(path: string, timeoutMs = 14000): Promise<any> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    const r = await fetch(`https://api.jikan.moe/v4${path}`, { signal: ctl.signal, headers: { accept: 'application/json', 'user-agent': 'zeroid-anime/1.0' } });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    return await r.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function jikanCard(a: any): any {
+  return {
+    slug: `jikan:${a?.mal_id}`,
+    title: a?.title ?? a?.title_english ?? a?.title_japanese ?? 'Anime',
+    poster: a?.images?.jpg?.large_image_url ?? a?.images?.jpg?.image_url ?? undefined,
+    rating: a?.score ? String(a.score) : undefined,
+    status: a?.status ?? undefined,
+    synopsis: a?.synopsis ?? undefined,
+    releaseDay: a?.broadcast?.string ?? a?.aired?.string ?? undefined,
+  };
+}
+
+async function jikanDetail(slug: string): Promise<any> {
+  const id = slug.replace(/^jikan:/, '').replace(/[^0-9]/g, '');
+  if (!id) throw new Error('ID anime tidak valid.');
+  const d = await jikan(`/anime/${id}/full`);
+  const a = d?.data ?? {};
+  let eps: any[] = [];
+  try {
+    const ep = await jikan(`/anime/${id}/episodes`);
+    eps = (ep?.data ?? []).slice(0, 200).map((e: any) => ({
+      slug: `jikan:${id}:${e?.mal_id ?? ''}`,
+      title: e?.title ?? e?.title_romanji ?? `Episode ${e?.mal_id ?? '?'}`,
+      date: e?.aired ?? undefined,
+    }));
+  } catch { /* episodes optional */ }
+  return {
+    slug: `jikan:${id}`,
+    title: a?.title ?? 'Anime',
+    poster: a?.images?.jpg?.large_image_url ?? undefined,
+    banner: a?.trailer?.images?.maximum_image_url ?? undefined,
+    rating: a?.score ? String(a.score) : undefined,
+    status: a?.status ?? undefined,
+    studio: a?.studios?.[0]?.name ?? undefined,
+    released: a?.aired?.string ?? undefined,
+    duration: a?.duration ?? undefined,
+    synopsis: a?.synopsis ?? undefined,
+    genres: (a?.genres ?? []).map((g: any) => g?.name).filter(Boolean).slice(0, 12),
+    episodes: eps,
+    downloads: [], // sumber streaming tidak tersedia via Jikan — tombol unduh otomatis nonaktif
+  };
+}
+
+async function jikanQuotes(): Promise<any[]> {
+  const out: any[] = [];
+  for (let i = 0; i < 8; i++) {
+    try {
+      const d = await jikan('/random/quotes', 8000);
+      const q = d?.data;
+      if (q?.quote) out.push({ quote: q.quote, character: q.character, anime: q.anime });
+    } catch { /* skip */ }
+  }
+  return out;
+}
+
+async function annNews(): Promise<any[]> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 14000);
+  try {
+    const r = await fetch('https://www.animenewsnetwork.com/all/rss.xml?ann-edition=us', { signal: ctl.signal, headers: { 'user-agent': 'zeroid-anime/1.0' } });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const xml = await r.text();
+    const items = xml.split('<item>').slice(1, 26);
+    return items.map((it) => {
+      const pick = (tag: string) => {
+        const m = it.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`));
+        return m ? m[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim() : '';
+      };
+      const title = pick('title');
+      const link = pick('link');
+      const desc = pick('description');
+      const thumb = desc.match(/src="(https:[^"]+\.(?:jpg|jpeg|png|webp))"/i)?.[1];
+      return { title, url: link, thumb, date: pick('pubDate'), snippet: desc.replace(/<[^>]+>/g, '').slice(0, 180) };
+    }).filter((n) => n.title && n.url);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const listHasItems = (v: any) => Array.isArray(v) && v.length > 0;
+
 export default async function handler(req: any, res: any) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   if (req.method === 'GET') {
@@ -291,9 +390,51 @@ export default async function handler(req: any, res: any) {
 
   const run = routes[action];
   if (!run) return fail(res, 400, 'Aksi tidak dikenal.');
+  const isAnime = action.startsWith('anime_');
+  // anime tetap BISA jalan tanpa JEREXD_APIKEY lewat fallback Jikan/ANN
+  if (!process.env.JEREXD_APIKEY && !isAnime) return fail(res, 503, 'Layanan konten belum dikonfigurasi (JEREXD_APIKEY tidak ada di server).');
 
   try {
-    const r = await run();
+    const r = await run().catch(() => ({ ok: false, status: 0, data: null }));
+    const upstreamEmpty =
+      ['anime_latest', 'anime_hot', 'anime_search', 'anime_schedule'].includes(action) && !listHasItems(normAnimeList(r.data));
+    if (isAnime && (!r.ok || !r.data || upstreamEmpty)) {
+      // ---- FALLBACK keyless: Jikan / ANN ----
+      try {
+        if (action === 'anime_latest') {
+          const d = await jikan('/top/anime?filter=airing&limit=24');
+          const list = (d?.data ?? []).map(jikanCard);
+          if (listHasItems(list)) return res.status(200).json({ ok: true, list, source: 'jikan' });
+        } else if (action === 'anime_hot') {
+          const d = await jikan('/seasons/now?limit=24');
+          const list = (d?.data ?? []).map(jikanCard);
+          if (listHasItems(list)) return res.status(200).json({ ok: true, list, source: 'jikan' });
+        } else if (action === 'anime_schedule') {
+          const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+          const day = days[new Date().getDay()];
+          const d = await jikan(`/schedules?filter=${day}&limit=24&sfw=true`);
+          const list = (d?.data ?? []).map(jikanCard);
+          if (listHasItems(list)) return res.status(200).json({ ok: true, list, source: 'jikan' });
+        } else if (action === 'anime_search') {
+          const q = s(body.query, 120);
+          const d = await jikan(`/anime?q=${encodeURIComponent(q)}&limit=24&sfw=true`);
+          const list = (d?.data ?? []).map(jikanCard);
+          if (listHasItems(list)) return res.status(200).json({ ok: true, list, source: 'jikan' });
+        } else if (action === 'anime_detail') {
+          const slug = s(body.slug, 200);
+          if (slug.startsWith('jikan:')) {
+            const d = await jikanDetail(slug);
+            return res.status(200).json({ ok: true, anime: d, source: 'jikan' });
+          }
+        } else if (action === 'anime_quotes') {
+          const quotes = await jikanQuotes();
+          if (quotes.length) return res.status(200).json({ ok: true, quotes, source: 'jikan' });
+        } else if (action === 'anime_news') {
+          const news = await annNews();
+          if (news.length) return res.status(200).json({ ok: true, news, source: 'ann' });
+        }
+      } catch { /* fallback failed — jatuh ke pesan error utama */ }
+    }
     if (!r.ok || !r.data) {
       const msg = String(r.data?.error ?? r.data?.message ?? `HTTP ${r.status}`);
       return fail(res, 502, `Layanan gagal: ${msg.slice(0, 160)}`);

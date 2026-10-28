@@ -10,14 +10,26 @@ import { ProductIcon } from '../lib/icons';
 import { productOf, rupiah } from '../lib/products';
 import { useTheme, R } from '../lib/theme';
 import {
-  useStore, adminToggleBan, adminSetRole, adminVerify, adminBroadcast, adminEndAnnouncement, adminResolveReport,
+  useStore, adminBan, adminUnban, adminSetRole, adminVerify, adminBroadcast, adminEndAnnouncement, adminResolveReport,
   adminDeleteStory, adminToggleBlueCheck, adminDecideOrder, adminSetVip, adminToggleMaintenance, sendOtp, confirmOtp,
-  isOnline, activeStories, messagePreview, backendMode,
+  isOnline, activeStories, messagePreview, backendMode, adminDecideAppeal, bannedNow, banRemaining,
 } from '../lib/store';
 import { ago } from '../lib/format';
 import { pushBanner } from '../lib/bus';
 
-type Tab = 'overview' | 'users' | 'orders' | 'reports' | 'content' | 'system';
+type Tab = 'overview' | 'users' | 'orders' | 'reports' | 'appeals' | 'content' | 'system';
+
+/** pilihan durasi ban (jam/hari) — 0 = permanen */
+const BAN_DURATIONS: { label: string; ms: number }[] = [
+  { label: '1 jam', ms: 3600_000 },
+  { label: '6 jam', ms: 6 * 3600_000 },
+  { label: '12 jam', ms: 12 * 3600_000 },
+  { label: '1 hari', ms: 86400_000 },
+  { label: '3 hari', ms: 3 * 86400_000 },
+  { label: '7 hari', ms: 7 * 86400_000 },
+  { label: '30 hari', ms: 30 * 86400_000 },
+  { label: 'Permanen', ms: 0 },
+];
 
 export default function AdminScreen() {
   const t = useTheme();
@@ -29,6 +41,7 @@ export default function AdminScreen() {
   const [vipDays, setVipDays] = useState('30');
   const [askBan, setAskBan] = useState<string | null>(null);
   const [banReason, setBanReason] = useState('');
+  const [banMs, setBanMs] = useState<number>(0);
   const [otpFor, setOtpFor] = useState<string | null>(null);
   const [otpCode, setOtpCode] = useState('');
   const [otpMsg, setOtpMsg] = useState('');
@@ -77,6 +90,7 @@ export default function AdminScreen() {
   const maxDay = Math.max(1, ...stats.days.map((d) => d.n));
   const pendingOrders = db.orders.filter((o) => o.status === 'pending').length;
   const openReports = db.reports.filter((r) => !r.resolved).length;
+  const openAppeals = db.appeals.filter((a) => a.status === 'pending').length;
 
   const Stat = ({ icon, label, value, color }: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; value: number; color: string }) => (
     <Neu radius={R.lg} style={{ flexBasis: '47%', flexGrow: 1, padding: 16, gap: 10 }}>
@@ -100,6 +114,7 @@ export default function AdminScreen() {
             { value: 'users', label: 'User' },
             { value: 'orders', label: `Order${pendingOrders ? ` ${pendingOrders}` : ''}` },
             { value: 'reports', label: `Lapor${openReports ? ` ${openReports}` : ''}` },
+            { value: 'appeals', label: `Banding${openAppeals ? ` ${openAppeals}` : ''}` },
             { value: 'content', label: 'Konten' },
             { value: 'system', label: 'Sistem' },
           ]}
@@ -187,12 +202,17 @@ export default function AdminScreen() {
                 </View>
                 {u.id !== me.id && (
                   <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                    <Btn small variant={u.banned ? 'primary' : 'danger'} icon={u.banned ? 'lock-open' : 'ban'} title={u.banned ? 'Unban' : 'Ban'} onPress={() => (setAskBan(u.id), setBanReason(''))} style={{ height: 36 }} />
+                    <Btn small variant={bannedNow(u) ? 'primary' : 'danger'} icon={bannedNow(u) ? 'lock-open' : 'ban'} title={bannedNow(u) ? (banRemaining(u) > 0 ? 'Cabut sanksi' : 'Unban') : 'Ban'} onPress={() => (setAskBan(u.id), setBanReason(''), setBanMs(bannedNow(u) ? -1 : 86400_000))} style={{ height: 36 }} />
                     <Btn small variant="neu" icon="diamond" title="VIP" onPress={() => (setVipFor(u.id), setVipDays('30'))} style={{ height: 36 }} />
                     {!u.verified && <Btn small variant="neu" icon="checkmark-circle" title="Verifikasi" onPress={() => adminVerify(u.id)} style={{ height: 36 }} />}
                     <Btn small variant={u.blueCheck ? 'neu' : 'primary'} icon="checkmark-circle" title={u.blueCheck ? 'Cabut centang' : 'Centang biru'} onPress={() => adminToggleBlueCheck(u.id)} style={{ height: 36 }} />
                     {!u.otpVerified && <Btn small variant="neu" icon="mail" title="OTP Gmail" onPress={() => (setOtpFor(u.id), setOtpCode(''), setOtpMsg(''))} style={{ height: 36 }} />}
                   </View>
+                )}
+                {bannedNow(u) && (
+                  <T v="caption" color={t.danger}>
+                    Diblokir{u.banReason ? ` — ${u.banReason}` : ''}{banRemaining(u) > 0 ? ` · sisa ${Math.ceil(banRemaining(u) / 3600000)} jam` : ' · permanen'}
+                  </T>
                 )}
                 {u.id !== me.id && (
                   <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
@@ -264,10 +284,38 @@ export default function AdminScreen() {
                       <Btn small variant="neu" title="Abaikan" onPress={() => adminResolveReport(r.id, false)} style={{ flex: 1 }} />
                     </View>
                   )}
-                  {sender && !sender.banned && sender.id !== me.id && <Btn small variant="ghost" icon="ban" title={`Ban ${sender.name}`} onPress={() => (setAskBan(sender.id), setBanReason(''))} />}
+                  {sender && !bannedNow(sender) && sender.id !== me.id && <Btn small variant="ghost" icon="ban" title={`Ban ${sender.name}`} onPress={() => (setAskBan(sender.id), setBanReason(''), setBanMs(86400_000))} />}                  </Neu>
+                );
+              })}
+          </>
+        )}
+
+        {tab === 'appeals' && (
+          <>
+            {db.appeals.length === 0 && <Empty icon="mail-outline" title="Belum ada banding" body="Keterangan dari pengguna yang diblokir akan muncul di sini." />}
+            {db.appeals.map((a) => (
+              <Neu key={a.id} radius={R.lg} style={{ padding: 16, marginBottom: 12, gap: 10, opacity: a.status === 'pending' ? 1 : 0.65 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Ionicons name="mail-open" size={16} color={a.status === 'pending' ? t.warning : t.success} />
+                  <T v="h3" style={{ flex: 1, fontSize: 15 }}>{db.users[a.uid]?.name ?? a.name ?? a.uid.slice(0, 10)}</T>
+                  <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: a.status === 'pending' ? t.warning : a.status === 'approved' ? t.success : t.danger }}>
+                    <T v="caption" color="#fff" style={{ fontSize: 10, fontWeight: '800' }}>{a.status === 'pending' ? 'MENUNGGU' : a.status === 'approved' ? 'DITERIMA' : 'DITOLAK'}</T>
+                  </View>
+                </View>
+                <Neu inset radius={R.md} style={{ padding: 12 }}>
+                  <T v="body">{a.message}</T>
                 </Neu>
-              );
-            })}
+                <T v="caption">Dikirim {ago(a.createdAt)} · akun: {db.users[a.uid]?.email ?? '-'}</T>
+                {a.status === 'pending' ? (
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <Btn small icon="checkmark" title="Terima — unban" onPress={() => adminDecideAppeal(a.id, true)} style={{ flex: 1 }} />
+                    <Btn small variant="danger" title="Tolak" onPress={() => adminDecideAppeal(a.id, false)} style={{ flex: 1 }} />
+                  </View>
+                ) : (
+                  !!a.adminNote && <T v="caption" color={t.sub}>Catatan admin: {a.adminNote}</T>
+                )}
+              </Neu>
+            ))}
           </>
         )}
 
@@ -351,22 +399,42 @@ export default function AdminScreen() {
         </View>
       </Sheet>
 
-      {/* Ban reason dialog */}
+      {/* Ban dialog — alasan + durasi (jam/hari) */}
       <Sheet visible={!!askBan} onClose={() => setAskBan(null)} title={askBan ? `Ban · ${db.users[askBan]?.name}` : ''}>
         <View style={{ gap: 12 }}>
-          <T v="sub">Berikan alasan ban. Alasan ini dilihat pengguna saat mencoba masuk.</T>
-          <NeuInput placeholder="Alasan ban" value={banReason} onChangeText={setBanReason} maxLength={140} multiline />
-          <Btn
-            small
-            variant="danger"
-            icon="ban"
-            title="Ban pengguna"
-            onPress={() => {
-              if (!askBan) return;
-              adminToggleBan(askBan, banReason.trim() || undefined);
-              setAskBan(null);
-            }}
-          />
+          {askBan && bannedNow(db.users[askBan]) ? (
+            <View style={{ gap: 10 }}>
+              <T v="sub">Pengguna ini sedang diblokir. Cabut sanksinya?</T>
+              <Btn small icon="lock-open" title="Cabut blokir (unban)" onPress={() => { if (askBan) adminUnban(askBan); setAskBan(null); }} />
+            </View>
+          ) : (
+            <>
+              <T v="sub">Berikan alasan ban. Alasan ini dilihat pengguna di layar blokir, dan mereka bisa mengirim keterangan banding.</T>
+              <NeuInput placeholder="Alasan ban" value={banReason} onChangeText={setBanReason} maxLength={140} multiline />
+              <T v="label" style={{ fontWeight: '800' }}>Durasi</T>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
+                {BAN_DURATIONS.map((d) => {
+                  const on = banMs === d.ms;
+                  return (
+                    <Pressable key={d.label} onPress={() => setBanMs(d.ms)} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: on ? t.accent : t.bg2, borderWidth: 1, borderColor: on ? t.accent : t.border }}>
+                      <T v="caption" color={on ? '#fff' : t.sub} style={{ fontWeight: '800' }}>{d.label}</T>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Btn
+                small
+                variant="danger"
+                icon="ban"
+                title={`Ban (${banMs === 0 ? 'permanen' : BAN_DURATIONS.find((d) => d.ms === banMs)?.label ?? 'custom'})`}
+                onPress={() => {
+                  if (!askBan) return;
+                  adminBan(askBan, banReason.trim(), banMs);
+                  setAskBan(null);
+                }}
+              />
+            </>
+          )}
         </View>
       </Sheet>
 

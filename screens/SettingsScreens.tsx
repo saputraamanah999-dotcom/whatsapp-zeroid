@@ -8,7 +8,8 @@ import { Sheet } from '../components/Sheet';
 import { useTheme, R } from '../lib/theme';
 import { useStore, updateMe, changePassword, toggleBlock, markNotificationsRead, clearNotifications, messagePreview, chatTitle, sendVerification, toggleStar } from '../lib/store';
 import { Visibility, Privacy, NotifPrefs } from '../lib/types';
-import { pickCamera, pickGallery, uploadMedia, MediaError } from '../lib/media';
+import { pickCamera, pickGallery, pickVideo, uploadMedia, uploadMediaDirect, MediaError } from '../lib/media';
+import BannerMedia from '../components/BannerMedia';
 import { pushBanner } from '../lib/bus';
 import { ago, chatTime } from '../lib/format';
 import { getPermission, ensurePermission, PERM_INFO, PermKind, PermState, openAppSettings } from '../lib/permissions';
@@ -45,14 +46,23 @@ export function EditProfile() {
     }
   };
 
-  const setBanner = async () => {
-    const p = await pickGallery('images');
+  const setBanner = async (video = false) => {
+    const p = video ? await pickVideo() : await pickGallery('images');
     if (!p) return;
     setBusyMedia(true);
     try {
-      const r = await uploadMedia(p.uri, `banners/${me.id}/${Date.now()}.jpg`, 'image/jpeg');
-      updateMe({ banner: r.url });
-      pushBanner({ title: 'Banner diperbarui', body: 'Banner profil sudah tersimpan.', icon: 'checkmark-circle' });
+      if (video) {
+        // video: > 3.2 MB lewat unggahan langsung (host CORS), kecil lewat proxy
+        const size = p.size ?? 0;
+        const r = size > 3.2 * 1024 * 1024
+          ? await uploadMediaDirect(p.uri, (p.name ?? 'banner') .replace(/[^\w.-]/g, '_'), p.mime ?? 'video/mp4')
+          : await uploadMedia(p.uri, `banners/${me.id}/${Date.now()}.mp4`, p.mime ?? 'video/mp4');
+        updateMe({ banner: r.url, bannerType: 'video' });
+      } else {
+        const r = await uploadMedia(p.uri, `banners/${me.id}/${Date.now()}.jpg`, 'image/jpeg');
+        updateMe({ banner: r.url, bannerType: 'image' });
+      }
+      pushBanner({ title: 'Banner diperbarui', body: video ? 'Banner video aktif — diputar berulang otomatis.' : 'Banner profil sudah tersimpan.', icon: 'checkmark-circle' });
     } catch (e: any) {
       pushBanner({ title: 'Unggah banner gagal', body: e?.message ?? 'Coba lagi.', icon: 'alert' });
     } finally {
@@ -72,7 +82,7 @@ export function EditProfile() {
       <ScrollView contentContainerStyle={{ padding: 20, gap: 18, maxWidth: 560, width: '100%', alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
         <Pressable onPress={() => setBannerSheet(true)} disabled={busyMedia} style={({ pressed }) => ({ height: 116, borderRadius: R.lg, overflow: 'hidden', backgroundColor: t.bg2, opacity: pressed ? 0.9 : 1 })} accessibilityLabel="Ganti banner profil">
           {me.banner ? (
-            <Image source={{ uri: me.banner }} style={{ width: '100%', height: '100%' }} contentFit="cover" transition={150} />
+            <BannerMedia uri={me.banner} video={me.bannerType === 'video'} height={116} />
           ) : (
             <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6 }}>
               <Ionicons name="image-outline" size={22} color={t.sub} />
@@ -121,8 +131,9 @@ export function EditProfile() {
         onClose={() => setBannerSheet(false)}
         title="Banner profil"
         options={[
-          { icon: 'images', label: 'Pilih dari galeri', onPress: setBanner },
-          ...(me.banner ? [{ icon: 'trash' as const, label: 'Hapus banner', danger: true, onPress: () => updateMe({ banner: null }) }] : []),
+          { icon: 'images', label: 'Foto dari galeri', onPress: () => setBanner(false) },
+          { icon: 'videocam', label: 'Video loop dari galeri', color: '#7B61FF', onPress: () => setBanner(true) },
+          ...(me.banner ? [{ icon: 'trash' as const, label: 'Hapus banner', danger: true, onPress: () => updateMe({ banner: null, bannerType: undefined }) }] : []),
         ]}
       />
       <Sheet visible={pwOpen} onClose={() => setPwOpen(false)} title="Ganti password">

@@ -59,7 +59,10 @@ async function googleCerts(): Promise<Record<string, string>> {
 
 async function verifyIdToken(token: string, projectId: string): Promise<string | null> {
   const parts = token.split('.');
-  if (parts.length !== 3 || !projectId || projectId.length < 20) return null;
+  // NOTE: Firebase project IDs can legitimately be as short as 4 chars
+  // ("projekwhattsaf" is 14). The old `length < 20` guard rejected EVERY valid
+  // token for this project — the root cause of "Sesi tidak valid" on upload.
+  if (parts.length !== 3 || !projectId || projectId.length < 4) return null;
   let header: any, payload: JwtPayload;
   try { header = b64urlToJson(parts[0]); payload = b64urlToJson(parts[1]); } catch { return null; }
   if (header?.alg !== 'RS256') return null;
