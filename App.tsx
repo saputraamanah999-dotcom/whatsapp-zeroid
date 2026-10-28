@@ -13,13 +13,14 @@ import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 
 import { useStore, initStore, acceptCall, declineCall, sendMessage, markRead, adminEndAnnouncement, bannedNow, myAppeal } from './lib/store';
 import { useTheme, R } from './lib/theme';
-import { navRef } from './lib/bus';
+import { navRef, setActiveRouteName } from './lib/bus';
 import { setupNotifications, registerPushToken } from './lib/notify';
 import { isFirebaseConfigured } from './lib/firebase';
 import { ZeroidLogo, Icon } from './lib/icons';
 import { T } from './components/ui';
 import { BannerHost, PermissionHost, IncomingCallHost, AnnouncementBanner, InstallBanner } from './components/Hosts';
 import MusicBar from './components/MusicBar';
+import ErrorBoundary from './components/ErrorBoundary';
 import BannedScreen from './screens/BannedScreen';
 import { LoginScreen, RegisterScreen, ForgotScreen, VerifyEmailScreen } from './screens/AuthScreens';
 import MainScreen from './screens/MainScreen';
@@ -224,6 +225,18 @@ export default function App() {
   const onNavStateChange = useWebHistorySync();
   useAntiCopy();
 
+  /** dipanggil setiap navigasi: sinkronkan history web + publikasikan route aktif */
+  const handleNavStateChange = useCallback(() => {
+    onNavStateChange();
+    try {
+      const st = nav.getState();
+      const name = st?.routes?.[st.index ?? (st.routes.length - 1)]?.name as string | undefined;
+      setActiveRouteName(name);
+    } catch {
+      setActiveRouteName(undefined);
+    }
+  }, [onNavStateChange]);
+
   useEffect(() => {
     initStore();
     setupNotifications();
@@ -259,9 +272,10 @@ export default function App() {
   void activeAnnouncement;
 
   return (
+    <ErrorBoundary>
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <NavigationContainer ref={nav} theme={navTheme} onStateChange={onNavStateChange} documentTitle={{ formatter: () => 'Zeroid WhatsApp' }}>
+        <NavigationContainer ref={nav} theme={navTheme} onStateChange={handleNavStateChange} documentTitle={{ formatter: () => 'Zeroid WhatsApp' }}>
           <MaintenanceGate>
             {!isFirebaseConfigured ? (
               <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -333,5 +347,6 @@ export default function App() {
         </NavigationContainer>
       </SafeAreaProvider>
     </GestureHandlerRootView>
+    </ErrorBoundary>
   );
 }

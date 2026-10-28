@@ -39,3 +39,31 @@ export function setActiveChat(id: string | null) {
 
 // Navigation hook-in (set by App)
 export const navRef: { navigate: ((name: string, params?: object) => void) | null } = { navigate: null };
+
+// ---------------------------------------------------------------------------
+// Active route name — dipublish App lewat onStateChange (BUKAN useNavigationState).
+// PENTING: useNavigationState akan THROW "Couldn't get the navigation state"
+// bila dipanggil di luar navigator (mis. MusicBar yang dipasang di root App)
+// dan membuat seluruh aplikasi WHITE SCREEN. Hook aman di bawah ini tidak
+// pernah throw — cukup mengembalikan undefined sebelum navigasi siap.
+// ---------------------------------------------------------------------------
+let activeRouteName: string | undefined;
+const routeSubs = new Set<() => void>();
+export function setActiveRouteName(n: string | undefined) {
+  if (n === activeRouteName) return;
+  activeRouteName = n;
+  routeSubs.forEach((l) => l());
+}
+export function getActiveRouteName() {
+  return activeRouteName;
+}
+export function useActiveRouteName(): string | undefined {
+  return useSyncExternalStore(
+    (l) => {
+      routeSubs.add(l);
+      return () => routeSubs.delete(l);
+    },
+    () => activeRouteName,
+    () => activeRouteName,
+  );
+}

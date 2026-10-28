@@ -14,10 +14,10 @@ import { View, Pressable, Modal, Platform, ScrollView, ViewStyle } from 'react-n
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Animated, { FadeInDown, FadeOutDown, FadeIn, FadeOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigationState } from '@react-navigation/native';
 import { Image } from 'expo-image';
 import { usePlayer, toggle, next, prev, seek, close, openFull, closeFull, setBarVisible, play, setEmbedNode, MusicSong } from '../lib/player';
 import { musicLyrics } from '../lib/music';
+import { useActiveRouteName } from '../lib/bus';
 import { useTheme } from '../lib/theme';
 import { T } from './ui';
 
@@ -77,8 +77,12 @@ export default function MusicBar() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   // layar dengan elemen penting di bawah (composer chat / player lain) →
-  // mini-bar otomatis menyusut jadi gelembung melayang
-  const activeRoute = useNavigationState((s: any) => s?.routes?.[s?.index ?? (s?.routes?.length ?? 1) - 1]?.name) as string | undefined;
+  // mini-bar otomatis menyusut jadi gelembung melayang.
+  // CATATAN: JANGAN pakai useNavigationState di sini — MusicBar dipasang di
+  // root App (di luar Stack.Navigator) sehingga hook itu THROW "Couldn't get
+  // the navigation state" dan bikin seluruh aplikasi WHITE SCREEN.
+  // Gunakan nama route yang dipublikasikan App lewat onStateChange.
+  const activeRoute = useActiveRouteName();
   const collapseToBubble = !!activeRoute && ['ChatRoom', 'Call', 'MediaViewer', 'StoryViewer', 'StoryCreate', 'AnimeWatch', 'Music'].includes(activeRoute);
   const [hidden, setHidden] = useState(false);
   const [lyr, setLyr] = useState<{ for: string; text: string; loading: boolean }>({ for: '', text: '', loading: false });

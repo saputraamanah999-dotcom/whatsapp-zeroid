@@ -33,6 +33,22 @@
       ]
     },
     {
+      "collectionGroup": "calls",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "calleeIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "startedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "calls",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "callerId", "order": "ASCENDING" },
+        { "fieldPath": "startedAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "messages",
       "queryScope": "COLLECTION_GROUP",
       "fields": [

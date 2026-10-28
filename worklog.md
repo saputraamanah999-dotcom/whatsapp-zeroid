@@ -1,5 +1,44 @@
 # WORKLOG — ZEROID WHATSAPP
 
+## Ronde: Fix WHITE SCREEN + Vercel build gagal + Seed v5 + Index sekali-klik (2026-10-28)
+
+### Akar masalah ditemukan & dibuktikan langsung di browser (headless)
+1. **WHITE SCREEN setelah login / setelah PIN** — AKAR: `components/MusicBar.tsx`
+   memanggil `useNavigationState()` padahal komponen dipasang di **root App (di luar
+   Stack.Navigator)** → hook melempar `Uncaught Error: Couldn't get the navigation state.
+   Is your component inside a navigator?` → React **meng-unmount seluruh tree** → halaman
+   putih total. Kenapa login page aman? Karena MusicBar hanya termount saat sudah masuk
+   branch Main (login → PIN → username semua lolos = persis titik putih yang dilaporkan).
+   **FIX:** route aktif kini dipublikasikan App lewat `onStateChange` →
+   `lib/bus.ts` (`setActiveRouteName` + `useActiveRouteName` yang TIDAK pernah throw);
+   MusicBar memakai hook aman itu.
+2. **Vercel "deployed" tapi web tetap lama** — AKAR KEDUA: commit terakhir gagal BUILD
+   di Vercel karena `lib/store.ts` me-require `@react-native-google-signin/google-signin`
+   yang **tidak ada di package.json** (Metro gagal resolve → build exit 2 → deployment
+   prod tidak berganti). **FIX:** paket dipasang; `npx expo export --platform web` kini
+   SUKSES (diverifikasi lokal, bundel produksi diuji end-to-end).
+3. **Jaring pengaman**: `components/ErrorBoundary.tsx` baru membungkus seluruh App —
+   crash render apa pun kini menampilkan layar merah jelas + tombol "Muat ulang aplikasi"
+   (bukan putih total tanpa pesan).
+4. **Tombol Masuk tertutup banner** — `InstallBanner` ("Pasang Zeroid") muncul 6 detik
+   setelah load dan MENUTUPI tombol Masuk di layar pendek. Kini tidak tampil di layar
+   auth/lock (hanya setelah masuk aplikasi).
+5. **Seed koleksi Firebase v5** (`pwa/seed.html`): kini **mematerialisasi SEMUA koleksi**
+   yang belum ada: stories, calls, reports, orders, stickers, invites, audit_logs,
+   anime_favs, bans, appeals, fcm_tokens (dokumen penanda `_schema` yang aman — tidak
+   akan muncul di daftar user). Koleksi `mail` sengaja tak diisi (memicu email sungguhan
+   extension Trigger Email). Idempotent — aman dijalankan ulang.
+6. **4 composite index Firestore hilang** (notif/orders/calls masuk-keluar) — penyebab
+   notifikasi real-time & riwayat panggilan diam (`failed-precondition` di konsol).
+   seed.html kini punya **4 tombol sekali-klik** yang membuka Firebase Console dengan
+   index sudah terisi — tinggal "Create index". `firestore.indexes.json` juga dilengkapi.
+
+### Verifikasi (headless Chrome, bundel produksi)
+- Login → PIN → Main: **sukses, 0 error konsol** (sebelumnya: putih).
+- Reload dengan sesi aktif → Main langsung render (sebelumnya: putih).
+- Tombol Masuk bisa diklik walau timer install banner lewat.
+- `tsc --noEmit` 0 error; `expo export --platform web` + `pwa-postbuild` sukses.
+
 ## Ronde: Supabase × Firebase + Brat + Ban Grup/Saluran + Centang Biru Chat (2026-10-28)
 
 ### Masalah utama yang dijawab

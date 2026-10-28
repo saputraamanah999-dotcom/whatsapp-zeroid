@@ -4,7 +4,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAudioPlayer } from 'expo-audio';
 import Animated, { FadeInUp, FadeOutUp, FadeInDown, FadeOutDown, useSharedValue, useAnimatedStyle, withRepeat, withTiming, withSequence, Easing } from 'react-native-reanimated';
-import { useBanners, dismissBanner, navRef } from '../lib/bus';
+import { useBanners, dismissBanner, navRef, useActiveRouteName } from '../lib/bus';
 import { usePendingPermission, resolvePending, PERM_INFO } from '../lib/permissions';
 import { useStore, incomingCallFor, acceptCall, declineCall, adminEndAnnouncement } from '../lib/store';
 import { useTheme, R } from '../lib/theme';
@@ -223,6 +223,10 @@ export function InstallBanner() {
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const [show, setShow] = React.useState(false);
+  // Jangan tampil di atas layar auth/lock — banner bisa MENUTUPI tombol Masuk
+  // di layar pendek (hp). Hanya tampil setelah benar-benar masuk aplikasi.
+  const route = useActiveRouteName();
+  const onGateScreen = !route || ['Config', 'Login', 'Register', 'Forgot', 'Verify', 'Banned', 'Lock', 'SetUsername'].includes(route);
   React.useEffect(() => {
     if (Platform.OS !== 'web') return;
     // standalone check: hide when already installed
@@ -233,7 +237,7 @@ export function InstallBanner() {
     }, 6000);
     return () => clearTimeout(timer);
   }, []);
-  if (!show) return null;
+  if (!show || onGateScreen) return null;
   return (
     <Animated.View entering={FadeInDown.springify().damping(16)} exiting={FadeOutDown.duration(180)} style={{ position: 'absolute', bottom: insets.bottom + 70, left: 14, right: 14, zIndex: 997 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, borderRadius: R.lg, backgroundColor: t.dark ? 'rgba(34,40,51,0.97)' : 'rgba(246,248,251,0.98)', boxShadow: '0px 14px 34px rgba(15,23,42,0.22)', maxWidth: 460, alignSelf: 'center', width: '100%' } as ViewStyle}>

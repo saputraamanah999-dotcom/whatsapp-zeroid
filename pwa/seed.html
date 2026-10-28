@@ -68,7 +68,25 @@
   </div>
 
   <div class="card">
-    <h2>3 · Jalankan</h2>
+    <h2>3 · Indexes (WAJIB — sekali klik)</h2>
+    <p class="muted">
+      Notifikasi real-time, riwayat panggilan, dan pesanan premium butuh <b>composite index</b>.
+      Tanpa ini, fitur tersebut diam (tanpa error yang terlihat). Klik keempat tombol di bawah satu per satu —
+      Firebase Console akan terbuka dengan index <b>sudah terisi otomatis</b>, tinggal tekan <b>Create index</b>.
+      Tunggu statusnya berubah jadi <span class="code">Enabled</span> (1–3 menit).
+    </p>
+    <div class="row" style="margin-top:8px">
+      <button class="ghost" id="idxNotif">🔔 Index notifications</button>
+      <button class="ghost" id="idxCallsIn">📞 Index calls (masuk)</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="ghost" id="idxCallsOut">📤 Index calls (keluar)</button>
+      <button class="ghost" id="idxOrders">🧾 Index orders</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>4 · Jalankan</h2>
     <p class="muted">⚠️ <b>Pertama:</b> publish <b>firestore.rules</b> versi terbaru (dari ZIP, ada klausa bootstrap) di
       Firebase Console → Firestore Database → Rules. Tanpa itu, langkah role akan <i>permission-denied</i>.</p>
     <div class="row">
@@ -80,7 +98,7 @@
 
   <div class="card">
     <h2>Log</h2>
-    <div id="log">Siap. (build v4 — centang biru + lencana developer otomatis)</div>
+    <div id="log">Siap. (build v5 — seed SEMUA koleksi + tombol index sekali-klik)</div>
   </div>
 
   <div class="card">
@@ -97,8 +115,12 @@
         <tr><td><span class="code">notifications/{welcome}</span></td><td>notifikasi sambutan</td><td>menghidupkan pusat notifikasi</td></tr>
         <tr><td><span class="code">usernames/…</span></td><td>reservasi username developer</td><td>peta keunikan username</td></tr>
       </table>
-      <p class="muted">Koleksi lain (<span class="code">stories, calls, calls/{id}/signals, reports, orders, stickers, anime_favs, audit_logs, fcm_tokens, mail</span>)
-      dibuat otomatis oleh aplikasi saat pertama dipakai — rules-nya sudah menyiapkan semuanya.</p>
+      <p class="muted">
+        <b>BARU v5 — koleksi sistem ikut dimaterialisasi</b> lewat dokumen penanda <span class="code">_schema</span>
+        (tidak muncul di daftar pengguna): <span class="code">stories, calls, reports, orders, stickers, invites,
+        audit_logs, anime_favs, bans, appeals, fcm_tokens</span>. Koleksi <span class="code">mail</span> sengaja
+        TIDAK diisi (dokumen di sana memicu extension Trigger Email mengirim email sungguhan).
+      </p>
     </details>
   </div>
 </div>
@@ -154,6 +176,15 @@ $('btnFill').onclick = () => { fill(); log('Config tersimpan dimuat.', 'ok'); };
 $('btnSeed').onclick = () => run(true);
 $('btnVerify').onclick = () => run(false);
 fill();
+
+// ---- Composite index satu-klik (URL resmi Firebase Console, index terisi otomatis) ----
+const INDEX_URLS = [
+  ['idxNotif', 'notifications (userId + createdAt)', 'https://console.firebase.google.com/v1/r/project/projekwhattsaf/firestore/indexes?create_composite=ClRwcm9qZWN0cy9wcm9qZWt3aGF0dHNhZi9kYXRhYmFzZXMvKGRlZmF1bHQpL2NvbGxlY3Rpb25Hcm91cHMvbm90aWZpY2F0aW9ucy9pbmRleGVzL18QARoKCgZ1c2VySWQQARoNCgljcmVhdGVkQXQQAhoMCghfX25hbWVfXxAC'],
+  ['idxCallsIn', 'calls (calleeIds array-contains + startedAt)', 'https://console.firebase.google.com/v1/r/project/projekwhattsaf/firestore/indexes?create_composite=Ckxwcm9qZWN0cy9wcm9qZWt3aGF0dHNhZi9kYXRhYmFzZXMvKGRlZmF1bHQpL2NvbGxlY3Rpb25Hcm91cHMvY2FsbHMvaW5kZXhlcy9fEAEaDQoJY2FsbGVlSWRzGAEaDQoJc3RhcnRlZEF0EAIaDAoIX19uYW1lX18QAg'],
+  ['idxCallsOut', 'calls (callerId + startedAt)', 'https://console.firebase.google.com/v1/r/project/projekwhattsaf/firestore/indexes?create_composite=Ckxwcm9qZWN0cy9wcm9qZWt3aGF0dHNhZi9kYXRhYmFzZXMvKGRlZmF1bHQpL2NvbGxlY3Rpb25Hcm91cHMvY2FsbHMvaW5kZXhlcy9fEAEaDAoIY2FsbGVySWQQARoNCglzdGFydGVkQXQQAhoMCghfX25hbWVfXxAC'],
+  ['idxOrders', 'orders (userId + createdAt)', 'https://console.firebase.google.com/v1/r/project/projekwhattsaf/firestore/indexes?create_composite=Ck1wcm9qZWN0cy9wcm9qZWt3aGF0dHNhZi9kYXRhYmFzZXMvKGRlZmF1bHQpL2NvbGxlY3Rpb25Hcm91cHMvb3JkZXJzL2luZGV4ZXMvXxABGgoKBnVzZXJJZBABGg0KCWNyZWF0ZWRBdBACGgwKCF9fbmFtZV9fEAI'],
+];
+INDEX_URLS.forEach(([id]) => { $(id).onclick = () => { window.open(INDEX_URLS.find((x) => x[0] === id)[2], '_blank'); log('Membuka Firebase Console untuk ' + id + ' — tekan Create index di sana.', 'warn'); }; });
 
 function cfg() {
   FIELDS.forEach((f) => localStorage.setItem('zeroid-seed-' + f, $(f).value.trim()));
@@ -315,6 +346,42 @@ async function run(seedMode) {
       }).then(() => mark('notifications/welcome dibuat', true))
         .catch((e) => mark('notifications/welcome', false, why(e, 'notifications (create)')));
     } else if (nSnap) mark('notifikasi sambutan sudah ada', true);
+
+    // --- 9) materialisasi SEMUA koleksi sistem (BARU v5) ---
+    // Firestore baru "menampilkan" koleksi setelah punya >=1 dokumen. Dokumen
+    // _schema di bawah adalah penanda aman: tidak cocok dengan query user mana pun.
+    const now = Date.now();
+    const systemDocs = [
+      ['stories', '_schema', { userId: '_schema', type: 'text', text: 'schema-marker', bg: '#1E6BFF', createdAt: now, expiresAt: now - 1000, viewers: [], likes: [] }],
+      ['calls', '_schema', { chatId: '_schema', callerId: '_schema', calleeIds: ['_schema'], video: false, status: 'ended', startedAt: now - 2000 }],
+      ['reports', '_schema', { reporterId: '_schema', targetId: '_schema', kind: 'schema', reason: 'schema-marker', resolved: true, createdAt: now }],
+      ['orders', '_schema', { userId: '_schema', status: '_schema', product: 'schema-marker', amount: 0, createdAt: now }],
+      ['stickers', '_schema', { ownerId: '_schema', uri: '', global: false, kind: 'schema', createdAt: now }],
+      ['invites', '_schema', { chatId: '_schema', code: '_schema', createdBy: '_schema', kind: 'schema', createdAt: now }],
+      ['audit_logs', '_schema', { actorId: '_schema', action: 'schema-marker', target: '', detail: 'penanda koleksi', createdAt: now }],
+      ['anime_favs', '_schema', { uid: '_schema', animeId: '_schema', title: 'schema-marker', createdAt: now }],
+      ['bans', '_schema', { targetId: '_schema', kind: 'schema', reason: 'penanda koleksi', bannedAt: now - 1000, until: null }],
+      ['appeals', '_schema', { uid: '_schema', kind: 'schema', message: 'penanda koleksi', status: 'closed', createdAt: now }],
+    ];
+    for (const [col, id, data] of systemDocs) {
+      try {
+        const dRef = db.collection(col).doc(id);
+        const dSnap = await dRef.get().catch(() => null);
+        if (dSnap && docExists(dSnap)) { mark('koleksi ' + col, true, 'sudah ada'); continue; }
+        await dRef.set(data);
+        mark('koleksi ' + col + ' dibuat', true, 'dokumen penanda ' + id);
+      } catch (e) {
+        mark('koleksi ' + col, false, why(e, col + ' (create)'));
+      }
+    }
+    // fcm_tokens: satu dokumen untuk akun developer (token kosong, akan ditimpa saat login)
+    try {
+      const fRef = db.collection('fcm_tokens').doc(user.uid);
+      const fSnap = await fRef.get().catch(() => null);
+      if (fSnap && docExists(fSnap)) mark('koleksi fcm_tokens', true, 'sudah ada');
+      else { await fRef.set({ uid: user.uid, token: '', platform: 'seed', updatedAt: now }); mark('koleksi fcm_tokens dibuat', true); }
+    } catch (e) { mark('koleksi fcm_tokens', false, why(e, 'fcm_tokens (create)')); }
+    log('Koleksi mail TIDAK diisi sengaja — dokumen di sana memicu email sungguhan (extension Trigger Email).', 'warn');
 
     log('Selesai. ' + results.filter((r) => r.ok).length + '/' + results.length + ' langkah berhasil.', results.every((r) => r.ok) ? 'ok' : 'warn');
     if (results.every((r) => r.ok)) {
