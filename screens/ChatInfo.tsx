@@ -25,7 +25,10 @@ import {
   setDisappearing,
   setPostPolicy,
   regenerateInvite,
+  chatVerified,
+  createOrder,
 } from '../lib/store';
+import { productOf, rupiah } from '../lib/products';
 import { ago } from '../lib/format';
 import { placeCall } from './tabs/CallsTab';
 import { pickGallery, uploadMedia } from '../lib/media';
@@ -120,6 +123,43 @@ export default function ChatInfo() {
                   {peer.email}
                 </T>
               )}
+            </View>
+          </Card>
+        )}
+
+        {/* centang biru grup/saluran — status + pembelian (kadaluarsa otomatis) */}
+        {(chat.type === 'group' || chat.type === 'channel') && (
+          <Card title="Centang biru">
+            <View style={{ padding: 12, gap: 10 }}>
+              {chatVerified(chat) ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Ionicons name="checkmark-circle" size={18} color={t.accent} />
+                  <T v="sub" style={{ flex: 1, fontWeight: '700', color: t.accent }}>
+                    {chat.type === 'channel' ? 'Saluran' : 'Grup'} ini terverifikasi
+                    {(chat.verifiedUntil ?? 0) > Date.now() ? ` — masa aktif ${Math.ceil(((chat.verifiedUntil ?? 0) - Date.now()) / 86400000)} hari lagi` : ' — permanen'}
+                  </T>
+                </View>
+              ) : (
+                <T v="sub">Tandai {chat.type === 'channel' ? 'saluran' : 'grup'} ini sebagai resmi dengan centang biru — muncul di nama, daftar chat, dan info.</T>
+              )}
+              {isAdmin && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {productOf('bluecheck').plans.map((pl, i) => (
+                    <Btn
+                      key={pl.label}
+                      small
+                      variant="primary"
+                      icon="checkmark-circle"
+                      title={`${pl.label} · ${rupiah(pl.price)}`}
+                      onPress={() => {
+                        createOrder('bluecheck', i, 'qris', { id: chat.id, name: chat.name });
+                        pushBanner({ title: 'Pesanan dikirim', body: `Centang biru untuk "${chat.name}" menunggu konfirmasi admin.`, icon: 'checkmark-circle' });
+                      }}
+                    />
+                  ))}
+                </View>
+              )}
+              {!chatVerified(chat) && <T v="caption" color={t.faint}>Centang aktif setelah admin mengonfirmasi pembayaran. Jika masa aktif habis, centang hilang otomatis.</T>}
             </View>
           </Card>
         )}

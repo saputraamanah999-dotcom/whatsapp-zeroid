@@ -2,9 +2,10 @@ import React from 'react';
 import { View, Pressable, ActivityIndicator } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { T, Avatar, Badge, UserBadges } from './ui';
+import { TypingDots } from './TypingDots';
 import { useTheme, R } from '../lib/theme';
 import { Chat, DB, User } from '../lib/types';
-import { chatTitle, chatPeer, lastMessage, messagePreview, unreadCount, isOnline, canSee, typingUsers, messageStatus } from '../lib/store';
+import { chatTitle, chatPeer, lastMessage, messagePreview, unreadCount, isOnline, canSee, typingUsers, messageStatus, chatVerified } from '../lib/store';
 import { chatTime } from '../lib/format';
 
 export function Ticks({ status, color }: { status: 'sending' | 'failed' | 'sent' | 'delivered' | 'read'; color?: string }) {
@@ -43,7 +44,7 @@ export default function ChatRow({ chat, me, db, onPress, onLongPress }: { chat: 
           <T v="h3" numberOfLines={1} style={{ flexShrink: 1, fontSize: 16 }}>
             {title}
           </T>
-          {chat.type === 'direct' ? <UserBadges user={peer} /> : (chat.verified || chat.type === 'ai') && <Ionicons name="checkmark-circle" size={15} color={t.accent} />}
+          {chat.type === 'direct' ? <UserBadges user={peer} /> : (chatVerified(chat) || chat.type === 'ai') && <Ionicons name="checkmark-circle" size={15} color={t.accent} />}
           <View style={{ flex: 1 }} />
           <T v="caption" color={unread ? t.accent : t.faint}>
             {last ? chatTime(last.createdAt) : ''}
@@ -51,9 +52,7 @@ export default function ChatRow({ chat, me, db, onPress, onLongPress }: { chat: 
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           {typing.length ? (
-            <T v="sub" color={t.accent} numberOfLines={1} style={{ flex: 1, fontStyle: 'italic' }}>
-              {isGroupish ? `${db.users[typing[0]]?.name.split(' ')[0]} mengetik…` : 'mengetik…'}
-            </T>
+            <TypingDots size={5} showText text={isGroupish ? `${db.users[typing[0]]?.name.split(' ')[0]} sedang mengetik…` : 'sedang mengetik…'} />
           ) : (
             <>
               {last && last.senderId === me.id && last.type !== 'system' && last.type !== 'call' && !last.deletedForAll && <Ticks status={messageStatus(last, chat, me.id)} />}

@@ -17,6 +17,7 @@ import { Icon } from '../lib/icons';
 import { useTheme, font, R } from '../lib/theme';
 import { Message, DB, User } from '../lib/types';
 import { messagePreview, sendMessage, editMessage, setTyping, clearTyping, retryMessage, OutMsg, stickersFor, createSticker } from '../lib/store';
+import { bratSticker } from '../lib/supabase';
 import { ensurePermission } from '../lib/permissions';
 import { pickCamera, pickDocument, pickGallery, pickMultipleImages, uploadMedia, Picked, PreparedMedia, prepareForSend, MediaError } from '../lib/media';
 import { duration as fmt } from '../lib/format';
@@ -65,6 +66,10 @@ export default function Composer({
   const [contactOpen, setContactOpen] = useState(false);
   const [cName, setCName] = useState('');
   const [cPhone, setCPhone] = useState('');
+  const [bratMode, setBratMode] = useState(false);
+  const [bratText, setBratText] = useState('');
+  const [bratUrl, setBratUrl] = useState<string | null>(null);
+  const [bratBusy, setBratBusy] = useState(false);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const inputRef = useRef<TextInput>(null);
@@ -469,41 +474,110 @@ export default function Composer({
           />
         </View>
         <View style={{ gap: 12 }}>
-          <Btn
-            small
-            variant="neu"
-            icon="add-circle"
-            title="Buat stiker dari foto"
-            onPress={async () => {
-              const p = await pickGallery('images');
-              if (!p) return;
-              try {
-                setBusy(true);
-                const prepared = await prepareForSend(p, chatId);
-                const res = await prepared.upload!();
-                createSticker(res.url, me.role === 'admin' || !!me.developer);
-                pushBanner({ title: 'Stiker dibuat', body: 'Ketuk untuk mengirim', icon: 'sticker' });
-              } catch (e: any) {
-                pushBanner({ title: 'Gagal membuat stiker', body: e?.message ?? 'Coba lagi.', icon: 'alert' });
-              } finally {
-                setBusy(false);
-              }
-            }}
-          />
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
-            {[...stickersFor(me.id, db), ...DEFAULT_STICKERS].map((st: any) => (
-              <Pressable
-                key={st.id}
-                onPress={() => {
-                  send({ type: 'sticker', uri: st.uri });
-                  setPanel(null);
-                }}
-                style={({ pressed }) => ({ width: 76, height: 76, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? t.accentSoft : 'transparent' })}
-              >
-                <Image source={{ uri: st.uri }} style={{ width: 64, height: 64 }} contentFit="contain" />
-              </Pressable>
-            ))}
-          </View>
+          {/* ======== STIKER BRAT — ketik teks → stiker muncul → favorit → kirim ======== */}
+          {!bratMode ? (
+            <Btn small variant="neu" icon="text" title="Stiker Brat dari teks" onPress={() => (setBratMode(true), setBratUrl(null))} />
+          ) : (
+            <View style={{ gap: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <TextInput
+                  value={bratText}
+                  onChangeText={setBratText}
+                  placeholder="Ketik teks stiker Brat…"
+                  placeholderTextColor={t.faint}
+                  maxLength={90}
+                  style={{ flex: 1, minHeight: 40, borderRadius: R.md, paddingHorizontal: 12, paddingVertical: 8, color: t.text, backgroundColor: t.bg2, fontSize: 14 }}
+                />
+                <Btn
+                  small
+                  icon="sparkles"
+                  title="Buat"
+                  loading={bratBusy}
+                  disabled={!bratText.trim()}
+                  onPress={async () => {
+                    setBratBusy(true);
+                    try {
+                      const r = await bratSticker(bratText.trim());
+                      setBratUrl(r.url ?? r.dataUrl ?? null);
+                    } catch (e: any) {
+                      pushBanner({ title: 'Stiker Brat gagal', body: String(e?.message ?? 'Coba lagi.').slice(0, 140), icon: 'alert' });
+                    } finally {
+                      setBratBusy(false);
+                    }
+                  }}
+                />
+              </View>
+              {!!bratUrl && (
+                <View style={{ alignItems: 'center', gap: 10 }}>
+                  <Image source={{ uri: bratUrl }} style={{ width: 150, height: 150, borderRadius: 14, backgroundColor: t.bg2 }} contentFit="contain" />
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <Btn
+                      small
+                      icon="star"
+                      title="Tambah ke favorit"
+                      onPress={() => {
+                        const s = createSticker(bratUrl);
+                        if (s) pushBanner({ title: 'Masuk favorit', body: 'Ketuk stiker di bawah untuk mengirim.', icon: 'star' });
+                      }}
+                    />
+                    <Btn
+                      small
+                      variant="primary"
+                      icon="send"
+                      title="Kirim"
+                      onPress={() => {
+                        send({ type: 'sticker', uri: bratUrl });
+                        setPanel(null);
+                        setBratMode(false);
+                        setBratUrl(null);
+                        setBratText('');
+                      }}
+                    />
+                  </View>
+                </View>
+              )}
+              <Btn small variant="ghost" title="Tutup Brat" onPress={() => (setBratMode(false), setBratUrl(null))} />
+            </View>
+          )}
+          {!bratMode && (
+            <Btn
+              small
+              variant="neu"
+              icon="add-circle"
+              title="Buat stiker dari foto"
+              onPress={async () => {
+                const p = await pickGallery('images');
+                if (!p) return;
+                try {
+                  setBusy(true);
+                  const prepared = await prepareForSend(p, chatId);
+                  const res = await prepared.upload!();
+                  createSticker(res.url, me.role === 'admin' || !!me.developer);
+                  pushBanner({ title: 'Stiker dibuat', body: 'Ketuk untuk mengirim', icon: 'sticker' });
+                } catch (e: any) {
+                  pushBanner({ title: 'Gagal membuat stiker', body: e?.message ?? 'Coba lagi.', icon: 'alert' });
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            />
+          )}
+          {!bratMode && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
+              {[...stickersFor(me.id, db), ...DEFAULT_STICKERS].map((st: any) => (
+                <Pressable
+                  key={st.id}
+                  onPress={() => {
+                    send({ type: 'sticker', uri: st.uri });
+                    setPanel(null);
+                  }}
+                  style={({ pressed }) => ({ width: 76, height: 76, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: pressed ? t.accentSoft : 'transparent' })}
+                >
+                  <Image source={{ uri: st.uri }} style={{ width: 64, height: 64 }} contentFit="contain" />
+                </Pressable>
+              ))}
+            </View>
+          )}
         </View>
       </Sheet>
     </View>

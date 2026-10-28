@@ -20,6 +20,7 @@
  * request bodies max ~4.5 MB → base64 payload capped at 3.2 MB decoded).
  */
 import crypto from 'node:crypto';
+import { supabaseEnv, upStorage, logMedia } from './_supabase';
 
 export const config = { runtime: 'nodejs' };
 export const maxDuration = 60;
@@ -126,6 +127,19 @@ const safeName = (n: string) => n.replace(/[^\w.\-() ]/g, '_').replace(/\.{2,}/g
 
 // ---------------- providers ----------------
 
+/**
+ * Supabase Storage — PERMANEN (milik project sendiri). Prioritas pertama untuk
+ * video/audio/dokumen; gambar tetap coba ImgBB dulu (CDN cepat), lalu Supabase.
+ */
+async function upSupabase(buf: Buffer, name: string, mime: string, kind: string, uid: string): Promise<{ url: string } | null> {
+  const env = supabaseEnv();
+  if (!env) return null;
+  const up = await upStorage(env, buf, mime, name, `${kind}/${uid}`);
+  if (!up) return null;
+  void logMedia(env, { kind, url: up.url, path: up.path, mime, size: buf.length, owner: uid, created_at: new Date().toISOString() });
+  return { url: up.url };
+}
+
 async function upImgbb(buf: Buffer, mime: string): Promise<{ url: string } | null> {
   const key = process.env.IMGBB_KEY ?? '';
   if (!key || !mime.startsWith('image/')) return null;
@@ -210,7 +224,10 @@ export default async function handler(req: any, res: any) {
   }
 
   const tries: Array<() => Promise<{ url: string; expiresAt?: number } | null>> = [
-    () => upImgbb(buf, mime),
+    // gambar: ImgBB dulu (CDN + permanen) → Supabase Storage (permanen) → host sementara.
+    // video/audio/dokumen: Supabase Storage dulu (permanen!) → host sementara.
+    () => (mime.startsWith('image/') ? upImgbb(buf, mime) : Promise.resolve(null)),
+    () => upSupabase(buf, name, mime, mime.startsWith('image/') ? 'images' : 'files', uid),
     () => upX0(buf, name, mime),
     () => upUguu(buf, name, mime),
     () => upTmpfiles(buf, name, mime),

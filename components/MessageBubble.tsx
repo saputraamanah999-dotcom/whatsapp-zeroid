@@ -95,7 +95,7 @@ export default function MessageBubble({
             </T>
           )}
           <Pressable onLongPress={onLongPress} delayLongPress={300}>
-            {m.uri ? <Image source={{ uri: m.uri }} style={{ width: 140, height: 140 }} contentFit="contain" transition={150} /> : null}
+            {m.uri ? <Image source={{ uri: m.uri }} style={{ width: 120, height: 120 }} contentFit="contain" transition={150} /> : null}
           </Pressable>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, backgroundColor: t.bg, boxShadow: t.raisedSm } as any}>
             <T v="caption" style={{ fontSize: 11 }}>

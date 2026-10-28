@@ -24,6 +24,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { firebase, firebaseConfig } from './firebase';
 import { proxyUrl } from './proxy';
 import { ensurePermission } from './permissions';
+import { uploadDirect as sbUploadDirect, isSupabaseConfigured } from './supabase';
 
 export type Picked = { type: 'image' | 'video' | 'audio' | 'document'; uri: string; name?: string; size?: number; duration?: number; mime?: string; width?: number; height?: number };
 
@@ -209,8 +210,10 @@ function xhrForm(url: string, form: FormData, onProgress?: ProgressFn, ms = 6000
 }
 
 /**
- * Upload a BIG file directly from the client (web browser or APK) to a
- * CORS-open host — no serverless body cap, no API key on the client:
+ * Upload a BIG file directly from the client (web browser or APK) — no
+ * serverless body cap, no API key on the client:
+ *   0. Supabase Storage (milik project sendiri) — PERMANEN, tidak kadaluarsa
+ *      ← utama; media tidak akan pernah "hilang" lagi
  *   1. litterbox.catbox.moe — 200 MB, 72 h retention   [CORS verified]
  *   2. tmpfiles.org — 100 MB, 1 h retention            [CORS verified]
  * The returned expiresAt is honest and stored with the message.
@@ -218,6 +221,11 @@ function xhrForm(url: string, form: FormData, onProgress?: ProgressFn, ms = 6000
 export async function uploadMediaDirect(input: Blob | string, name: string, mime: string, onProgress?: ProgressFn): Promise<UploadResult> {
   const blob = await toBlob(input);
   if (!blob.size) throw new MediaError('File kosong.');
+  // 0) Supabase Storage — PERMANEN (prioritas utama bila env Supabase terpasang)
+  if (isSupabaseConfigured) {
+    const sb = await sbUploadDirect(blob, name, mime, onProgress);
+    if (sb) return { url: sb.url, path: sb.path, mime, size: blob.size, provider: 'supabase-storage' };
+  }
   // 1) litterbox — 72 h retention (best for videos)
   try {
     const fd = new FormData();

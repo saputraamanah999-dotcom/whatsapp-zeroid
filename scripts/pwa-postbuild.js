@@ -38,13 +38,30 @@ if (!html.includes('manifest.webmanifest')) {
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/png" href="/favicon-32.png" />
     <script>
-      if ('serviceWorker' in navigator) {
+      (function () {
+        if (!('serviceWorker' in navigator)) return;
         window.addEventListener('load', function () {
-          navigator.serviceWorker.register('/sw.js').catch(function (e) {
-            console.warn('SW registration failed', e);
+          navigator.serviceWorker.register('/sw.js').then(function (reg) {
+            // Deteksi SW baru → aktifkan segera → reload sekali agar user selalu
+            // melihat versi terbaru setelah deploy (tidak ada lagi "web masih lama").
+            reg.addEventListener('updatefound', function () {
+              var nw = reg.installing;
+              if (!nw) return;
+              nw.addEventListener('statechange', function () {
+                if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+                  nw.postMessage('SKIP_WAITING');
+                }
+              });
+            });
+          }).catch(function (e) { console.warn('SW registration failed', e); });
+          var reloading = false;
+          navigator.serviceWorker.addEventListener('controllerchange', function () {
+            if (reloading) return;
+            reloading = true;
+            setTimeout(function () { window.location.reload(); }, 150);
           });
         });
-      }
+      })();
     </script>`;
   html = html.replace('</head>', `${meta}\n  </head>`);
   fs.writeFileSync(index, html);

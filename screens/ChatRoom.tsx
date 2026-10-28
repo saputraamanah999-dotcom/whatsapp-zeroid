@@ -8,6 +8,9 @@ import { Header, Screen, IconBtn, Avatar, T, Btn, Empty, Toggle } from '../compo
 import MessageBubble from '../components/MessageBubble';
 import Composer from '../components/Composer';
 import { Sheet } from '../components/Sheet';
+import { TypingDots, TypingSubtitle } from '../components/TypingDots';
+import { VerifiedBadge } from '../lib/icons';
+import ChatBannedScreen from './ChatBannedScreen';
 import { useTheme, R } from '../lib/theme';
 import { AI_PROVIDERS, listAIModels } from '../lib/ai';
 import {
@@ -29,6 +32,9 @@ import {
   isMember,
   lastMessage,
   createSticker,
+  chatBannedNow,
+  chatVerified,
+  isFullAdmin,
   subscribeMessages,
   unsubscribeMessages,
   loadOlder,
@@ -114,6 +120,11 @@ export default function ChatRoom() {
       </Screen>
     );
   }
+  // GRUP/SALURAN DIBANNED → layar tinjauan penuh (alasan + banding), bukan banner.
+  // Admin/developer tetap masuk normal untuk moderasi.
+  if (chatBannedNow(chat) && !isFullAdmin(me)) {
+    return <ChatBannedScreen chat={chat} onBack={() => (nav.canGoBack() ? nav.goBack() : nav.navigate('Main'))} />;
+  }
 
   const peer = chatPeer(chat, me.id, db);
   const title = chatTitle(chat, me.id, db);
@@ -153,6 +164,7 @@ export default function ChatRoom() {
       <Header
         title={title}
         subtitle={subtitle}
+        subtitleNode={typing.length ? <TypingSubtitle name={chat.type === 'direct' || chat.type === 'ai' ? undefined : db.users[typing[0]]?.name.split(' ')[0]} /> : undefined}
         onTitlePress={() => nav.navigate('ChatInfo', { chatId })}
         left={
           <Pressable onPress={() => (chat.type === 'direct' && peer ? nav.navigate('UserProfile', { userId: peer.id }) : nav.navigate('ChatInfo', { chatId }))}>
@@ -200,6 +212,16 @@ export default function ChatRoom() {
           </T>
         </View>
       )}
+      {/* centang biru GRUP/SALURAN: bar pengaman di atas chat, dengan sisa masa aktif */}
+      {chat.type !== 'direct' && chat.type !== 'ai' && chatVerified(chat) && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginBottom: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: R.md, backgroundColor: 'rgba(30,107,255,0.10)', borderWidth: 1, borderColor: 'rgba(30,107,255,0.25)' }}>
+          <VerifiedBadge size={15} />
+          <T v="caption" color={t.accent} style={{ flex: 1, fontWeight: '700' }}>
+            {title} terverifikasi centang biru{chat.type === 'channel' ? ' — saluran resmi, aman diikuti' : ' — grup resmi, aman untuk chat'}
+            {(chat.verifiedUntil ?? 0) > Date.now() ? ` (masa aktif ${Math.ceil(((chat.verifiedUntil ?? 0) - Date.now()) / 86400000)} hari lagi)` : ''}.
+          </T>
+        </View>
+      )}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
         <View style={{ flex: 1, marginHorizontal: 8, borderRadius: R.xl, backgroundColor: t.bg, boxShadow: t.inset, overflow: 'hidden' } as any}>
           <FlatList
@@ -212,10 +234,11 @@ export default function ChatRoom() {
             ListHeaderComponent={
               typing.length ? (
                 <View style={{ paddingHorizontal: 14, paddingVertical: 4, alignItems: 'flex-start' }}>
-                  <View style={{ flexDirection: 'row', gap: 4, padding: 12, borderRadius: 18, backgroundColor: t.bubbleOther, boxShadow: t.raisedSm } as any}>
-                    {[0, 1, 2].map((i) => (
-                      <View key={i} style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: t.faint, opacity: 0.5 + i * 0.2 }} />
-                    ))}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 18, backgroundColor: t.bubbleOther, boxShadow: t.raisedSm } as any}>
+                    <TypingDots size={7} />
+                    <T v="caption" color={t.sub} style={{ fontStyle: 'italic' }}>
+                      {chat.type === 'direct' || chat.type === 'ai' ? 'sedang mengetik…' : `${db.users[typing[0]]?.name.split(' ')[0]} sedang mengetik…`}
+                    </T>
                   </View>
                 </View>
               ) : null

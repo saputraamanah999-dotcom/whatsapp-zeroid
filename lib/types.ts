@@ -61,6 +61,17 @@ export type User = {
 
 export type ChatType = 'direct' | 'group' | 'channel' | 'global' | 'bot' | 'ai';
 
+/** Banding untuk grup/saluran yang dibanned (ala WhatsApp: tulis masalahmu) */
+export type ChatAppeal = {
+  message: string;
+  by: string;
+  byName?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: number;
+  decidedAt?: number;
+  adminNote?: string;
+};
+
 export type Chat = {
   id: string;
   type: ChatType;
@@ -78,6 +89,14 @@ export type Chat = {
   mutedBy: string[];
   archivedBy: string[];
   verified?: boolean;
+  /** centang biru berjangka waktu — epoch ms; abis waktu → centang hilang otomatis */
+  verifiedUntil?: number;
+  /** ban grup/saluran oleh admin: anggota tidak bisa kirim, tampil screen tinjauan */
+  banned?: boolean;
+  banReason?: string;
+  /** 0 = permanen */
+  banUntil?: number;
+  banAppeal?: ChatAppeal;
   /** only admins can post (channels) */
   postPolicy?: 'everyone' | 'admins';
   /** denormalised last message for chat-list previews (written on send) */
@@ -107,6 +126,9 @@ export type Order = {
   status: 'pending' | 'paid' | 'rejected';
   method: string;
   chatId: string;
+  /** order centang biru untuk grup/saluran (bukan akun pribadi) */
+  forChatId?: string;
+  forChatName?: string;
   createdAt: number;
   decidedAt?: number;
 };

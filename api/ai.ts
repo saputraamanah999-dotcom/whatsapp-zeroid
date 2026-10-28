@@ -18,6 +18,8 @@ export const config = { runtime: 'nodejs' };
 // request while the upstream AI is still thinking, producing confusing 504s.
 export const maxDuration = 60;
 
+import { sylvaticaAI } from './sylvatica';
+
 const JEREXD_BASE = 'https://api.jerexd.my.id';
 
 /**
@@ -209,12 +211,18 @@ export default async function handler(req: any, res: any) {
       // inside maxDuration (60s)
       const t0 = Date.now();
       let r = await jerePost('/api/ai/aichat', { prompt: prompt.slice(0, 3600), model: s(body?.model, 60) || 'gpt', session_id: `zw_${Math.random().toString(36).slice(2, 10)}` }, 50000);
-      if (!r.ok && (r.status === 500 || r.status === 502) && Date.now() - t0 < 20000) {
+      if (!r.ok && (r.status === 500 || r.status === 502 || r.status === 429) && Date.now() - t0 < 20000) {
         await sleep(1200);
         r = await jerePost('/api/ai/aichat', { prompt: prompt.slice(0, 3600), model: s(body?.model, 60) || 'gpt', session_id: `zw_${Math.random().toString(36).slice(2, 10)}` }, Math.max(8000, 57000 - (Date.now() - t0)));
       }
+      let text = r.ok ? pickText(r.data) : '';
+      // FALLBACK: Jerexd limit / gagal → Sylvatica AI (chatgpt). Persona tetap dipakai
+      // sehingga jawaban fallback tetap konsisten sebagai Zeroid AI.
+      if (!r.ok || !text) {
+        const fb = await sylvaticaAI(prompt.slice(0, 3000), Math.max(8000, 55000 - (Date.now() - t0)));
+        if (fb) return res.status(200).json({ ok: true, text: sanitizeIdentity(fb).slice(0, 8000), provider: 'sylvatica' });
+      }
       if (!r.ok) return bad(res, 502, `Layanan AI gagal: ${String(r.data?.error ?? r.data?.message ?? `HTTP ${r.status}`).slice(0, 160)}`);
-      const text = pickText(r.data);
       if (!text) return bad(res, 502, 'Respons AI tidak dapat dibaca.');
       return res.status(200).json({ ok: true, text: sanitizeIdentity(text).slice(0, 8000) });
     }
@@ -236,6 +244,11 @@ export default async function handler(req: any, res: any) {
       if (r.ok && !text) {
         r = await jerePost('/api/ai/deepseek', { prompt: sys, thinking: false, search: !!body?.search, chatId: sessionId }, 15000);
         text = pickText(r.data);
+      }
+      // FALLBACK thinking: JERE gagal → Sylvatica (tanpa chain-of-thought, tetap menjawab)
+      if (!r.ok || !text) {
+        const fb = await sylvaticaAI(sys.slice(0, 3000), 30000);
+        if (fb) return res.status(200).json({ ok: true, text: sanitizeIdentity(fb).slice(0, 12000), provider: 'sylvatica' });
       }
       if (!r.ok) return bad(res, 502, `Layanan AI gagal: ${String(r.data?.error ?? r.data?.message ?? `HTTP ${r.status}`).slice(0, 160)}`);
       if (!text) return bad(res, 502, 'Respons AI tidak dapat dibaca.');

@@ -247,7 +247,7 @@ export function Avatar({ uri, name, size = 48, color, online, ring, icon }: { ur
 }
 
 // ---------- Header ----------
-export function Header({ title, subtitle, back = true, right, onTitlePress, left, large }: { title: string; subtitle?: string; back?: boolean; right?: ReactNode; onTitlePress?: () => void; left?: ReactNode; large?: boolean }) {
+export function Header({ title, subtitle, subtitleNode, back = true, right, onTitlePress, left, large }: { title: string; subtitle?: string; subtitleNode?: ReactNode; back?: boolean; right?: ReactNode; onTitlePress?: () => void; left?: ReactNode; large?: boolean }) {
   const t = useTheme();
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
@@ -259,10 +259,14 @@ export function Header({ title, subtitle, back = true, right, onTitlePress, left
         <T v={large ? 'h1' : 'h3'} numberOfLines={1} style={large ? undefined : { fontSize: 18 }}>
           {title}
         </T>
-        {!!subtitle && (
-          <T v="caption" numberOfLines={1} color={subtitle.includes('mengetik') || subtitle === 'online' ? t.accent : t.sub}>
-            {subtitle}
-          </T>
+        {subtitleNode ? (
+          subtitleNode
+        ) : (
+          !!subtitle && (
+            <T v="caption" numberOfLines={1} color={subtitle.includes('mengetik') || subtitle === 'online' ? t.accent : t.sub}>
+              {subtitle}
+            </T>
+          )
         )}
       </Pressable>
       {right}

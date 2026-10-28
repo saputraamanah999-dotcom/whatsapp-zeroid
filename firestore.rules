@@ -5,7 +5,7 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function me() { return request.auth.uid; }
 
-    // ---- DEFENSIVE HELPERS (v4) ----
+    // ---- DEFENSIVE HELPERS (v5: + ban grup/saluran & banding) ----
     // Selama ini error "Missing or insufficient permissions" muncul karena rules
     // membaca field yang BELUM ADA di dokumen (banned, blocked, members, type…).
     // Di security rules, membaca key yang tidak ada = ERROR = rule otomatis MENOLAK.
@@ -36,6 +36,14 @@ service cloud.firestore {
         (chatType(chatId) == 'global' || chatType(chatId) == 'channel' || chatType(chatId) == 'ai' || me() in chatMembers(chatId));
     }
     function isChatAdmin(chatId) { return signedIn() && chatExists(chatId) && me() in chat(chatId).get('admins', []); }
+
+    // grup/saluran sedang dibanned admin? (banned=true permanen ATAU banUntil masa depan)
+    function chatBanned(chatId) {
+      return chatExists(chatId) && (
+        chat(chatId).get('banned', false) == true
+        || chat(chatId).get('banUntil', 0) > request.time.toMillis()
+      );
+    }
 
     // Which user fields a normal user may touch on their own profile.
     function selfProfileUpdate() {
@@ -124,6 +132,9 @@ service cloud.firestore {
       allow update: if isAdmin()
                     || (isMemberOf(chatId) && isChatAdmin(chatId) && notBanned() && adminChatUpdate())
                     || (isMemberOf(chatId) && notBanned() && memberChatUpdate())
+                    // banding ban grup/saluran: anggota hanya boleh menulis field banAppeal
+                    || (isMemberOf(chatId) && notBanned() && chatBanned(chatId)
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['banAppeal']))
                     || (signedIn() && !(me() in resource.data.get('members', []))
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
                         && request.resource.data.get('members', []).hasAll(resource.data.get('members', []))
@@ -141,6 +152,7 @@ service cloud.firestore {
                       && request.resource.data.get('senderId', '') == me()
                       && isMemberOf(chatId)
                       && !peerBlocked(chatId)
+                      && (!chatBanned(chatId) || isAdmin()) // grup/saluran dibanned → hanya admin bisa mengirim
                       && (chatType(chatId) != 'channel' || isChatAdmin(chatId) || chat(chatId).get('postPolicy', 'everyone') == 'everyone' || isAdmin());
         allow update: if isAdmin()
                       || (isMemberOf(chatId) && notBanned() && memberMsgUpdate())

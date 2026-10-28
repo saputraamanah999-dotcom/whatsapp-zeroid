@@ -13,11 +13,15 @@ import {
   useStore, adminBan, adminUnban, adminSetRole, adminVerify, adminBroadcast, adminEndAnnouncement, adminResolveReport,
   adminDeleteStory, adminToggleBlueCheck, adminDecideOrder, adminSetVip, adminToggleMaintenance, sendOtp, confirmOtp,
   isOnline, activeStories, messagePreview, backendMode, adminDecideAppeal, bannedNow, banRemaining,
+  adminBanChat, adminUnbanChat, adminDecideChatAppeal, adminVerifyChat, adminUnverifyChat,
+  chatBannedNow, chatBanRemaining, chatVerified,
 } from '../lib/store';
+import { firebase, firebaseConfig } from '../lib/firebase';
+import { proxyPost } from '../lib/proxy';
 import { ago } from '../lib/format';
 import { pushBanner } from '../lib/bus';
 
-type Tab = 'overview' | 'users' | 'orders' | 'reports' | 'appeals' | 'content' | 'system';
+type Tab = 'overview' | 'users' | 'chats' | 'orders' | 'reports' | 'appeals' | 'content' | 'system';
 
 /** pilihan durasi ban (jam/hari) — 0 = permanen */
 const BAN_DURATIONS: { label: string; ms: number }[] = [
@@ -51,6 +55,13 @@ export default function AdminScreen() {
   const [annPopup, setAnnPopup] = useState(true);
   const [annDays, setAnnDays] = useState('3');
   const [maintMsg, setMaintMsg] = useState('');
+  const [askBanChat, setAskBanChat] = useState<string | null>(null);
+  const [chatBanReason, setChatBanReason] = useState('');
+  const [chatBanMs, setChatBanMs] = useState<number>(86400_000);
+  const [askVerifyChat, setAskVerifyChat] = useState<string | null>(null);
+  const [verifyDays, setVerifyDays] = useState(30);
+  const [seedMsg, setSeedMsg] = useState('');
+  const [seedBusy, setSeedBusy] = useState(false);
 
   const stats = useMemo(() => {
     const users = Object.values(db.users);
@@ -91,6 +102,24 @@ export default function AdminScreen() {
   const pendingOrders = db.orders.filter((o) => o.status === 'pending').length;
   const openReports = db.reports.filter((r) => !r.resolved).length;
   const openAppeals = db.appeals.filter((a) => a.status === 'pending').length;
+  const chatTargets = Object.values(db.chats).filter((c) => c.type === 'group' || c.type === 'channel' || c.type === 'global');
+  const chatBannedCount = chatTargets.filter((c) => chatBannedNow(c)).length;
+  const pendingChatAppeals = chatTargets.filter((c) => c.banAppeal?.status === 'pending');
+
+  const runSeedSupabase = async () => {
+    setSeedBusy(true);
+    setSeedMsg('');
+    try {
+      const token = await firebase()?.auth.currentUser?.getIdToken();
+      if (!token) throw new Error('Belum masuk — login ulang sebagai admin.');
+      const r = await proxyPost<{ ok: boolean; message?: string; error?: string }>('/api/supabase-seed', { token }, 60000);
+      setSeedMsg(r.ok ? `✅ ${r.message ?? 'Seed selesai.'}` : `❌ ${r.error ?? 'Seed gagal.'}`);
+    } catch (e: any) {
+      setSeedMsg(`❌ ${String(e?.message ?? 'Gagal menghubungi server.').slice(0, 160)}`);
+    } finally {
+      setSeedBusy(false);
+    }
+  };
 
   const Stat = ({ icon, label, value, color }: { icon: React.ComponentProps<typeof Ionicons>['name']; label: string; value: number; color: string }) => (
     <Neu radius={R.lg} style={{ flexBasis: '47%', flexGrow: 1, padding: 16, gap: 10 }}>
@@ -112,6 +141,7 @@ export default function AdminScreen() {
           options={[
             { value: 'overview', label: 'Info' },
             { value: 'users', label: 'User' },
+            { value: 'chats', label: `Grup${chatBannedCount ? ` ${chatBannedCount}` : ''}` },
             { value: 'orders', label: `Order${pendingOrders ? ` ${pendingOrders}` : ''}` },
             { value: 'reports', label: `Lapor${openReports ? ` ${openReports}` : ''}` },
             { value: 'appeals', label: `Banding${openAppeals ? ` ${openAppeals}` : ''}` },
@@ -223,6 +253,68 @@ export default function AdminScreen() {
                 )}
               </Neu>
             ))}
+          </>
+        )}
+
+        {tab === 'chats' && (
+          <>
+            {/* banding grup yang menunggu tinjauan */}
+            {pendingChatAppeals.length > 0 && (
+              <Card title={`Banding grup/saluran menunggu · ${pendingChatAppeals.length}`}>
+                {pendingChatAppeals.map((c) => (
+                  <Neu key={c.id} inset radius={R.md} style={{ padding: 12, marginTop: 10, gap: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="mail-open" size={15} color={t.warning} />
+                      <T v="h3" style={{ flex: 1, fontSize: 14 }}>{c.name ?? c.id}</T>
+                      <T v="caption">oleh {c.banAppeal?.byName ?? db.users[c.banAppeal?.by ?? '']?.name ?? '-'}</T>
+                    </View>
+                    <T v="body">{c.banAppeal?.message}</T>
+                    <View style={{ flexDirection: 'row', gap: 10 }}>
+                      <Btn small icon="checkmark" title="Setuju — buka ban" onPress={() => adminDecideChatAppeal(c.id, true)} style={{ flex: 1 }} />
+                      <Btn small variant="danger" title="Tolak" onPress={() => adminDecideChatAppeal(c.id, false)} style={{ flex: 1 }} />
+                    </View>
+                  </Neu>
+                ))}
+              </Card>
+            )}
+            <Card title={`Grup, saluran & global · ${chatTargets.length}`}>
+              {chatTargets.map((c) => {
+                const banned = chatBannedNow(c);
+                const verified = chatVerified(c);
+                return (
+                  <Neu key={c.id} radius={R.md} style={{ padding: 12, marginTop: 10, gap: 10 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <Avatar uri={c.avatar ?? null} name={c.name ?? c.id} size={40} color={c.color} />
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <T v="h3" numberOfLines={1} style={{ flexShrink: 1, fontSize: 15 }}>{c.name ?? c.id}</T>
+                          {verified && <Ionicons name="checkmark-circle" size={14} color={t.accent} />}
+                        </View>
+                        <T v="caption" numberOfLines={1}>
+                          {c.type} · {c.members.length} anggota
+                          {verified && (c.verifiedUntil ?? 0) > Date.now() ? ` · centang biru ${Math.ceil(((c.verifiedUntil ?? 0) - Date.now()) / 86400000)}h lagi` : verified ? ' · centang biru permanen' : ''}
+                        </T>
+                      </View>
+                      {banned && (
+                        <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.danger }}>
+                          <T v="caption" color="#fff" style={{ fontSize: 10, fontWeight: '700' }}>BANNED</T>
+                        </View>
+                      )}
+                    </View>
+                    {banned && (
+                      <T v="caption" color={t.danger}>
+                        Dibanned{c.banReason ? ` — ${c.banReason}` : ''}{chatBanRemaining(c) > 0 ? ` · sisa ${Math.ceil(chatBanRemaining(c) / 3600000)} jam` : ' · permanen'}
+                      </T>
+                    )}
+                    <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                      <Btn small variant={banned ? 'primary' : 'danger'} icon={banned ? 'lock-open' : 'ban'} title={banned ? 'Buka ban' : 'Ban'} onPress={() => (banned ? adminUnbanChat(c.id) : (setAskBanChat(c.id), setChatBanReason(''), setChatBanMs(86400_000)))} style={{ height: 34 }} />
+                      <Btn small variant={verified ? 'neu' : 'primary'} icon="checkmark-circle" title={verified ? 'Atur centang' : 'Centang biru'} onPress={() => (setAskVerifyChat(c.id), setVerifyDays(30))} style={{ height: 34 }} />
+                      <Btn small variant="ghost" icon="chatbubbles" title="Buka" onPress={() => nav.navigate('ChatRoom', { chatId: c.id })} style={{ height: 34 }} />
+                    </View>
+                  </Neu>
+                );
+              })}
+            </Card>
           </>
         )}
 
@@ -363,6 +455,14 @@ export default function AdminScreen() {
               {me.developer && <Row icon="pulse" title="Status layanan & API" subtitle="Diagnostik Firebase, WebRTC, proxy AI" onPress={() => nav.navigate('ApiStatus')} />}
               <Row icon="shield-checkmark" title="Audit log" subtitle={`${db.audit.length} tindakan moderasi tercatat — ketuk untuk semua`} onPress={() => nav.navigate('Audit')} chevron />
             </Card>
+            <Card title="Supabase (media permanen & database)">
+              <View style={{ padding: 10, gap: 12 }}>
+                <T v="sub">Buat tabel (zeroid_media, zeroid_stickers, zeroid_bans) + bucket Storage `zeroid` secara OTOMATIS di Supabase. Jalankan sekali setelah env Supabase terpasang di Vercel — aman diulang kapan saja.</T>
+                <Btn small icon="cloud-upload" title={seedBusy ? 'Menjalankan seed…' : 'Seed Supabase sekarang'} loading={seedBusy} onPress={runSeedSupabase} />
+                {!!seedMsg && <T v="caption" style={{ lineHeight: 18 }}>{seedMsg}</T>}
+                <T v="caption" color={t.faint}>Panduan lengkap: docs/SUPABASE_SETUP.md di repo (env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, POSTGRES_URL_NON_POOLING).</T>
+              </View>
+            </Card>
             <Card title="Audit log terbaru">
               {db.audit.slice(0, 20).map((a) => (
                 <View key={a.id} style={{ paddingHorizontal: 14, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: t.border }}>
@@ -435,6 +535,58 @@ export default function AdminScreen() {
               />
             </>
           )}
+        </View>
+      </Sheet>
+
+      {/* Ban GRUP/SALURAN dialog — admin menulis pesan alasan + durasi */}
+      <Sheet visible={!!askBanChat} onClose={() => setAskBanChat(null)} title={askBanChat ? `Ban ${db.chats[askBanChat]?.type === 'channel' ? 'saluran' : 'grup'} · ${db.chats[askBanChat]?.name ?? ''}` : ''}>
+        <View style={{ gap: 12 }}>
+          <T v="sub">Anggota tidak bisa mengirim pesan dan akan melihat layar tinjauan berisi alasan ini + tombol banding. Admin tetap bisa masuk.</T>
+          <NeuInput placeholder="Alasan ban (dilihat anggota, mis. grup ini di ban karena spam berlebihan)" value={chatBanReason} onChangeText={setChatBanReason} maxLength={180} multiline />
+          <T v="label" style={{ fontWeight: '800' }}>Durasi</T>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
+            {BAN_DURATIONS.map((d) => {
+              const on = chatBanMs === d.ms;
+              return (
+                <Pressable key={d.label} onPress={() => setChatBanMs(d.ms)} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: on ? t.accent : t.bg2, borderWidth: 1, borderColor: on ? t.accent : t.border }}>
+                  <T v="caption" color={on ? '#fff' : t.sub} style={{ fontWeight: '800' }}>{d.label}</T>
+                </Pressable>
+              );
+            })}
+          </View>
+          <Btn
+            small
+            variant="danger"
+            icon="ban"
+            title={`Ban grup (${chatBanMs === 0 ? 'permanen' : BAN_DURATIONS.find((d) => d.ms === chatBanMs)?.label ?? 'custom'})`}
+            onPress={() => {
+              if (!askBanChat) return;
+              adminBanChat(askBanChat, chatBanReason.trim(), chatBanMs);
+              setAskBanChat(null);
+            }}
+          />
+        </View>
+      </Sheet>
+
+      {/* Centang biru GRUP/SALURAN — masa aktif (hari), kadaluarsa otomatis */}
+      <Sheet visible={!!askVerifyChat} onClose={() => setAskVerifyChat(null)} title={askVerifyChat ? `Centang biru · ${db.chats[askVerifyChat]?.name ?? ''}` : ''}>
+        <View style={{ gap: 12 }}>
+          <T v="sub">Pasang centang biru pada grup/saluran. Setelah masa aktif habis, centang hilang otomatis. Pilih 0 hari untuk permanen.</T>
+          <T v="label" style={{ fontWeight: '800' }}>Masa aktif</T>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
+            {[7, 30, 90, 180, 365, 0].map((d) => {
+              const on = verifyDays === d;
+              return (
+                <Pressable key={d} onPress={() => setVerifyDays(d)} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: on ? t.accent : t.bg2, borderWidth: 1, borderColor: on ? t.accent : t.border }}>
+                  <T v="caption" color={on ? '#fff' : t.sub} style={{ fontWeight: '800' }}>{d === 0 ? 'Permanen' : `${d} hari`}</T>
+                </Pressable>
+              );
+            })}
+          </View>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <Btn small icon="checkmark-circle" title="Pasang centang" onPress={() => { if (askVerifyChat) adminVerifyChat(askVerifyChat, verifyDays); setAskVerifyChat(null); }} style={{ flex: 1 }} />
+            <Btn small variant="neu" icon="close-circle" title="Cabut centang" onPress={() => { if (askVerifyChat) adminUnverifyChat(askVerifyChat); setAskVerifyChat(null); }} style={{ flex: 1 }} />
+          </View>
         </View>
       </Sheet>
 

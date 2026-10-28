@@ -1,13 +1,11 @@
 /*
- * Zeroid WhatsApp service worker.
- * - Precaches the offline shell only.
- * - Static build assets (/_expo/*, /assets/*, hashed files): stale-while-revalidate.
- * - Navigation requests: network-first with offline fallback.
- * - NEVER caches: /api/*, Firestore/Firebase traffic (already excluded since
- *   they are cross-origin XHR/fetch handled by the browser), or any private page
- *   data. Sensitive content is never stored in the SW cache.
+ * Zeroid WhatsApp service worker — v2.
+ * Perbaikan utama vs v1: setiap deploy baru MEMAKSA reload halaman terbuka
+ * (controllerchange → reload) sehingga user tidak pernah lagi melihat versi
+ * lama setelah Vercel selesai deploy. Static assets tetap stale-while-revalidate,
+ * navigasi selalu network-first (tidak pernah menyajikan shell lama).
  */
-const VERSION = 'zeroid-v1';
+const VERSION = 'zeroid-v2-media-permanen';
 const OFFLINE_URL = '/offline.html';
 const PRECACHE = [OFFLINE_URL, '/manifest.webmanifest', '/icon-192.png', '/icon-512.png'];
 
@@ -22,9 +20,15 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
+    // hapus SEMUA cache versi lama — v1 dan segala precache basi
     await Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k)));
     await self.clients.claim();
   })());
+});
+
+// Pesan dari halaman: "SKIP_WAITING" → aktifkan SW baru segera.
+self.addEventListener('message', (event) => {
+  if (event.data === 'SKIP_WAITING') self.skipWaiting();
 });
 
 const STATIC_RE = /\/(_expo|assets|_static)\//;
@@ -36,11 +40,11 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;   // Firebase, embeds, CDN: browser handles
   if (url.pathname.startsWith('/api/')) return;      // server proxy: never cached
 
-  // SPA navigations: network first, offline fallback
+  // SPA navigations: SELALU jaringan (no-store) — shell lama tidak pernah disajikan.
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
       try {
-        const fresh = await fetch(req);
+        const fresh = await fetch(req, { cache: 'no-store' });
         return fresh;
       } catch {
         const cache = await caches.open(VERSION);
@@ -50,7 +54,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // static assets: stale-while-revalidate
+  // static assets hashed: stale-while-revalidate
   if (STATIC_RE.test(url.pathname)) {
     event.respondWith((async () => {
       const cache = await caches.open(VERSION);

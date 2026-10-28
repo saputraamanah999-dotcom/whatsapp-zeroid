@@ -34,7 +34,7 @@ import {
 } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { AppNotification, Call, Chat, DB, Message, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav, Ban, Appeal } from './types';
+import { AppNotification, Call, Chat, ChatAppeal, DB, Message, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav, Ban, Appeal } from './types';
 import { productOf, rupiah, PAYMENT_METHODS } from './products';
 import { sendMail, otpEmailHtml } from './mail';
 import { uid, hash, isEmail, duration as fmtDur } from './format';
@@ -132,9 +132,28 @@ function mapChat(id: string, d: DocumentData): Chat {
     color: d.color, members: d.members ?? [], admins: d.admins ?? [], createdBy: d.createdBy ?? '',
     createdAt: ts(d.createdAt), lastRead: d.lastRead ?? {}, typing: d.typing ?? {},
     pinnedBy: d.pinnedBy ?? [], mutedBy: d.mutedBy ?? [], archivedBy: d.archivedBy ?? [],
-    verified: !!d.verified, postPolicy: d.postPolicy ?? 'everyone', lastMsg: d.lastMsg, inviteCode: d.inviteCode,
+    verified: !!d.verified, verifiedUntil: ts(d.verifiedUntil), banned: !!d.banned, banReason: d.banReason,
+    banUntil: ts(d.banUntil), banAppeal: d.banAppeal ?? undefined,
+    postPolicy: d.postPolicy ?? 'everyone', lastMsg: d.lastMsg, inviteCode: d.inviteCode,
     disappearing: d.disappearing ?? 'off',
   };
+}
+
+/** Centang biru grup/saluran aktif? (kadaluarsa otomatis lewat verifiedUntil) */
+export function chatVerified(c?: Chat | null): boolean {
+  if (!c) return false;
+  return !!c.verified || (c.verifiedUntil ?? 0) > Date.now();
+}
+
+/** Grup/saluran sedang dibanned? (ban berjangka lewat otomatis) */
+export function chatBannedNow(c?: Chat | null): boolean {
+  if (!c) return false;
+  return !!c.banned || (c.banUntil ?? 0) > Date.now();
+}
+
+export function chatBanRemaining(c: Chat): number {
+  if (c.banned) return 0; // permanen
+  return Math.max(0, (c.banUntil ?? 0) - Date.now());
 }
 
 function mapMessage(id: string, d: DocumentData): Message {
@@ -428,8 +447,8 @@ export async function initStore() {
       }).catch(() => {});
     }
     if (snap && snap.exists() && (snap.data() as any).banned) {
-      await signOut(fb.auth).catch(() => {});
-      pushBanner({ title: 'Akun diblokir', body: 'Akun ini diblokir oleh admin.', icon: 'ban' });
+      // JANGAN sign-out: pengguna dibanned tetap masuk supaya bisa melihat
+      // BannedScreen (alasan + sisa durasi + form banding ala WhatsApp).
       ready = true; bump();
       return;
     }
@@ -955,6 +974,11 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     pushBanner({ title: 'Tidak diizinkan', body: 'Hanya admin yang bisa mengirim pesan di channel ini.', icon: 'ban' });
     return null;
   }
+  // grup/saluran dibanned admin → member tidak bisa mengirim (admin tetap bisa utk pesan sistem)
+  if (chatBannedNow(chat) && !isFullAdmin(getMe())) {
+    pushBanner({ title: 'Grup/Saluran dibanned', body: chat.banReason || 'Grup atau saluran ini diblokir admin — tulis banding di layar tinjauan.', icon: 'ban' });
+    return null;
+  }
   const ref = doc(collection(fb.db, C.chats, chatId, 'messages'));
   const ttl = disappearingMs(chat);
   const local: Message = {
@@ -1337,7 +1361,7 @@ async function audit(action: string, target?: string, detail?: string) {
   addDoc(collection(fb.db, C.audit), { actorId: me.id, actorName: me.name, action, target: target ?? '', detail: detail ?? '', createdAt: serverTimestamp() }).catch(() => {});
 }
 
-const isFullAdmin = (u: User | null) => !!u && (u.role === 'admin' || u.role === 'developer');
+export const isFullAdmin = (u: User | null) => !!u && (u.role === 'admin' || u.role === 'developer');
 
 /** Apakah akun sedang terkena sanksi (ban permanen / sampai waktu tertentu)? */
 export function bannedNow(u: User | null | undefined): boolean {
@@ -1427,6 +1451,114 @@ export function adminDecideAppeal(appealId: string, approve: boolean, note?: str
 
 export function myAppeal(uidX: string | undefined): Appeal | undefined {
   return uidX ? db.appeals.find((a) => a.id === uidX) : undefined;
+}
+
+// ============================ ban grup & saluran ============================
+
+/**
+ * Ban grup/saluran: anggota tidak bisa mengirim pesan dan melihat layar
+ * tinjauan berisi alasan dari admin + sisa durasi + form banding.
+ * durationMs = 0 → permanen. Admin tetap bisa mengirim pesan sistem.
+ */
+export function adminBanChat(chatId: string, reason: string, durationMs: number) {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFullAdmin(me)) return;
+  const chat = db.chats[chatId];
+  if (!chat) return;
+  const permanent = durationMs <= 0;
+  const until = permanent ? 0 : Date.now() + durationMs;
+  const reasonText = reason || 'Melanggar aturan komunitas';
+  updateDoc(doc(fb.db, C.chats, chatId), {
+    banned: permanent,
+    banReason: reasonText,
+    banUntil: until,
+    banAppeal: null,
+  }).catch((e) => pushBanner({ title: 'Ban grup gagal', body: fbError(e), icon: 'alert' }));
+  // pesan sistem + notifikasi ke pemilik grup
+  sysMsg(chatId, `Grup/saluran "${chat.name ?? chatId}" dibanned oleh admin: ${reasonText}${permanent ? '' : ` — sisa ${fmtDur(durationMs / 1000)}`}`, me.id);
+  const owner = db.users[chat.createdBy];
+  if (owner) notifyFor(owner.id, 'admin', 'Grup/Saluran dibanned', `${chat.name ?? 'Grup'} dibanned: ${reasonText}. Buka grup untuk menulis banding.`, { chatId });
+  audit(permanent ? 'ban_chat' : 'ban_chat_temp', chatId, reasonText);
+}
+
+/** Buka ban grup/saluran (setelah tinjauan banding atau langsung). */
+export function adminUnbanChat(chatId: string) {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFullAdmin(me)) return;
+  const chat = db.chats[chatId];
+  updateDoc(doc(fb.db, C.chats, chatId), { banned: false, banReason: null, banUntil: 0 }).catch((e) => pushBanner({ title: 'Unban gagal', body: fbError(e), icon: 'alert' }));
+  if (chat) sysMsg(chatId, `Ban pada "${chat.name ?? 'grup'}" dibuka oleh admin. Selamat berkumpul kembali!`, me.id);
+  audit('unban_chat', chatId);
+}
+
+/** Anggota menulis banding untuk grup/saluran yang dibanned (sekali aktif). */
+export async function submitChatAppeal(chatId: string, message: string): Promise<{ ok: boolean; error?: string }> {
+  const me = getMe();
+  const fb = firebase();
+  const text = message.trim();
+  if (!me || !fb) return { ok: false, error: 'Belum masuk.' };
+  if (text.length < 10) return { ok: false, error: 'Tulis masalah minimal 10 karakter.' };
+  const chat = db.chats[chatId];
+  if (!chat || !chatBannedNow(chat)) return { ok: false, error: 'Grup ini tidak sedang dibanned.' };
+  if (chat.banAppeal?.status === 'pending') return { ok: false, error: 'Banding sudah dikirim — tunggu tinjauan admin.' };
+  const appeal: ChatAppeal = {
+    message: text.slice(0, 600), by: me.id, byName: me.name,
+    status: 'pending', createdAt: Date.now(),
+  };
+  try {
+    await updateDoc(doc(fb.db, C.chats, chatId), { banAppeal: appeal });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: fbError(e) };
+  }
+}
+
+/** Admin memutus banding grup: setuju = unban langsung, tolak = tetap banned. */
+export function adminDecideChatAppeal(chatId: string, approve: boolean, note?: string) {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFullAdmin(me)) return;
+  const chat = db.chats[chatId];
+  if (!chat?.banAppeal) return;
+  const decided: ChatAppeal = {
+    ...chat.banAppeal,
+    status: approve ? 'approved' : 'rejected',
+    decidedAt: Date.now(),
+    adminNote: (note ?? '').slice(0, 200) || (approve ? 'Banding diterima — grup dibuka kembali.' : 'Alasan belum cukup kuat untuk membuka ban.'),
+  };
+  updateDoc(doc(fb.db, C.chats, chatId), { banAppeal: decided }).catch(() => {});
+  if (approve) adminUnbanChat(chatId);
+  const owner = db.users[chat.createdBy];
+  if (owner) notifyFor(owner.id, 'admin', approve ? 'Banding grup diterima' : 'Banding grup ditolak',
+    approve ? `${chat.name ?? 'Grup'} sudah dibuka kembali.` : `Banding ${chat.name ?? 'grup'} ditolak: ${decided.adminNote}`,
+    { chatId });
+  audit(approve ? 'chat_appeal_approve' : 'chat_appeal_reject', chatId, note ?? '');
+}
+
+// ============================ centang biru grup & saluran ============================
+
+/** Pasang centang biru grup/saluran dengan masa aktif (hari). days=0 → permanen. */
+export function adminVerifyChat(chatId: string, days: number) {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFullAdmin(me)) return;
+  const chat = db.chats[chatId];
+  if (!chat) return;
+  const base = Math.max(Date.now(), chat.verifiedUntil ?? 0);
+  updateDoc(doc(fb.db, C.chats, chatId), { verifiedUntil: days > 0 ? base + days * 86400000 : 0, verified: days <= 0 }).catch((e) => pushBanner({ title: 'Gagal', body: fbError(e), icon: 'alert' }));
+  sysMsg(chatId, `✅ "${chat.name ?? 'Grup'}" kini terverifikasi${days > 0 ? ` selama ${days} hari` : ' (permanen)'}.`, me.id);
+  audit('verify_chat', chatId, `days=${days}`);
+}
+
+/** Cabut centang biru grup/saluran. */
+export function adminUnverifyChat(chatId: string) {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFullAdmin(me)) return;
+  updateDoc(doc(fb.db, C.chats, chatId), { verifiedUntil: 0, verified: false }).catch(() => {});
+  audit('unverify_chat', chatId);
 }
 
 export function adminSetRole(userId: string, role: 'user' | 'moderator' | 'admin') {
@@ -1527,6 +1659,11 @@ export function adminDecideOrder(orderId: string, approve: boolean) {
       if (o.product === 'member') batch.update(doc(fb.db, C.users, o.userId), { memberUntil: base(u.memberUntil) });
       if (o.product === 'bluecheck') batch.update(doc(fb.db, C.users, o.userId), { blueCheck: true });
       if (o.product === 'security') batch.update(doc(fb.db, C.users, o.userId), { security: true });
+    }
+    // centang biru untuk GRUP/SALURAN: pasang verifiedUntil = now + days (kadaluarsa otomatis)
+    if (o.product === 'bluecheck' && o.forChatId) {
+      const target = db.chats[o.forChatId];
+      if (target) batch.update(doc(fb.db, C.chats, o.forChatId), { verifiedUntil: Math.max(Date.now(), target.verifiedUntil ?? 0) + o.days * 86400000 });
     }
   }
   batch.commit().catch(() => {});
@@ -1737,7 +1874,7 @@ export function stickersFor(userId: string, d: DB = db) {
 
 // ============================ premium orders ============================
 
-export function createOrder(product: ProductKey, planIdx: number, methodKey: string): { orderId: string; chatId: string } | null {
+export function createOrder(product: ProductKey, planIdx: number, methodKey: string, forChat?: { id: string; name?: string }): { orderId: string; chatId: string } | null {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb) return null;
@@ -1751,10 +1888,12 @@ export function createOrder(product: ProductKey, planIdx: number, methodKey: str
   addDoc(collection(fb.db, C.orders), {
     userId: me.id, product, plan: plan.label, price: plan.price, days: plan.days,
     status: 'pending', method: method.label, chatId, createdAt: serverTimestamp(),
+    ...(forChat ? { forChatId: forChat.id, forChatName: forChat.name ?? '' } : {}),
   }).catch(() => {});
   if (admin) {
-    sendMessage(chatId, { type: 'order', orderId, text: `${p.title} · ${plan.label} · ${rupiah(plan.price)}` });
-    notifyFor(admin.id, 'admin', 'Pesanan baru', `${me.name} memesan ${p.title} (${rupiah(plan.price)}) via ${method.label}`, { chatId });
+    const label = forChat ? `${p.title} untuk "${forChat.name ?? forChat.id}"` : p.title;
+    sendMessage(chatId, { type: 'order', orderId, text: `${label} · ${plan.label} · ${rupiah(plan.price)}` });
+    notifyFor(admin.id, 'admin', 'Pesanan baru', `${me.name} memesan ${label} (${rupiah(plan.price)}) via ${method.label}`, { chatId });
   }
   return { orderId, chatId };
 }
