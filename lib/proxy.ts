@@ -45,9 +45,11 @@ async function failMessage(res: Response | null, e: any): Promise<Error> {
       return new Error(detail || 'Layanan belum dikonfigurasi di server (kunci API belum diset).');
     if (res.status === 429)
       return new Error(detail || 'Terlalu banyak permintaan. Coba lagi beberapa menit lagi.');
+    if (res.status === 504)
+      return new Error(detail || 'Waktu tunggu AI habis. Coba lagi atau coba mode provider lain.');
     return new Error(detail || `Server error (HTTP ${res.status}).`);
   }
-  if (e?.name === 'AbortError') return new Error('Waktu tunggu server habis. Coba lagi.');
+  if (e?.name === 'AbortError') return new Error('Waktu tunggu respons habis. Coba lagi.');
   return new Error(
     'Tidak dapat menghubungi server proxy. Periksa koneksi internet, pastikan deployment Vercel aktif, atau set EXPO_PUBLIC_API_BASE dengan benar.'
   );
@@ -68,6 +70,9 @@ export async function proxyPost<T = any>(path: string, body: any, ms = 45000): P
     if (data == null) throw new Error('Respons server tidak valid.');
     return data;
   } catch (e: any) {
+    // AbortError (timeout sendiri / jaringan putus) WAJIB dipetakan ke pesan ramah —
+    // jangan diteruskan mentah ("The user aborted a request.") ke UI.
+    if (e?.name === 'AbortError') throw await failMessage(null, e);
     if (e instanceof Error && e.message && !/Network request failed|Failed to fetch/i.test(e.message)) throw e;
     throw await failMessage(null, e);
   } finally {

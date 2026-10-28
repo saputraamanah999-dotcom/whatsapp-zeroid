@@ -43,17 +43,28 @@ export async function askAI(
   opts: { history?: { role: 'user' | 'assistant'; content: string }[]; model?: string; sessionId?: string } = {}
 ): Promise<AiResult> {
   const messages: AiMessage[] = [
-    { role: 'system', content: 'Kamu adalah asisten AI Zeroid-whatsapp. Jawab singkat, jelas, dan membantu dalam bahasa pengguna.' },
+    { role: 'system', content: 'Kamu adalah Zeroid AI, asisten resmi ZEROID WhatsApp milik SAPUTRA || DEV WEBSITE. Jawab singkat, jelas, dan membantu dalam bahasa pengguna.' },
     ...(opts.history ?? []).slice(-10),
     { role: 'user', content: prompt },
   ];
-  const data = await post(
-    { action: 'chat', messages, model: opts.model, sessionId: opts.sessionId },
-    45000
-  );
-  const text = String(data?.text ?? '').trim();
-  if (!text) throw new Error('Respons AI kosong.');
-  return { text };
+  const body = { action: 'chat', messages, model: opts.model, sessionId: opts.sessionId };
+  // upstream AI kadang lambat > 45 dtk (penyebab AbortError spam) — beri waktu lebih
+  // dan sekali auto-retry ketika timeout, sebelum menyerah ke pengguna.
+  let lastErr: any;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const data = await post(body, 75000);
+      const text = String(data?.text ?? '').trim();
+      if (!text) throw new Error('Respons AI kosong.');
+      return { text };
+    } catch (e: any) {
+      lastErr = e;
+      const timedOut = e?.name === 'AbortError' || /waktu tunggu/i.test(String(e?.message ?? ''));
+      if (timedOut && attempt === 0) continue; // coba sekali lagi
+      throw e;
+    }
+  }
+  throw lastErr;
 }
 
 /** DeepSeek R1 deep reasoning with optional web search. */
@@ -61,7 +72,7 @@ export async function thinkAI(
   prompt: string,
   opts: { search?: boolean; sessionId?: string } = {}
 ): Promise<AiResult> {
-  const data = await post({ action: 'thinking', prompt, search: !!opts.search, sessionId: opts.sessionId }, 70000);
+  const data = await post({ action: 'thinking', prompt, search: !!opts.search, sessionId: opts.sessionId }, 90000);
   const text = String(data?.text ?? '').trim();
   if (!text) throw new Error('Respons AI kosong.');
   return { text, reasoning: data?.reasoning ? String(data.reasoning) : undefined };
@@ -69,7 +80,7 @@ export async function thinkAI(
 
 /** Analyse an image (URL must be https — e.g. a Firebase Storage download URL). */
 export async function analyzeImage(url: string, prompt = 'Jelaskan gambar ini secara detail'): Promise<AiResult> {
-  const data = await post({ action: 'vision', url, prompt }, 60000);
+  const data = await post({ action: 'vision', url, prompt }, 75000);
   const text = String(data?.text ?? '').trim();
   if (!text) throw new Error('Respons AI kosong.');
   return { text };

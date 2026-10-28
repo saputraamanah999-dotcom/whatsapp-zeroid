@@ -1108,7 +1108,7 @@ export async function askAssistant(chatId: string, prompt: string, opts: AskOpts
     await sendMessage(chatId, { text: r.text, assistant: true, reasoning: r.reasoning });
   } catch (e: any) {
     dropTyping();
-    await sendMessage(chatId, { text: `Maaf, asisten AI sedang tidak tersedia. (${e?.message ?? 'error'})` });
+    await sendMessage(chatId, { text: `AI belum bisa menjawab sekarang. ${String(e?.message ?? 'Coba lagi beberapa saat lagi.').slice(0, 160)}` });
   }
 }
 

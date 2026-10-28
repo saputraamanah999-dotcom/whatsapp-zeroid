@@ -19,6 +19,9 @@
  *  anime_news    → GET /api/anime/berita
  */
 export const config = { runtime: 'nodejs' };
+// yt_dl / ytmp3 upstream can take ~60s — without this Vercel's short default
+// kills the function mid-download and the client sees a confusing 504.
+export const maxDuration = 60;
 
 const JEREXD_BASE = 'https://api.jerexd.my.id';
 
