@@ -78,6 +78,12 @@ export default function MessageBubble({
   const grouped = reactions.reduce<Record<string, number>>((a, e) => ((a[e] = (a[e] ?? 0) + 1), a), {});
   const isMedia = (m.type === 'image' || m.type === 'video') && !m.deletedForAll;
   const status = messageStatus(m, chat, me.id);
+  const retention =
+    m.mediaExpiresAt && m.mediaExpiresAt > Date.now()
+      ? (m.mediaExpiresAt - Date.now() > 36 * 3600_000
+          ? `tersimpan ${Math.round((m.mediaExpiresAt - Date.now()) / 86400000)} hari`
+          : `tersimpan ${Math.max(1, Math.round((m.mediaExpiresAt - Date.now()) / 3600000))} jam`)
+      : null;
 
   if (m.type === 'sticker' && !m.deletedForAll) {
     return (
@@ -222,7 +228,7 @@ export default function MessageBubble({
                   <Ionicons name="play" size={28} color="#fff" style={{ marginLeft: 3 }} />
                 </View>
                 <T v="caption" color="#fff" style={{ position: 'absolute', bottom: 8, left: 10 }}>
-                  {m.fileName ?? 'Video'} {m.fileSize ? `· ${bytes(m.fileSize)}` : ''}
+                  {m.fileName ?? 'Video'} {m.fileSize ? `· ${bytes(m.fileSize)}` : ''}{retention ? ` · ${retention}` : ''}
                 </T>
               </View>
             )}
@@ -287,6 +293,7 @@ export default function MessageBubble({
                   <T v="sub" color={fg} numberOfLines={1} style={{ fontWeight: '600' }}>
                     {m.fileName ?? 'Dokumen'}
                   </T>
+                  {!!retention && <T v="caption" color={subFg}>{retention}</T>}
                   <T v="caption" color={subFg}>
                     {bytes(m.fileSize) || 'File'} · {(m.fileName?.split('.').pop() ?? 'file').toUpperCase()}
                   </T>

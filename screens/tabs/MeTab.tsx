@@ -18,6 +18,7 @@ export default function MeTab() {
   const [askLogout, setAskLogout] = useState(false);
   const [askAdmin, setAskAdmin] = useState(false);
   if (!me) return null;
+  const isStaff = ['admin', 'developer'].includes(me.role);
   const starred = Object.values(db.messages).reduce((n, arr) => n + arr.filter((m) => m.starredBy.includes(me.id)).length, 0);
 
   return (
@@ -87,7 +88,6 @@ export default function MeTab() {
       <Card title="Aplikasi">
         <Row icon="notifications" title="Notifikasi" subtitle="Pesan, grup, Story, panggilan" onPress={() => nav.navigate('NotifSettings')} />
         <Row icon="key" title="Izin aplikasi" subtitle="Kamera, mikrofon, notifikasi, media" onPress={() => nav.navigate('Permissions')} />
-        {me.developer && <Row icon="pulse" title="Status layanan & API" subtitle={`Developer · Backend: ${backendMode}`} onPress={() => nav.navigate('ApiStatus')} />}
         <View style={{ padding: 12, gap: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginLeft: 4 }}>
             <Ionicons name="color-palette" size={18} color={t.accent} />
@@ -107,9 +107,17 @@ export default function MeTab() {
         </View>
       </Card>
 
-      {me.role === 'admin' && (
-        <Card title="Administrator">
-          <Row icon="checkmark-circle" iconColor="#1E9BFF" title="Admin panel" subtitle="Centang biru, OTP, transaksi, pengguna, laporan" onPress={() => setAskAdmin(true)} right={<Ionicons name="checkmark-circle" size={20} color="#1E9BFF" />} />
+      {isStaff && (
+        <Card title={me.role === 'developer' ? 'Developer' : 'Administrator'}>
+          <Row icon="shield-checkmark" iconColor="#1E9BFF" title="Admin panel" subtitle="Centang biru, pengguna, transaksi, laporan, sistem" onPress={() => setAskAdmin(true)} right={<Ionicons name="chevron-forward" size={18} color={t.faint} />} />
+          <Row icon="pulse" title="Status layanan & API" subtitle={`Backend: ${backendMode}`} onPress={() => nav.navigate('ApiStatus')} />
+          <View style={{ paddingHorizontal: 14, paddingBottom: 6 }}>
+            <T v="caption" color={t.faint}>
+              {me.role === 'developer'
+                ? 'Kamu masuk sebagai akun developer — panel admin aktif untuk akun ini.'
+                : 'Akun admin terdeteksi — akses panel terbuka.'}
+            </T>
+          </View>
         </Card>
       )}
 

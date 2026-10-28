@@ -134,6 +134,7 @@ export default function Composer({
         fileName: pending.prepared.name,
         duration: pending.prepared.duration,
         storagePath: res.path,
+        mediaExpiresAt: res.expiresAt,
         text: pending.caption.trim() || undefined,
       });
       setPending(null);

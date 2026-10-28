@@ -67,7 +67,7 @@ service cloud.firestore {
       allow update: if (request.auth.uid == uid && selfProfileUpdate() && notBanned())
                     || (request.auth.uid == uid
                         && !exists(/databases/$(db)/documents/config/bootstrap)
-                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role']))
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role','blueCheck','developer']))
                     || isAdmin();
       allow create: if request.auth.uid == uid
                     && (request.resource.data.role == 'user'

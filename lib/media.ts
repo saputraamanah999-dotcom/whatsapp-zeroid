@@ -4,13 +4,19 @@
  * - Images are resized (max 1600px) and re-encoded (WebP when supported, else
  *   JPEG) via canvas on web / ImageManipulator on native. PNG alpha is kept.
  *   Animated GIFs pass through untouched so they stay animated.
- * - Uploads go to EXTERNAL file hosts through the authenticated serverless
- *   proxy /api/upload (x0.at → uguu → tmpfiles; ImgBB when IMGBB_KEY is set on
- *   the server) — per project spec Firebase Storage is NEVER used for media.
+ * - Small files (≤3.2 MB) go through the authenticated serverless proxy
+ *   /api/upload (ImgBB when IMGBB_KEY is set → x0.at → uguu → tmpfiles).
+ *   ImgBB keeps photos PERMANENT.
+ * - BIG files (video/audio/doc > 3.2 MB) bypass the serverless body cap and
+ *   upload DIRECTLY from the user's own connection to CORS-open hosts:
+ *   litterbox.catbox.moe (72 h, 200 MB) → tmpfiles.org (1 h, 100 MB).
+ *   No API key is involved on the client.
+ * - Per project spec Firebase Storage is NEVER used for media.
  * - Every upload returns { url, path, mime, size } so the message document can
- *   reference the file without storing binary data in Firestore.
- * - No silent local fallback: when the server or every provider fails the
- *   upload fails loudly with a human-readable reason.
+ *   reference the file without storing binary data in Firestore. Temporary
+ *   hosts additionally return expiresAt (stored as mediaExpiresAt).
+ * - No silent local fallback: when every provider fails the upload fails
+ *   loudly with a human-readable reason.
  */
 import { Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -25,10 +31,10 @@ export type Picked = { type: 'image' | 'video' | 'audio' | 'document'; uri: stri
 export const UPLOAD_MAX_MB = 3.2;
 
 export const LIMITS = {
-  imageMB: 15,      // pre-compression — images are resized before upload anyway
-  videoMB: UPLOAD_MAX_MB,
-  audioMB: UPLOAD_MAX_MB,
-  docMB: UPLOAD_MAX_MB,
+  imageMB: 15,       // pre-compression — images are resized before upload anyway
+  videoMB: 80,       // direct client upload (litterbox 200MB / tmpfiles 100MB)
+  audioMB: 80,       // direct client upload for big audio files
+  docMB: 25,         // direct client upload for documents
   maxDim: 1600,
 };
 
@@ -135,7 +141,7 @@ function blobToBase64(blob: Blob): Promise<string> {
 }
 
 /**
- * Upload a file to an external host through /api/upload (Vercel).
+ * Upload any blob/URI to an external host through /api/upload (Vercel).
  * XHR (not fetch) so real upload progress is available on web + native.
  */
 function xhrUpload(body: any, onProgress?: ProgressFn, ms = 150000): Promise<UploadResult> {
@@ -180,6 +186,57 @@ export async function uploadMedia(input: Blob | string, path: string, mime: stri
   const name = path.split('/').pop() ?? `file_${Date.now()}`;
   const dataBase64 = await blobToBase64(blob);
   return await xhrUpload({ token, projectId: firebaseConfig.projectId, name, mime, kind: mime.split('/')[0], dataBase64, size }, onProgress);
+}
+
+// ---------------- direct client upload (big files, CORS hosts) ----------------
+
+/** XHR multipart POST to a CORS-open host; resolves with the raw response text. */
+function xhrForm(url: string, form: FormData, onProgress?: ProgressFn, ms = 600000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.timeout = ms;
+    xhr.upload.onprogress = (e) => { if (onProgress && e.lengthComputable) onProgress(Math.min(99, Math.round((e.loaded / Math.max(1, e.total)) * 100))); };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) { onProgress?.(100); resolve(String(xhr.responseText ?? '').trim()); }
+      else reject(new MediaError(`Host unggah menolak file ini (HTTP ${xhr.status}).`));
+    };
+    xhr.onerror = () => reject(new MediaError('Tidak dapat menghubungi host unggah. Periksa koneksi internet.'));
+    xhr.ontimeout = () => reject(new MediaError('Waktu unggah habis — file terlalu besar atau koneksi lambat. Coba lagi.'));
+    xhr.onabort = () => reject(new MediaError('Unggahan dibatalkan.'));
+    xhr.send(form);
+  });
+}
+
+/**
+ * Upload a BIG file directly from the client (web browser or APK) to a
+ * CORS-open host — no serverless body cap, no API key on the client:
+ *   1. litterbox.catbox.moe — 200 MB, 72 h retention   [CORS verified]
+ *   2. tmpfiles.org — 100 MB, 1 h retention            [CORS verified]
+ * The returned expiresAt is honest and stored with the message.
+ */
+export async function uploadMediaDirect(input: Blob | string, name: string, mime: string, onProgress?: ProgressFn): Promise<UploadResult> {
+  const blob = await toBlob(input);
+  if (!blob.size) throw new MediaError('File kosong.');
+  // 1) litterbox — 72 h retention (best for videos)
+  try {
+    const fd = new FormData();
+    fd.append('reqtype', 'fileupload');
+    fd.append('time', '72h');
+    fd.append('fileToUpload', blob, name);
+    const url = await xhrForm('https://litterbox.catbox.moe/resources/internals/api.php', fd, onProgress);
+    if (/^https:\/\//.test(url)) {
+      return { url, path: '', mime, size: blob.size, provider: 'litterbox.catbox.moe', expiresAt: Date.now() + 72 * 3600_000 };
+    }
+  } catch { /* fall through to tmpfiles */ }
+  // 2) tmpfiles — 1 h retention
+  const fd2 = new FormData();
+  fd2.append('file', blob, name);
+  const raw = await xhrForm('https://tmpfiles.org/api/v1/upload', fd2, onProgress);
+  let url = raw;
+  try { const j = JSON.parse(raw); url = j?.data?.url ?? raw; } catch { /* plain text */ }
+  if (!/^https:\/\//.test(url)) throw new MediaError('Host unggah tidak mengembalikan tautan yang valid.');
+  return { url: url.replace('tmpfiles.org/', 'tmpfiles.org/dl/'), path: '', mime, size: blob.size, provider: 'tmpfiles.org', expiresAt: Date.now() + 3600_000 };
 }
 
 /** External hosts cannot be deleted without account keys — kept as a no-op so message deletion flows stay intact. */
@@ -259,6 +316,10 @@ export type PreparedMedia = {
  * Validate + compress + prepare an upload closure for a picked file.
  * The actual upload happens when the user confirms sending (so the composer
  * can show a preview + cancel).
+ *
+ * Routing: images always through the authenticated proxy (permanent ImgBB).
+ * Video/audio/doc ≤ 3.2 MB also use the proxy (long x0.at retention); anything
+ * bigger uploads DIRECTLY from the client to a CORS-open host.
  */
 export async function prepareForSend(p: Picked, chatId: string): Promise<PreparedMedia> {
   const kind = p.type;
@@ -268,6 +329,12 @@ export async function prepareForSend(p: Picked, chatId: string): Promise<Prepare
   if (kind === 'video' && tooBig(LIMITS.videoMB)) throw new MediaError(`Video terlalu besar (maks ${LIMITS.videoMB} MB).`);
   if (kind === 'audio' && tooBig(LIMITS.audioMB)) throw new MediaError(`Audio terlalu besar (maks ${LIMITS.audioMB} MB).`);
   if (kind === 'document' && tooBig(LIMITS.docMB)) throw new MediaError(`Dokumen terlalu besar (maks ${LIMITS.docMB} MB).`);
+
+  /** server proxy when small (longer retention), direct client upload when big */
+  const mediaUpload = (getUri: () => string, name: string, mime: string) =>
+    size > 0 && size <= mb(UPLOAD_MAX_MB)
+      ? (onProgress?: ProgressFn) => uploadMedia(getUri(), `chats/${chatId}/${Date.now()}_${name}`, mime, onProgress)
+      : (onProgress?: ProgressFn) => uploadMediaDirect(getUri(), name, mime, onProgress);
 
   if (kind === 'image') {
     // animated GIF passes through untouched so the animation survives
@@ -291,7 +358,7 @@ export async function prepareForSend(p: Picked, chatId: string): Promise<Prepare
     const mime = p.mime ?? 'video/mp4';
     return {
       type: 'video', uri: p.uri, name, size: p.size, mime, duration: p.duration,
-      upload: (onProgress?: ProgressFn) => uploadMedia(p.uri, `chats/${chatId}/${Date.now()}_${name}`, mime, onProgress as ProgressFn),
+      upload: mediaUpload(() => p.uri, name, mime),
     };
   }
   if (kind === 'audio') {
@@ -299,13 +366,13 @@ export async function prepareForSend(p: Picked, chatId: string): Promise<Prepare
     const mime = p.mime ?? 'audio/mp4';
     return {
       type: 'audio', uri: p.uri, name, size: p.size, mime, duration: p.duration,
-      upload: (onProgress?: ProgressFn) => uploadMedia(p.uri, `chats/${chatId}/${Date.now()}_${name}`, mime, onProgress as ProgressFn),
+      upload: mediaUpload(() => p.uri, name, mime),
     };
   }
   const name = (p.name ?? 'document').replace(/[^\w.-]/g, '_');
   const mime = p.mime ?? 'application/octet-stream';
   return {
     type: 'document', uri: p.uri, name, size: p.size, mime,
-    upload: (onProgress?: ProgressFn) => uploadMedia(p.uri, `chats/${chatId}/${Date.now()}_${name}`, mime, onProgress as ProgressFn),
+    upload: mediaUpload(() => p.uri, name, mime),
   };
 }

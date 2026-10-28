@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, View, ActivityIndicator, Pressable } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
@@ -44,6 +44,55 @@ const nav = createNavigationContainerRef<any>();
 navRef.navigate = (name, params) => {
   if (nav.isReady()) (nav.navigate as any)(name, params);
 };
+
+/**
+ * Web history sync — the Android back GESTURE / browser back button must
+ * navigate INSIDE the app (chat → list → …) instead of leaving the website.
+ *
+ * How it works:
+ *  - every in-app navigation that goes DEEPER pushes a history entry;
+ *  - popstate (swipe-back / back button) calls nav.goBack() in-app;
+ *  - programmatic back (UI buttons) consumes the matching history entries;
+ *  - a re-armed GUARD entry at the root swallows stray back gestures so the
+ *    site never closes — just like a native app (back on root = no-op).
+ */
+function useWebHistorySync() {
+  const aligning = useRef(false);  // our own history.go() is in flight
+  const skipAlign = useRef(false); // popstate-triggered goBack already applied
+  const lastDepth = useRef(-1);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const armGuard = () => { try { history.pushState({ zw: 'guard' }, ''); } catch {} };
+    armGuard();
+    const onPop = () => {
+      if (aligning.current) { aligning.current = false; return; }
+      if (!nav.isReady() || !nav.canGoBack()) { armGuard(); return; } // root: swallow, never exit
+      skipAlign.current = true;
+      nav.goBack();
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  return useCallback(() => {
+    if (Platform.OS !== 'web' || !nav.isReady()) return;
+    const st = nav.getState();
+    const depth = (st?.index ?? 0) + 1;
+    if (lastDepth.current === -1) { lastDepth.current = depth; return; }
+    if (skipAlign.current) { skipAlign.current = false; lastDepth.current = depth; return; }
+    if (depth > lastDepth.current) {
+      try { history.pushState({ zw: depth }, ''); } catch {}
+    } else if (depth < lastDepth.current) {
+      const diff = lastDepth.current - depth;
+      if (diff > 0) {
+        aligning.current = true;
+        try { history.go(-diff); } catch { aligning.current = false; }
+      }
+    }
+    lastDepth.current = depth;
+  }, []);
+}
 
 function useNotificationResponses(ready: boolean) {
   useEffect(() => {
@@ -131,6 +180,7 @@ export default function App() {
   const t = useTheme();
   const tokenFor = useRef<string | null>(null);
   const [dismissedNotices, setDismissedNotices] = useState<string[]>([]);
+  const onNavStateChange = useWebHistorySync();
 
   useEffect(() => {
     initStore();
@@ -169,7 +219,7 @@ export default function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <NavigationContainer ref={nav} theme={navTheme} documentTitle={{ formatter: () => 'Zeroid WhatsApp' }}>
+        <NavigationContainer ref={nav} theme={navTheme} onStateChange={onNavStateChange} documentTitle={{ formatter: () => 'Zeroid WhatsApp' }}>
           <MaintenanceGate>
             {!isFirebaseConfigured ? (
               <Stack.Navigator screenOptions={{ headerShown: false }}>

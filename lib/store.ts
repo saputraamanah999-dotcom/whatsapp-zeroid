@@ -146,7 +146,7 @@ function mapMessage(id: string, d: DocumentData): Message {
     editedAt: ts(d.editedAt) || undefined, deletedForAll: !!d.deletedForAll, deletedFor: d.deletedFor ?? [],
     reactions: d.reactions ?? {}, starredBy: d.starredBy ?? [], forwarded: !!d.forwarded, orderId: d.orderId, assistant: !!d.assistant,
     lat: d.lat, lng: d.lng, locationLabel: d.locationLabel, contactName: d.contactName, contactPhone: d.contactPhone,
-    expiresAt: ts(d.expiresAt) || undefined, reasoning: d.reasoning,
+    expiresAt: ts(d.expiresAt) || undefined, mediaExpiresAt: ts(d.mediaExpiresAt) || undefined, reasoning: d.reasoning,
   };
 }
 
@@ -907,7 +907,7 @@ export function typingUsers(chat: Chat, meId: string) {
 
 // ============================ messages ============================
 
-export type OutMsg = Partial<Pick<Message, 'type' | 'text' | 'uri' | 'fileName' | 'fileSize' | 'duration' | 'mime' | 'width' | 'height' | 'thumb' | 'storagePath' | 'replyTo' | 'forwarded' | 'orderId' | 'assistant' | 'lat' | 'lng' | 'locationLabel' | 'contactName' | 'contactPhone' | 'reasoning'>>;
+export type OutMsg = Partial<Pick<Message, 'type' | 'text' | 'uri' | 'fileName' | 'fileSize' | 'duration' | 'mime' | 'width' | 'height' | 'thumb' | 'storagePath' | 'replyTo' | 'forwarded' | 'orderId' | 'assistant' | 'lat' | 'lng' | 'locationLabel' | 'contactName' | 'contactPhone' | 'reasoning' | 'mediaExpiresAt'>>;
 
 /** disappearing-message TTL in ms for a chat, or 0 when off */
 export const disappearingMs = (c?: Chat | null): number =>
@@ -945,7 +945,7 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     mime: payload.mime, width: payload.width, height: payload.height, thumb: payload.thumb,
     storagePath: payload.storagePath, replyTo: payload.replyTo, forwarded: payload.forwarded, orderId: payload.orderId, assistant: payload.assistant,
     lat: payload.lat, lng: payload.lng, locationLabel: payload.locationLabel, contactName: payload.contactName, contactPhone: payload.contactPhone,
-    reasoning: payload.reasoning, expiresAt: ttl ? Date.now() + ttl : undefined,
+    reasoning: payload.reasoning, expiresAt: ttl ? Date.now() + ttl : undefined, mediaExpiresAt: payload.mediaExpiresAt,
     createdAt: Date.now(), deletedFor: [], reactions: {}, starredBy: [], status: 'sending',
   };
   // optimistic
@@ -957,7 +957,7 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     thumb: local.thumb, storagePath: local.storagePath, replyTo: local.replyTo, forwarded: local.forwarded,
     orderId: local.orderId, assistant: local.assistant ?? null, lat: local.lat ?? null, lng: local.lng ?? null,
     locationLabel: local.locationLabel ?? null, contactName: local.contactName ?? null, contactPhone: local.contactPhone ?? null,
-    reasoning: local.reasoning ?? null, expiresAt: local.expiresAt ?? null,
+    reasoning: local.reasoning ?? null, expiresAt: local.expiresAt ?? null, mediaExpiresAt: local.mediaExpiresAt ?? null,
     clientTime: local.createdAt, createdAt: serverTimestamp(),
     deletedFor: [], reactions: {}, starredBy: [],
   };
@@ -990,6 +990,7 @@ export function retryMessage(chatId: string, id: string) {
     duration: m.duration, mime: m.mime, width: m.width, height: m.height, thumb: m.thumb, storagePath: m.storagePath,
     replyTo: m.replyTo, forwarded: m.forwarded, lat: m.lat ?? null, lng: m.lng ?? null, locationLabel: m.locationLabel ?? null,
     contactName: m.contactName ?? null, contactPhone: m.contactPhone ?? null, expiresAt: m.expiresAt ?? null,
+    mediaExpiresAt: m.mediaExpiresAt ?? null,
     clientTime: m.createdAt, createdAt: serverTimestamp(), deletedFor: [], reactions: {}, starredBy: [],
   })).catch(() => {});
 }

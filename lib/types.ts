@@ -151,6 +151,8 @@ export type Message = {
   contactPhone?: string;
   /** disappearing messages: epoch ms when this message auto-removes */
   expiresAt?: number;
+  /** epoch ms when the EXTERNAL media host deletes the file (temporary hosts) */
+  mediaExpiresAt?: number;
   /** DeepSeek chain-of-thought (assistant messages only) */
   reasoning?: string;
   /** true when written by the AI assistant through the current user's session */

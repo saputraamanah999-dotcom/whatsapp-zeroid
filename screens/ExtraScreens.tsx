@@ -324,6 +324,10 @@ export function SecurityScreen() {
 }
 
 // ---------------- Music (Spotify/YouTube embed + Jerexd search/lirik/MP3) ----------------
+
+/** quick-search presets — one tap fills the search box (works for Spotify & YouTube) */
+const VIRAL_CHIPS = ['lagu viral 2026', 'top hits indonesia', 'lagu barat terbaru', 'lagu sad viral', 'dj tiktok viral'];
+
 export function MusicScreen() {
   const t = useTheme();
   const { me } = useStore();
@@ -463,6 +467,17 @@ export function MusicScreen() {
               returnKeyType="search"
               autoCapitalize="none"
             />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 7 }}>
+              {VIRAL_CHIPS.map((c) => (
+                <Pressable
+                  key={c}
+                  onPress={() => runSearch(c)}
+                  style={({ pressed }) => ({ paddingHorizontal: 11, paddingVertical: 6, borderRadius: 999, backgroundColor: q === c ? t.accent : t.bg2, borderWidth: 1, borderColor: q === c ? t.accent : t.border, opacity: pressed ? 0.8 : 1 })}
+                >
+                  <T v="caption" color={q === c ? '#fff' : t.sub} style={{ fontWeight: '800' }}>{c}</T>
+                </Pressable>
+              ))}
+            </ScrollView>
             {searching && <ActivityIndicator color={t.accent} style={{ padding: 8 }} />}
             {src === 'spotify' && !!songs.length && (
               <View style={{ gap: 2 }}>

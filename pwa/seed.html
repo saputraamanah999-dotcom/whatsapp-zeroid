@@ -80,7 +80,7 @@
 
   <div class="card">
     <h2>Log</h2>
-    <div id="log">Siap. (build v3 — diagnostik rules + anti permission-denied)</div>
+    <div id="log">Siap. (build v4 — centang biru + lencana developer otomatis)</div>
   </div>
 
   <div class="card">
@@ -215,26 +215,31 @@ async function run(seedMode) {
       await uRef.set({
         name, email: $('admEmail').value.trim(), about: 'Developer Zeroid-whatsapp.', avatar: null,
         role: bootstrapOpen ? 'developer' : 'user', verified: !!user.emailVerified, banned: false,
+        blueCheck: true, developer: true,
         username: username || null, lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         privacy: { lastSeen: 'everyone', profilePhoto: 'everyone', about: 'everyone', groups: 'everyone', readReceipts: true, storyReplies: true },
         notif: { messages: true, groups: true, stories: true, calls: true, preview: true, sound: true },
         blocked: [], contacts: [],
       }).catch((e) => { throw new Error(why(e, 'users/{uid} (create)')); });
-      mark('users/{uid} dibuat', true, 'role: ' + (bootstrapOpen ? 'developer' : 'user'));
+      mark('users/{uid} dibuat', true, 'role: ' + (bootstrapOpen ? 'developer' : 'user') + ' · centang biru aktif');
     } else {
       const curRole = (uSnap.data() || {}).role;
       if (bootstrapOpen && curRole !== 'developer' && curRole !== 'admin') {
-        await uRef.update({ role: 'developer' }).catch((e) => {
+        await uRef.update({ role: 'developer', blueCheck: true, developer: true }).catch((e) => {
           if (String(e?.code) === 'permission-denied' && !bootstrapOpen)
             throw new Error(
               'Role tidak bisa diangkat dari klien: config/bootstrap sudah ada (pintu tertutup) sedangkan akun ini masih role=' + (curRole ?? '?') + '. ' +
               'SOLUSI sekali manual: Firebase Console → Firestore Database → data → koleksi users → buka dokumen UID ' + user.uid +
-              ' → edit field role → isi: developer → Save. Atau hapus dokumen config/bootstrap lalu jalankan seed lagi.'
+              ' → edit field role → isi: developer → tambah field blueCheck (boolean) = true → Save. Atau hapus dokumen config/bootstrap lalu jalankan seed lagi.'
             );
           throw new Error(why(e, 'users/{uid} role update'));
         });
-        mark('users/{uid} diperbarui', true, 'role → developer');
+        mark('users/{uid} diperbarui', true, 'role → developer · centang biru aktif');
+      } else if (bootstrapOpen && (curRole === 'developer' || curRole === 'admin')) {
+        // pastikan centang biru & lencana developer terpasang (idempotent)
+        await uRef.update({ blueCheck: true, developer: true }).catch(() => {});
+        mark('users/{uid} sudah ada', true, 'role: ' + curRole + ' · centang biru dipastikan');
       } else {
         mark('users/{uid} sudah ada', true, 'role: ' + curRole);
       }
