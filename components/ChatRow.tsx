@@ -8,6 +8,8 @@ import { Chat, DB, User } from '../lib/types';
 import { chatTitle, chatPeer, lastMessage, chatLastMsg, messagePreview, unreadCount, isOnline, canSee, typingUsers, messageStatus, chatBadge } from '../lib/store';
 import { VerifiedBadge } from '../lib/icons';
 import { chatTime } from '../lib/format';
+import { FireDot } from './FirePet';
+import { fireColor, fireState } from '../lib/streak';
 
 export function Ticks({ status, color }: { status: 'sending' | 'failed' | 'sent' | 'delivered' | 'read'; color?: string }) {
   const t = useTheme();
@@ -29,6 +31,8 @@ export default function ChatRow({ chat, me, db, onPress, onLongPress }: { chat: 
   const pinned = chat.pinnedBy.includes(me.id);
   const isGroupish = chat.type === 'group' || chat.type === 'channel' || chat.type === 'global';
   const senderName = last && isGroupish && last.type !== 'system' ? (last.senderId === me.id ? 'Kamu' : db.users[last.senderId]?.name.split(' ')[0]) : null;
+  const fst = fireState(chat, me); // api streak chat (muncul mulai 3 hari)
+  const fcol = fst.lit ? fireColor(fst.count) : null;
 
   return (
     <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={({ pressed }) => ({ marginHorizontal: 14, marginVertical: 5, borderRadius: R.lg, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: t.bg, boxShadow: pressed ? t.insetSm : undefined } as any)}>
@@ -47,6 +51,7 @@ export default function ChatRow({ chat, me, db, onPress, onLongPress }: { chat: 
           </T>
           {/* centang biru: SVG resmi yang sama di SEMUA tempat (chat, grup, saluran, AI) */}
           {chat.type === 'direct' ? <UserBadges user={peer} /> : chatBadge(chat, db) && <VerifiedBadge size={15} animate={false} />}
+          {fcol && <FireDot color={fcol} dimmed={fst.dimmed} />}
           <View style={{ flex: 1 }} />
           <T v="caption" color={unread ? t.accent : t.faint}>
             {last ? chatTime(last.createdAt) : ''}

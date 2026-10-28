@@ -71,7 +71,7 @@ export default function MeTab() {
       )}
 
       {me.role !== 'admin' && (
-        <Pressable onPress={() => nav.navigate('Premium')} style={({ pressed }) => ({ marginBottom: 22, borderRadius: R.xl, padding: 18, backgroundColor: t.accent, transform: [{ scale: pressed ? 0.98 : 1 }], boxShadow: '0px 12px 26px rgba(30,107,255,0.35)' } as any)}>
+        <Pressable onPress={() => nav.navigate('Premium')} style={({ pressed }) => ({ marginBottom: 14, borderRadius: R.xl, padding: 18, backgroundColor: t.accent, transform: [{ scale: pressed ? 0.98 : 1 }], boxShadow: '0px 12px 26px rgba(30,107,255,0.35)' } as any)}>
           <T v="h3" color="#fff" style={{ fontSize: 18 }}>
             Zeroid Premium
           </T>
@@ -80,6 +80,21 @@ export default function MeTab() {
           </T>
         </Pressable>
       )}
+
+      {/* KOIN & REFERRAL: share web ke teman → koin otomatis → bayar premium */}
+      <Pressable onPress={() => nav.navigate('Rewards')} style={({ pressed }) => ({ marginBottom: 22, borderRadius: R.xl, padding: 18, backgroundColor: t.success, transform: [{ scale: pressed ? 0.98 : 1 }], boxShadow: '0px 12px 26px rgba(20,196,122,0.32)' } as any)}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <T v="h3" color="#fff" style={{ fontSize: 18 }}>
+              Koin & Ajak Teman
+            </T>
+            <T v="sub" color="rgba(255,255,255,0.92)" style={{ marginTop: 4 }}>
+              {(me.points ?? 0).toLocaleString('id-ID')} koin · check-in harian + ajak teman = koin buat bayar centang biru
+            </T>
+          </View>
+          <Ionicons name="flame" size={26} color="#fff" />
+        </View>
+      </Pressable>
 
       <Card title="Akun">
         <Row icon="person-circle" title="Lihat profil saya" subtitle="Lencana, username, lagu Spotify" onPress={() => nav.navigate('UserProfile', { userId: me.id })} />
@@ -90,6 +105,7 @@ export default function MeTab() {
         <Row icon="musical-notes" iconColor="#1DB954" title="Musik" subtitle={me.spotify ? me.spotify.title : 'Spotify & YouTube — pasang di profil'} onPress={() => nav.navigate('Music')} />
         <Row icon="tv" iconColor="#FF7A9C" title="Anime" subtitle="Cari, tonton, favorit & unduh anime" onPress={() => nav.navigate('Anime')} />
         <Row icon="happy" title="Stiker" subtitle="Buat & kelola stiker" onPress={() => nav.navigate('Stickers')} />
+        <Row icon="trophy" iconColor="#FFB300" title="Leaderboard" subtitle="Peringkat api streak & koin" onPress={() => nav.navigate('Leaderboard')} />
       </Card>
 
       <Card title="Aplikasi">

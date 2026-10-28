@@ -34,8 +34,10 @@ import {
 } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { AppNotification, Call, Chat, ChatAppeal, DB, Message, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav, Ban, Appeal } from './types';
+import { AppNotification, Call, Chat, ChatAppeal, DB, LeaderRow, Message, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav, Ban, Appeal } from './types';
 import { productOf, rupiah, PAYMENT_METHODS } from './products';
+import { applyStreak } from './streak';
+import { refCodeFor, applyPendingReferral, captureRefFromUrl } from './points';
 import { sendMail, otpEmailHtml } from './mail';
 import { uid, hash, isEmail, duration as fmtDur } from './format';
 import { AVATAR_COLORS, setThemeMode, ThemeMode } from './theme';
@@ -484,10 +486,24 @@ export async function initStore() {
         name: u.displayName ?? u.email?.split('@')[0] ?? 'Pengguna', email: u.email ?? '',
         about: 'Hai! Aku pakai Zeroid-whatsapp.', avatar: u.photoURL ?? null, color: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
         role: 'user', verified: u.emailVerified, banned: false, lastSeen: serverTimestamp(), createdAt: serverTimestamp(),
+        points: 0, bestStreak: 0, checkinStreak: 0, refCount: 0, referralCode: refCodeFor(u.uid),
         privacy: { lastSeen: 'everyone', profilePhoto: 'everyone', about: 'everyone', groups: 'everyone', readReceipts: true, storyReplies: true },
         notif: { messages: true, groups: true, stories: true, calls: true, preview: true, sound: true },
         blocked: [], contacts: [],
       }).catch(() => {});
+      // referral link promosi: beri reward otomatis bila daftar lewat ?ref=CODE
+      if (isWeb) captureRefFromUrl();
+      void applyPendingReferral({ id: u.uid, points: 0 } as User).then((r) => {
+        if (r?.ok) pushBanner({ title: 'Koin sambutan', body: `+${r.rewarded} koin dari ajakan temanmu — bisa dipakai bayar centang biru!`, icon: 'gift' });
+      });
+    } else {
+      // pastikan SEMUA user punya kode referral (sekali)
+      const prof = snap && snap.exists() ? (snap.data() as any) : null;
+      if (prof && !prof.referralCode) updateDoc(ref, { referralCode: refCodeFor(u.uid) }).catch(() => {});
+      if (isWeb) captureRefFromUrl();
+      void applyPendingReferral({ id: u.uid, ...(prof ?? {}), points: prof?.points ?? 0 } as User).then((r) => {
+        if (r?.ok) pushBanner({ title: 'Koin sambutan', body: `+${r.rewarded} koin dari ajakan temanmu!`, icon: 'gift' });
+      });
     }
     if (snap && snap.exists() && (snap.data() as any).banned) {
       // JANGAN sign-out: pengguna dibanned tetap masuk supaya bisa melihat
@@ -1148,6 +1164,8 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     // denormalised preview + clear my typing
     const pv = messagePreview({ ...local, status: undefined } as Message);
     updateDoc(doc(fb.db, C.chats, chatId), { lastMsg: { text: pv.slice(0, 120), type: local.type, senderId: sender, createdAt: local.createdAt }, [`typing.${sender}`]: 0 }).catch(() => {});
+    // STREAK API: rawat api + kucing chat (hanya pesan sungguhan, bukan sistem/AI)
+    if (!payload.assistant && payload.type !== 'system') void applyStreak(db.chats[chatId] ?? chat, getMe()!);
     // mention notifications: @username / @semua di grup & global
     const mentions = mentionUids(chat, local.text ?? '');
     for (const u of mentions.slice(0, 30)) {
@@ -2223,4 +2241,45 @@ export async function contributeBlueCheckPot(chatId: string, amount: number): Pr
 
 export const isVip = (u?: User | null) => (u?.vipUntil ?? 0) > Date.now();
 export const isMemberPlan = (u?: User | null) => (u?.memberUntil ?? 0) > Date.now();
+
+// ============================ leaderboard (api & koin) ============================
+
+const toLeaderRows = (docs: DocumentData[], key: 'bestStreak' | 'points'): LeaderRow[] =>
+  docs
+    .map((d) => {
+      const v = (d.data() as any) ?? {};
+      return {
+        id: d.id,
+        name: v.name ?? 'Pengguna',
+        avatar: v.avatar ?? null,
+        score: Number(v[key] ?? 0),
+        badge: !!v.blueCheck,
+      } as LeaderRow;
+    })
+    .filter((r) => r.score > 0);
+
+/** Papan peringkat API — streak chat tertinggi sepanjang masa. */
+export async function topStreaks(): Promise<LeaderRow[]> {
+  const fb = firebase();
+  if (!fb) return [];
+  try {
+    const q1 = query(collection(fb.db, C.users), orderBy('bestStreak', 'desc'), fsLimit(50));
+    return toLeaderRows((await getDocs(q1)).docs, 'bestStreak');
+  } catch {
+    return [];
+  }
+}
+
+/** Papan peringkat KOIN — pengundang terajin & pemburu reward. */
+export async function topKoin(): Promise<LeaderRow[]> {
+  const fb = firebase();
+  if (!fb) return [];
+  try {
+    const q1 = query(collection(fb.db, C.users), orderBy('points', 'desc'), fsLimit(50));
+    return toLeaderRows((await getDocs(q1)).docs, 'points');
+  } catch {
+    return [];
+  }
+}
+
 export type { SpotifyTrack };

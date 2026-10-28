@@ -28,10 +28,10 @@ const MAX_INPUT_H = 110;
 const BTN = 34;
 const FAB = 42;
 
-/** polling tersedia di grup & chat global (ala WhatsApp) */
+/** polling tersedia di grup, saluran & chat global (ala WhatsApp) */
 function chatTypeForPoll(chatId: string, db: DB): boolean {
   const c = db.chats[chatId];
-  return !!c && (c.type === 'group' || c.type === 'global');
+  return !!c && (c.type === 'group' || c.type === 'global' || c.type === 'channel');
 }
 
 function RecDot() {

@@ -40,6 +40,9 @@ import { AnimeScreen, AnimeDetailScreen, AnimeWatchScreen } from './screens/Anim
 import { EditProfile, PrivacyScreen, NotifSettings, PermissionsScreen, NotificationsScreen, StarredScreen } from './screens/SettingsScreens';
 import SearchScreen from './screens/SearchScreen';
 import AuditScreen from './screens/AuditScreen';
+import { RewardsScreen, LeaderboardScreen } from './screens/RewardsScreens';
+import DevGuard from './components/DevGuard';
+import { captureRefFromUrl } from './lib/points';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -241,6 +244,7 @@ export default function App() {
   useEffect(() => {
     initStore();
     setupNotifications();
+    captureRefFromUrl(); // web: simpan ?ref=CODE dari link ajakan teman
   }, []);
 
   useEffect(() => {
@@ -336,6 +340,8 @@ export default function App() {
                   <Stack.Screen name="AnimeDetail" component={AnimeDetailScreen} />
                   <Stack.Screen name="AnimeWatch" component={AnimeWatchScreen} />
                   <Stack.Screen name="Stickers" component={StickersScreen} />
+                  <Stack.Screen name="Rewards" component={RewardsScreen} />
+                  <Stack.Screen name="Leaderboard" component={LeaderboardScreen} />
                 </Stack.Navigator>
                 <AnnouncementBanner dismissed={dismissedNotices} onDismiss={(id) => setDismissedNotices((x) => [...x, id])} />
                 <MusicBar />
@@ -345,6 +351,7 @@ export default function App() {
           {me && !locked && isFirebaseConfigured && <IncomingCallHost />}
           <PermissionHost />
           <BannerHost />
+          <DevGuard />
           <InstallBanner />
           <StatusBar style={t.dark ? 'light' : 'dark'} />
         </NavigationContainer>

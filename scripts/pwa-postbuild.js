@@ -2,6 +2,7 @@
  * Post-build step for `expo export --platform web`:
  *  1. Copies pwa/ assets (manifest, service worker, icons, offline page) into dist/.
  *  2. Injects PWA meta tags + service-worker registration into dist/index.html.
+ *  3. SECURITY: strips sourcemaps (*.map) + injects early anti-devtools guard.
  */
 const fs = require('fs');
 const path = require('path');
@@ -21,9 +22,66 @@ for (const f of fs.readdirSync(PWA)) {
 }
 console.log('PWA assets copied to dist/');
 
+// 1b) SECURITY: hapus semua sourcemap agar source tidak bisa dibaca dari produksi
+let maps = 0;
+const walk = (dir) => {
+  for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, f.name);
+    if (f.isDirectory()) walk(p);
+    else if (f.name.endsWith('.map')) { fs.unlinkSync(p); maps++; }
+  }
+};
+walk(DIST);
+console.log(`Sourcemaps stripped: ${maps} file dihapus`);
+// jangan sertakan sourcemap comment
+const stripMapRefs = (p) => {
+  if (!fs.existsSync(p)) return;
+  const code = fs.readFileSync(p, 'utf8').replace(/\/\/# sourceMappingURL=.*\n?/g, '');
+  fs.writeFileSync(p, code);
+};
+fs.readdirSync(DIST).forEach((f) => { if (f.endsWith('.js')) stripMapRefs(path.join(DIST, f)); });
+
 // 2) inject meta + SW registration
 const index = path.join(DIST, 'index.html');
 let html = fs.readFileSync(index, 'utf8');
+
+// 2b) SECURITY: anti-devtools early guard (jalan SEBELUM bundle React dimuat)
+if (!html.includes('zeroid-devguard')) {
+  const guard = `<script id="zeroid-devguard">
+  /* Anti-inspeksi awal: blokir shortcut devtools + deteksi viewport. */
+  (function () {
+    try {
+      var trip = function () {
+        document.documentElement.style.filter = 'blur(18px)';
+        if (!document.getElementById('zeroid-devguard-overlay')) {
+          var o = document.createElement('div');
+          o.id = 'zeroid-devguard-overlay';
+          o.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0D1117EE;color:#E6EDF3;font-family:system-ui,sans-serif;text-align:center;padding:24px;';
+          o.innerHTML = '<div><div style="font-size:40px;margin-bottom:8px">🛡️</div><div style="font-weight:800;font-size:17px;margin-bottom:6px">Alat inspeksi terdeteksi</div><div style="color:#8B949E;font-size:13px;line-height:20px">Tutup DevTools, lalu muat ulang halaman untuk melanjutkan memakai Zeroid-whatsapp.</div></div>';
+          document.body.appendChild(o);
+        }
+      };
+      document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+      document.addEventListener('keydown', function (e) {
+        var k = (e.key || '').toUpperCase();
+        if (k === 'F12' || (e.ctrlKey && e.shiftKey && ['I','J','C','K'].indexOf(k) >= 0) || (e.ctrlKey && k === 'U') || (e.metaKey && e.altKey && ['I','J','C','U'].indexOf(k) >= 0)) {
+          e.preventDefault(); trip();
+        }
+      });
+      var check = function () {
+        var gap = Math.max(window.outerWidth - window.innerWidth, window.outerHeight - window.innerHeight);
+        if (gap > 180 && !/Edg\\//.test(navigator.userAgent)) trip();
+      };
+      window.addEventListener('resize', check); check();
+      console.log('%cZeroid-whatsapp', 'font-size:28px;font-weight:900;color:#1E6BFF');
+      console.log('%cSTOP! Area ini hanya untuk pengembang. Menempel kode di sini dapat membocorkan akunmu.', 'font-size:14px;font-weight:700;color:#E02424');
+    } catch (e) {}
+  })();
+  </script>`;
+  html = html.replace('</head>', `${guard}\n  </head>`);
+  fs.writeFileSync(index, html);
+  console.log('Anti-devtools guard injected into dist/index.html');
+}
 
 if (!html.includes('manifest.webmanifest')) {
   const meta = `

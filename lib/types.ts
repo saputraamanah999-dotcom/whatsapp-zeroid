@@ -47,6 +47,21 @@ export type User = {
   mutedUntil?: number;
   /** Limit pembelian: timestamp percobaan order (maks 5 per 1 jam) */
   orderAttempts?: number[];
+  /** Koin reward: 1 koin = Rp10 — dari referral, check-in harian, promosi. Dipakai bayar produk. */
+  points?: number;
+  /** Streak api tertinggi sepanjang masa (leaderboard api) */
+  bestStreak?: number;
+  /** Check-in harian: beruntun hari & timestamp terakhir (jeda minimal 20 jam) */
+  checkinStreak?: number;
+  lastCheckinAt?: number;
+  /** Kode referral unik milik user (untuk link ajak teman) */
+  referralCode?: string;
+  /** uid pengundang (diisi otomatis saat daftar via link ?ref=) */
+  referredBy?: string;
+  /** Jumlah orang yang berhasil diundang */
+  refCount?: number;
+  /** Pemakaian hidupkan api: { 'YYYY-MM': count } — maks 5x per bulan */
+  fireRevives?: Record<string, number>;
   verified: boolean;
   banned: boolean;
   suspendedUntil?: number;
@@ -109,6 +124,12 @@ export type Chat = {
   inviteCode?: string;
   /** Patungan centang biru: map uid → jumlah kontribusi (rupiah) */
   blueCheckPot?: Record<string, number>;
+  /** STREAK API: beruntun hari ada pesan (muncul mulai 3 hari), dirawat bareng seluruh anggota */
+  streakCount?: number;
+  /** epoch ms awal hari terakhir yang terhitung dalam streak */
+  streakDay?: number;
+  /** epoch ms pesan terakhir (untuk deteksi api melemah/padam) */
+  streakUpdatedAt?: number;
   /** disappearing messages timer — set by group admins */
   disappearing?: 'off' | '24h' | '7d' | '90d';
 };
@@ -321,6 +342,9 @@ export type Appeal = {
   decidedAt?: number;
   adminNote?: string;
 };
+
+/** Baris leaderboard (api & koin) */
+export type LeaderRow = { id: string; name: string; avatar: string | null; score: number; badge?: boolean };
 
 export type DB = {
   version: number;
