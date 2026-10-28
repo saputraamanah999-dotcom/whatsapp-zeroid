@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, ScrollView, Pressable, FlatList, RefreshControl, Platform } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Image } from 'expo-image';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { Header, Screen, Avatar, T, Neu, Row, Card, Toggle, NeuInput, Btn, Empty, Segmented, IconBtn } from '../components/ui';
 import { Sheet } from '../components/Sheet';
 import { useTheme, R } from '../lib/theme';
 import { useStore, updateMe, changePassword, toggleBlock, markNotificationsRead, clearNotifications, messagePreview, chatTitle, sendVerification, toggleStar } from '../lib/store';
 import { Visibility, Privacy, NotifPrefs } from '../lib/types';
-import { pickCamera, pickGallery, uploadToStorage, MediaError } from '../lib/media';
+import { pickCamera, pickGallery, uploadMedia, MediaError } from '../lib/media';
 import { pushBanner } from '../lib/bus';
 import { ago, chatTime } from '../lib/format';
 import { getPermission, ensurePermission, PERM_INFO, PermKind, PermState, openAppSettings } from '../lib/permissions';
@@ -21,6 +22,8 @@ export function EditProfile() {
   const [about, setAbout] = useState(me?.about ?? '');
   const [phone, setPhone] = useState(me?.phone ?? '');
   const [photoSheet, setPhotoSheet] = useState(false);
+  const [bannerSheet, setBannerSheet] = useState(false);
+  const [busyMedia, setBusyMedia] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
   const [oldPw, setOldPw] = useState('');
   const [newPw, setNewPw] = useState('');
@@ -29,7 +32,32 @@ export function EditProfile() {
 
   const setPhoto = async (cam: boolean) => {
     const p = cam ? await pickCamera() : await pickGallery('images');
-    if (p) { const r = await uploadToStorage(p.uri, `avatars/${me.id}/${Date.now()}.jpg`, 'image/jpeg'); updateMe({ avatar: r.url }); }
+    if (!p) return;
+    setBusyMedia(true);
+    try {
+      const r = await uploadMedia(p.uri, `avatars/${me.id}/${Date.now()}.jpg`, 'image/jpeg');
+      updateMe({ avatar: r.url });
+      pushBanner({ title: 'Foto profil diperbarui', body: 'Foto baru sudah tersimpan.', icon: 'checkmark-circle' });
+    } catch (e: any) {
+      pushBanner({ title: 'Unggah foto gagal', body: e?.message ?? 'Coba lagi.', icon: 'alert' });
+    } finally {
+      setBusyMedia(false);
+    }
+  };
+
+  const setBanner = async () => {
+    const p = await pickGallery('images');
+    if (!p) return;
+    setBusyMedia(true);
+    try {
+      const r = await uploadMedia(p.uri, `banners/${me.id}/${Date.now()}.jpg`, 'image/jpeg');
+      updateMe({ banner: r.url });
+      pushBanner({ title: 'Banner diperbarui', body: 'Banner profil sudah tersimpan.', icon: 'checkmark-circle' });
+    } catch (e: any) {
+      pushBanner({ title: 'Unggah banner gagal', body: e?.message ?? 'Coba lagi.', icon: 'alert' });
+    } finally {
+      setBusyMedia(false);
+    }
   };
 
   const save = () => {
@@ -42,7 +70,20 @@ export function EditProfile() {
     <Screen>
       <Header title="Edit profil" right={<Btn small title="Simpan" onPress={save} />} />
       <ScrollView contentContainerStyle={{ padding: 20, gap: 18, maxWidth: 560, width: '100%', alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
-        <Pressable onPress={() => setPhotoSheet(true)} style={{ alignSelf: 'center' }}>
+        <Pressable onPress={() => setBannerSheet(true)} disabled={busyMedia} style={({ pressed }) => ({ height: 116, borderRadius: R.lg, overflow: 'hidden', backgroundColor: t.bg2, opacity: pressed ? 0.9 : 1 })} accessibilityLabel="Ganti banner profil">
+          {me.banner ? (
+            <Image source={{ uri: me.banner }} style={{ width: '100%', height: '100%' }} contentFit="cover" transition={150} />
+          ) : (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <Ionicons name="image-outline" size={22} color={t.sub} />
+              <T v="caption" color={t.sub}>Ketuk untuk pasang banner profil</T>
+            </View>
+          )}
+          <View style={{ position: 'absolute', right: 10, bottom: 10, width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="camera" size={16} color="#fff" />
+          </View>
+        </Pressable>
+        <Pressable onPress={() => setPhotoSheet(true)} disabled={busyMedia} style={{ alignSelf: 'center' }}>
           <Avatar uri={me.avatar} name={me.name} color={me.color} size={130} />
           <View style={{ position: 'absolute', right: 4, bottom: 4, width: 40, height: 40, borderRadius: 20, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: t.bg }}>
             <Ionicons name="camera" size={19} color="#fff" />
@@ -73,6 +114,15 @@ export function EditProfile() {
           { icon: 'camera', label: 'Ambil foto', onPress: () => setPhoto(true) },
           { icon: 'images', label: 'Pilih dari galeri', onPress: () => setPhoto(false) },
           ...(me.avatar ? [{ icon: 'trash' as const, label: 'Hapus foto', danger: true, onPress: () => updateMe({ avatar: null }) }] : []),
+        ]}
+      />
+      <Sheet
+        visible={bannerSheet}
+        onClose={() => setBannerSheet(false)}
+        title="Banner profil"
+        options={[
+          { icon: 'images', label: 'Pilih dari galeri', onPress: setBanner },
+          ...(me.banner ? [{ icon: 'trash' as const, label: 'Hapus banner', danger: true, onPress: () => updateMe({ banner: null }) }] : []),
         ]}
       />
       <Sheet visible={pwOpen} onClose={() => setPwOpen(false)} title="Ganti password">

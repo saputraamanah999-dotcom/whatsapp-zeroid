@@ -3,26 +3,32 @@
  *
  * - Images are resized (max 1600px) and re-encoded (WebP when supported, else
  *   JPEG) via canvas on web / ImageManipulator on native. PNG alpha is kept.
- * - Uploads go to Firebase Storage with resumable tasks and progress callbacks.
+ *   Animated GIFs pass through untouched so they stay animated.
+ * - Uploads go to EXTERNAL file hosts through the authenticated serverless
+ *   proxy /api/upload (x0.at → uguu → tmpfiles; ImgBB when IMGBB_KEY is set on
+ *   the server) — per project spec Firebase Storage is NEVER used for media.
  * - Every upload returns { url, path, mime, size } so the message document can
  *   reference the file without storing binary data in Firestore.
- * - No silent local fallback: when Firebase is not configured uploads fail
- *   loudly (the app shows a configuration screen anyway).
+ * - No silent local fallback: when the server or every provider fails the
+ *   upload fails loudly with a human-readable reason.
  */
 import { Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage';
-import { firebase } from './firebase';
+import { firebase, firebaseConfig } from './firebase';
+import { proxyUrl } from './proxy';
 import { ensurePermission } from './permissions';
 
 export type Picked = { type: 'image' | 'video' | 'audio' | 'document'; uri: string; name?: string; size?: number; duration?: number; mime?: string; width?: number; height?: number };
 
+/** Serverless request bodies max ~4.5 MB — base64 payload caps decoded size at 3.2 MB. */
+export const UPLOAD_MAX_MB = 3.2;
+
 export const LIMITS = {
-  imageMB: 15,
-  videoMB: 60,
-  audioMB: 25,
-  docMB: 25,
+  imageMB: 15,      // pre-compression — images are resized before upload anyway
+  videoMB: UPLOAD_MAX_MB,
+  audioMB: UPLOAD_MAX_MB,
+  docMB: UPLOAD_MAX_MB,
   maxDim: 1600,
 };
 
@@ -105,51 +111,79 @@ export async function makeThumb(source: string | Blob, size = 320): Promise<stri
   } catch { return undefined; }
 }
 
-// ---------------- upload ----------------
+// ---------------- upload (external hosts via authenticated proxy) ----------------
 
-export type UploadResult = { url: string; path: string; mime: string; size: number };
+export type UploadResult = { url: string; path: string; mime: string; size: number; provider?: string; expiresAt?: number };
 export type ProgressFn = (pct: number) => void;
 
-export async function uploadToStorage(input: Blob | string, path: string, mime: string, onProgress?: ProgressFn): Promise<UploadResult> {
+function toBlob(input: Blob | string): Promise<Blob> {
+  if (input instanceof Blob) return Promise.resolve(input);
+  return fetch(input).then((r) => r.blob());
+}
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => {
+      const s = String(fr.result ?? '');
+      const i = s.indexOf(',');
+      resolve(i >= 0 ? s.slice(i + 1) : s);
+    };
+    fr.onerror = () => reject(new MediaError('Gagal membaca file.'));
+    fr.readAsDataURL(blob);
+  });
+}
+
+/**
+ * Upload a file to an external host through /api/upload (Vercel).
+ * XHR (not fetch) so real upload progress is available on web + native.
+ */
+function xhrUpload(body: any, onProgress?: ProgressFn, ms = 150000): Promise<UploadResult> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', proxyUrl('/api/upload'));
+    xhr.timeout = ms;
+    xhr.setRequestHeader('content-type', 'application/json');
+    xhr.upload.onprogress = (e) => { if (onProgress && e.lengthComputable) onProgress(Math.min(99, Math.round((e.loaded / Math.max(1, e.total)) * 100))); };
+    xhr.onload = () => {
+      let data: any = null;
+      try { data = JSON.parse(xhr.responseText); } catch {}
+      if (xhr.status >= 200 && xhr.status < 300 && data?.ok && data?.url) {
+        onProgress?.(100);
+        resolve({ url: data.url, path: '', mime: body.mime, size: body.size, provider: data.provider, expiresAt: data.expiresAt });
+      } else {
+        reject(new MediaError(String(data?.error ?? `Server unggah menolak (HTTP ${xhr.status}).`)));
+      }
+    };
+    xhr.onerror = () => reject(new MediaError('Tidak dapat menghubungi server unggah. Periksa koneksi internet.'));
+    xhr.ontimeout = () => reject(new MediaError('Waktu unggah habis. Coba lagi.'));
+    xhr.onabort = () => reject(new MediaError('Unggahan dibatalkan.'));
+    xhr.send(JSON.stringify(body));
+  });
+}
+
+/**
+ * Upload any blob/URI to an external host (x0.at → uguu → tmpfiles, ImgBB when
+ * the server has IMGBB_KEY). Requires a signed-in user — the ID token proves
+ * identity to the proxy. `path` is kept for call-site compatibility; only the
+ * base name is used as the file name.
+ */
+export async function uploadMedia(input: Blob | string, path: string, mime: string, onProgress?: ProgressFn): Promise<UploadResult> {
   const fb = firebase();
   if (!fb) throw new MediaError('Firebase belum dikonfigurasi.');
-  let blob: Blob;
-  let size: number;
-  if (Platform.OS === 'web') {
-    blob = typeof input === 'string' ? await (await fetch(input)).blob() : input;
-    size = blob.size;
-  } else {
-    const r = await fetch(typeof input === 'string' ? input : (input as any).uri);
-    blob = await r.blob();
-    size = blob.size;
-  }
+  if (!(fb as any).auth?.currentUser) throw new MediaError('Masuk dulu untuk mengunggah media.');
+  const blob = await toBlob(input);
+  const size = blob.size;
   if (size <= 0) throw new MediaError('File kosong.');
-  const storageRef = ref(fb.storage, path);
-  await new Promise<void>((resolve, reject) => {
-    const task = uploadBytesResumable(storageRef, blob as any, { contentType: mime });
-    task.on('state_changed',
-      (s) => { if (onProgress) onProgress(Math.round((s.bytesTransferred / Math.max(1, s.totalBytes)) * 100)); },
-      (err) => reject(new MediaError(errMessage(err))),
-      async () => resolve()
-    );
-  });
-  const url = await getDownloadURL(storageRef);
-  return { url, path, mime, size };
+  if (size > mb(UPLOAD_MAX_MB)) throw new MediaError(`File terlalu besar (${(size / 1024 / 1024).toFixed(1)} MB) — maks ${UPLOAD_MAX_MB} MB di server unggah ini.`);
+  const token = await (fb as any).auth.currentUser.getIdToken();
+  const name = path.split('/').pop() ?? `file_${Date.now()}`;
+  const dataBase64 = await blobToBase64(blob);
+  return await xhrUpload({ token, projectId: firebaseConfig.projectId, name, mime, kind: mime.split('/')[0], dataBase64, size }, onProgress);
 }
 
-function errMessage(e: any): string {
-  const c = String(e?.code ?? '');
-  if (c.includes('unauthorized') || c.includes('unauthenticated')) return 'Tidak diizinkan mengunggah ke lokasi ini (periksa Storage rules).';
-  if (c.includes('canceled')) return 'Unggahan dibatalkan.';
-  if (c.includes('quota')) return 'Kuota penyimpanan penuh.';
-  return e?.message ?? 'Unggahan gagal.';
-}
-
-export async function deleteStoragePath(path: string) {
-  const fb = firebase();
-  if (!fb || !path) return;
-  try { await deleteObject(ref(fb.storage, path)); } catch {}
-}
+/** External hosts cannot be deleted without account keys — kept as a no-op so message deletion flows stay intact. */
+export async function deleteStoragePath(_path: string) { /* no-op: media lives on external hosts */ }
 
 // ---------------- pickers ----------------
 
@@ -236,13 +270,20 @@ export async function prepareForSend(p: Picked, chatId: string): Promise<Prepare
   if (kind === 'document' && tooBig(LIMITS.docMB)) throw new MediaError(`Dokumen terlalu besar (maks ${LIMITS.docMB} MB).`);
 
   if (kind === 'image') {
+    // animated GIF passes through untouched so the animation survives
+    if ((p.mime === 'image/gif' || p.name?.toLowerCase().endsWith('.gif')) && size > 0 && size <= mb(UPLOAD_MAX_MB)) {
+      return {
+        type: 'image', uri: p.uri, name: p.name ?? `gif_${Date.now()}.gif`, size, mime: 'image/gif', width: p.width, height: p.height,
+        upload: (onProgress?: ProgressFn) => uploadMedia(p.uri, `chats/${chatId}/${Date.now()}_${p.name ?? 'anim.gif'}`, 'image/gif', onProgress as ProgressFn),
+      };
+    }
     const src = p.uri;
     const { blob, mime, width, height } = await compressImage(src);
     const name = (p.name ?? 'photo').replace(/\.[^.]+$/, '') + '.' + (mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg');
     return {
       type: 'image', uri: URL.createObjectURL ? (Platform.OS === 'web' ? URL.createObjectURL(blob) : src) : src,
       name, size: blob.size, mime, width, height,
-      upload: (onProgress?: ProgressFn) => uploadToStorage(blob, `chats/${chatId}/${Date.now()}_${name}`, mime, onProgress as ProgressFn),
+      upload: (onProgress?: ProgressFn) => uploadMedia(blob, `chats/${chatId}/${Date.now()}_${name}`, mime, onProgress as ProgressFn),
     };
   }
   if (kind === 'video') {
@@ -250,21 +291,21 @@ export async function prepareForSend(p: Picked, chatId: string): Promise<Prepare
     const mime = p.mime ?? 'video/mp4';
     return {
       type: 'video', uri: p.uri, name, size: p.size, mime, duration: p.duration,
-      upload: (onProgress?: ProgressFn) => uploadToStorage(p.uri, `chats/${chatId}/${Date.now()}_${name}`, mime, onProgress as ProgressFn),
+      upload: (onProgress?: ProgressFn) => uploadMedia(p.uri, `chats/${chatId}/${Date.now()}_${name}`, mime, onProgress as ProgressFn),
     };
   }
   if (kind === 'audio') {
     const name = (p.name ?? 'audio').replace(/[^\w.-]/g, '_');
-    const mime = p.mime ?? 'audio/m4a';
+    const mime = p.mime ?? 'audio/mp4';
     return {
       type: 'audio', uri: p.uri, name, size: p.size, mime, duration: p.duration,
-      upload: (onProgress?: ProgressFn) => uploadToStorage(p.uri, `chats/${chatId}/${Date.now()}_${name}`, mime, onProgress as ProgressFn),
+      upload: (onProgress?: ProgressFn) => uploadMedia(p.uri, `chats/${chatId}/${Date.now()}_${name}`, mime, onProgress as ProgressFn),
     };
   }
   const name = (p.name ?? 'document').replace(/[^\w.-]/g, '_');
   const mime = p.mime ?? 'application/octet-stream';
   return {
     type: 'document', uri: p.uri, name, size: p.size, mime,
-    upload: (onProgress?: ProgressFn) => uploadToStorage(p.uri, `chats/${chatId}/${Date.now()}_${name}`, mime, onProgress as ProgressFn),
+    upload: (onProgress?: ProgressFn) => uploadMedia(p.uri, `chats/${chatId}/${Date.now()}_${name}`, mime, onProgress as ProgressFn),
   };
 }

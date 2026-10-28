@@ -28,7 +28,7 @@ import {
 } from '../lib/store';
 import { ago } from '../lib/format';
 import { placeCall } from './tabs/CallsTab';
-import { pickGallery, uploadToStorage } from '../lib/media';
+import { pickGallery, uploadMedia } from '../lib/media';
 import { pushBanner } from '../lib/bus';
 
 export default function ChatInfo() {
@@ -73,7 +73,7 @@ export default function ChatInfo() {
 
   const changePhoto = async () => {
     const p = await pickGallery('images');
-    if (p) { const r = await uploadToStorage(p.uri, `groups/${chat.id}_${Date.now()}.jpg`, 'image/jpeg'); updateChat(chat.id, { avatar: r.url }); }
+    if (p) { const r = await uploadMedia(p.uri, `groups/${chat.id}_${Date.now()}.jpg`, 'image/jpeg'); updateChat(chat.id, { avatar: r.url }); }
   };
 
   const candidates = Object.values(db.users).filter((u) => !chat.members.includes(u.id) && !u.banned);

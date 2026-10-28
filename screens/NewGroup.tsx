@@ -5,7 +5,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { Header, Screen, NeuInput, Avatar, T, Btn, Neu } from '../components/ui';
 import { useTheme, R } from '../lib/theme';
 import { useStore, createGroup } from '../lib/store';
-import { pickGallery, uploadToStorage } from '../lib/media';
+import { pickGallery, uploadMedia } from '../lib/media';
 
 export default function NewGroup() {
   const t = useTheme();
@@ -24,7 +24,7 @@ export default function NewGroup() {
 
   const create = async () => {
     if (name.trim().length < 2) return setErr('Nama minimal 2 karakter.');
-    const av = avatar ? (await uploadToStorage(avatar, `groups/${Date.now()}_avatar.jpg`, 'image/jpeg')).url : null;
+    const av = avatar ? (await uploadMedia(avatar, `groups/${Date.now()}_avatar.jpg`, 'image/jpeg')).url : null;
     const id = createGroup(name, sel, desc.trim(), av, type);
     nav.replace('ChatRoom', { chatId: id });
   };

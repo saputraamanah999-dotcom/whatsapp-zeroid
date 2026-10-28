@@ -18,7 +18,7 @@ import { useTheme, font, R } from '../lib/theme';
 import { Message, DB, User } from '../lib/types';
 import { messagePreview, sendMessage, editMessage, setTyping, clearTyping, retryMessage, OutMsg, stickersFor, createSticker } from '../lib/store';
 import { ensurePermission } from '../lib/permissions';
-import { pickCamera, pickDocument, pickGallery, pickMultipleImages, uploadToStorage, Picked, PreparedMedia, prepareForSend, MediaError } from '../lib/media';
+import { pickCamera, pickDocument, pickGallery, pickMultipleImages, uploadMedia, Picked, PreparedMedia, prepareForSend, MediaError } from '../lib/media';
 import { duration as fmt } from '../lib/format';
 import { pushBanner } from '../lib/bus';
 
@@ -36,6 +36,9 @@ function RecDot() {
 }
 
 type PendingMedia = { prepared: PreparedMedia; preview: string; caption: string; progress: number };
+
+/** one-shot per session: web browser notification permission (requested on first send) */
+let webNotifAsked = false;
 
 export default function Composer({
   chatId, db, me, replyTo, editing, onClearReply, onClearEdit, onSend,
@@ -93,6 +96,11 @@ export default function Composer({
   const submit = () => {
     const s = text.trim();
     if (!s) return;
+    // web: minta izin notifikasi sekali per sesi, dalam konteks gestur pengguna
+    if (Platform.OS === 'web' && !webNotifAsked) {
+      webNotifAsked = true;
+      void ensurePermission('notifications');
+    }
     if (editing) {
       editMessage(chatId, editing.id, s);
       onClearEdit();
@@ -215,8 +223,12 @@ export default function Composer({
       if (sendIt && uri && dur >= 1) {
         setBusy(true);
         try {
-          const res = await uploadToStorage(uri, `chats/${chatId}/vn_${Date.now()}.m4a`, 'audio/m4a');
-          send({ type: 'audio', uri: res.url, duration: dur, mime: 'audio/m4a', fileSize: res.size, storagePath: res.path });
+          // expo-audio: native → .m4a (audio/mp4), web MediaRecorder → .webm (audio/webm)
+          const isWebm = /\.webm$/i.test(uri);
+          const mime = isWebm ? 'audio/webm' : 'audio/mp4';
+          const ext = isWebm ? '.webm' : '.m4a';
+          const res = await uploadMedia(uri, `chats/${chatId}/vn_${Date.now()}${ext}`, mime);
+          send({ type: 'audio', uri: res.url, duration: dur, mime, fileSize: res.size, storagePath: res.path });
           resetInput();
         } finally {
           setBusy(false);

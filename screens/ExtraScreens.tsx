@@ -35,7 +35,7 @@ import {
 import { PRODUCTS, PAYMENT_METHODS, rupiah, productOf } from '../lib/products';
 import { CURATED, resolveMedia, isYouTube } from '../lib/spotify';
 import { songSearch, ytSearch, fetchLyrics, songPlay, ytDownload, SongResult, YtResult, MediaDirect } from '../lib/jere';
-import { pickGallery, uploadToStorage } from '../lib/media';
+import { pickGallery, uploadMedia } from '../lib/media';
 import { pushBanner } from '../lib/bus';
 import { ago, chatTime } from '../lib/format';
 import { placeCall } from './tabs/CallsTab';
@@ -67,6 +67,11 @@ export function UserProfile() {
       <Header title={self ? 'Profil saya' : 'Info kontak'} />
       <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 40, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
         <View style={{ alignItems: 'center', marginBottom: 22 }}>
+          {!!u.banner && (
+            <Pressable onPress={() => nav.navigate('MediaViewer', { uri: u.banner, type: 'image' })} style={({ pressed }) => ({ alignSelf: 'stretch', height: 140, borderRadius: R.lg, overflow: 'hidden', marginBottom: -64, opacity: pressed ? 0.92 : 1 })} accessibilityLabel="Banner profil">
+              <Image source={{ uri: u.banner }} style={{ width: '100%', height: '100%' }} contentFit="cover" transition={150} />
+            </Pressable>
+          )}
           <Pressable disabled={!photo} onPress={() => nav.navigate('MediaViewer', { uri: photo, type: 'image' })}>
             <Avatar uri={photo} name={u.name} color={u.color} size={128} online={isOnline(u) && canSee(me, u, u.privacy.lastSeen)} />
           </Pressable>
@@ -553,7 +558,7 @@ export function StickersScreen() {
   const make = async () => {
     const p = await pickGallery('images');
     if (!p) return;
-    const res = await uploadToStorage(p.uri, `stickers/${me.id}/${Date.now()}.png`, 'image/png');
+    const res = await uploadMedia(p.uri, `stickers/${me.id}/${Date.now()}.png`, 'image/png');
     const uri = res.url;
     createSticker(uri, global);
     pushBanner({ title: 'Stiker dibuat', body: global ? 'Dibagikan untuk semua pengguna' : 'Tersimpan di koleksimu', icon: 'happy' });

@@ -72,4 +72,4 @@ export const COLLECTIONS = {
 } as const;
 
 /** Server-side env (Vercel functions only) — never referenced in client code. */
-export const SERVER_ENV_KEYS = ['JEREXD_APIKEY', 'CATBOX_USERHASH'] as const;
+export const SERVER_ENV_KEYS = ['JEREXD_APIKEY', 'IMGBB_KEY'] as const;

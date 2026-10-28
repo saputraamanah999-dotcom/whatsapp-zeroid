@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, Btn } from '../components/ui';
 import { font, STORY_BGS } from '../lib/theme';
 import { postStory, getMe } from '../lib/store';
-import { pickCamera, pickGallery, pickVideo, uploadToStorage } from '../lib/media';
+import { pickCamera, pickGallery, pickVideo, uploadMedia, compressImage, MediaError, UPLOAD_MAX_MB, mb } from '../lib/media';
 import { pushBanner } from '../lib/bus';
 
 export default function StoryCreate() {
@@ -27,10 +27,13 @@ export default function StoryCreate() {
 
   const pickVid = async () => {
     const p = await pickVideo();
-    if (p) {
-      setUri(p.uri);
-      setMode('video');
+    if (!p) return;
+    if (p.size && p.size > mb(UPLOAD_MAX_MB)) {
+      pushBanner({ title: 'Video terlalu besar', body: `Maks ${UPLOAD_MAX_MB} MB di server unggah ini — pilih video lebih pendek.`, icon: 'alert' });
+      return;
     }
+    setUri(p.uri);
+    setMode('video');
   };
 
   useEffect(() => {
@@ -42,13 +45,22 @@ export default function StoryCreate() {
     if (mode !== 'text' && !uri) return;
     setBusy(true);
     const myId = getMe()?.id ?? 'anon';
-    let u: string | undefined;
-    if (mode === 'image' && uri) u = (await uploadToStorage(uri, `stories/${myId}/${Date.now()}.jpg`, 'image/jpeg')).url;
-    if (mode === 'video' && uri) u = (await uploadToStorage(uri, `stories/${myId}/${Date.now()}.mp4`, 'video/mp4')).url;
-    postStory(mode === 'text' ? { type: 'text', text: text.trim(), bg } : mode === 'video' ? { type: 'video', uri: u, text: text.trim() || undefined } : { type: 'image', uri: u, text: text.trim() || undefined });
-    setBusy(false);
-    pushBanner({ title: 'Story dibagikan', body: 'Kontakmu akan diberi tahu. Story hilang dalam 24 jam.', icon: 'aperture' });
-    nav.goBack();
+    try {
+      let u: string | undefined;
+      if (mode === 'image' && uri) {
+        // kompres dulu (story picker memberi JPEG mentah yang bisa >3MB)
+        const { blob, mime } = await compressImage(uri, { maxDim: 1440, quality: 0.82 });
+        u = (await uploadMedia(blob, `stories/${myId}/${Date.now()}.${mime === 'image/png' ? 'png' : 'webp'}`, mime)).url;
+      }
+      if (mode === 'video' && uri) u = (await uploadMedia(uri, `stories/${myId}/${Date.now()}.mp4`, 'video/mp4')).url;
+      await postStory(mode === 'text' ? { type: 'text', text: text.trim(), bg } : mode === 'video' ? { type: 'video', uri: u, text: text.trim() || undefined } : { type: 'image', uri: u, text: text.trim() || undefined });
+      pushBanner({ title: 'Story dibagikan', body: 'Kontakmu akan diberi tahu. Story hilang dalam 24 jam.', icon: 'aperture' });
+      nav.goBack();
+    } catch (e: any) {
+      pushBanner({ title: 'Story gagal dikirim', body: e instanceof MediaError ? e.message : (e?.message ?? 'Coba lagi.'), icon: 'alert' });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (

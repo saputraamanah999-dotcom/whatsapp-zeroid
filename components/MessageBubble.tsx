@@ -272,7 +272,7 @@ export default function MessageBubble({
                   </T>
                 </Pressable>
                 {showThink && (
-                  <T v="caption" color={mine ? 'rgba(255,255,255,0.9)' : t.sub} selectable style={{ marginTop: 5, fontStyle: 'italic', lineHeight: 17 }}>
+                  <T v="caption" color={mine ? 'rgba(255,255,255,0.9)' : t.sub} style={{ marginTop: 5, fontStyle: 'italic', lineHeight: 17, userSelect: 'none' } as any}>
                     {m.reasoning}
                   </T>
                 )}
@@ -295,7 +295,7 @@ export default function MessageBubble({
               </Pressable>
             )}
             {!!m.text && (
-              <T v="body" color={fg} selectable style={{ lineHeight: 21, paddingHorizontal: isMedia ? 8 : 0, paddingTop: isMedia ? 6 : 0 }}>
+              <T v="body" color={fg} style={{ lineHeight: 21, paddingHorizontal: isMedia ? 8 : 0, paddingTop: isMedia ? 6 : 0, userSelect: 'none' } as any}>
                 {m.text}
               </T>
             )}
