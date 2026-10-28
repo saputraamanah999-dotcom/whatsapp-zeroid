@@ -7,7 +7,7 @@ import { T, IconBtn, NeuInput, Empty, Btn } from '../../components/ui';
 import ChatRow from '../../components/ChatRow';
 import { Sheet, Confirm } from '../../components/Sheet';
 import { useTheme, R } from '../../lib/theme';
-import { useStore, isMember, lastMessage, unreadCount, chatTitle, toggleChatFlag, markRead, deleteChat, chatPeer, removeContact, toggleBlock } from '../../lib/store';
+import { useStore, isMember, lastMessage, chatLastMsg, unreadCount, chatTitle, toggleChatFlag, markRead, deleteChat, chatPeer, removeContact, toggleBlock } from '../../lib/store';
 import { Chat } from '../../lib/types';
 
 type Filter = 'all' | 'unread' | 'groups' | 'pinned';
@@ -28,8 +28,8 @@ export default function ChatsTab() {
 
   const { list, archivedCount } = useMemo(() => {
     if (!me) return { list: [], archivedCount: 0 };
-    let all = Object.values(db.chats).filter((c) => (c.type === 'direct' || c.type === 'group' || c.type === 'ai') && isMember(c, me.id));
-    all = all.filter((c) => c.type !== 'direct' || (db.messages[c.id] ?? []).some((m) => !m.deletedFor.includes(me.id)) || c.createdBy === me.id);
+    let all = Object.values(db.chats).filter((c) => (c.type === 'direct' || c.type === 'group' || c.type === 'ai' || c.type === 'global') && isMember(c, me.id));
+    all = all.filter((c) => c.type !== 'direct' || (db.messages[c.id] ?? []).some((m) => !m.deletedFor.includes(me.id)) || c.createdBy === me.id || !!c.lastMsg);
     const archivedCount = all.filter((c) => c.archivedBy.includes(me.id)).length;
     let list = all.filter((c) => (archived ? c.archivedBy.includes(me.id) : !c.archivedBy.includes(me.id)));
     if (filter === 'unread') list = list.filter((c) => unreadCount(c, me.id) > 0);
@@ -40,10 +40,14 @@ export default function ChatsTab() {
       list = list.filter((c) => chatTitle(c, me.id, db).toLowerCase().includes(s) || (db.messages[c.id] ?? []).some((m) => m.text?.toLowerCase().includes(s)));
     }
     list.sort((a, b) => {
+      // CHAT GLOBAL selalu paling atas — user baru langsung melihatnya pertama
+      const ga = a.type === 'global' ? 2 : 0;
+      const gb = b.type === 'global' ? 2 : 0;
+      if (ga !== gb) return gb - ga;
       const pa = a.pinnedBy.includes(me.id) ? 1 : 0;
       const pb = b.pinnedBy.includes(me.id) ? 1 : 0;
       if (pa !== pb) return pb - pa;
-      return (lastMessage(b.id, me.id)?.createdAt ?? b.createdAt) - (lastMessage(a.id, me.id)?.createdAt ?? a.createdAt);
+      return (chatLastMsg(b, me.id)?.createdAt ?? b.createdAt) - (chatLastMsg(a, me.id)?.createdAt ?? a.createdAt);
     });
     return { list, archivedCount };
   }, [db, me, q, filter, archived]);

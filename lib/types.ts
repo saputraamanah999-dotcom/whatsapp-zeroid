@@ -43,6 +43,10 @@ export type User = {
   otpExpires?: number;
   pin?: string;
   spotify?: SpotifyTrack | null;
+  /** AI Anti-Spam: selama ini > now, kirim pesan dibatasi (ms epoch) */
+  mutedUntil?: number;
+  /** Limit pembelian: timestamp percobaan order (maks 5 per 1 jam) */
+  orderAttempts?: number[];
   verified: boolean;
   banned: boolean;
   suspendedUntil?: number;
@@ -103,11 +107,16 @@ export type Chat = {
   lastMsg?: { text: string; type: MsgType; senderId: string; createdAt: number };
   /** public join link token (groups/channels) */
   inviteCode?: string;
+  /** Patungan centang biru: map uid → jumlah kontribusi (rupiah) */
+  blueCheckPot?: Record<string, number>;
   /** disappearing messages timer — set by group admins */
   disappearing?: 'off' | '24h' | '7d' | '90d';
 };
 
-export type MsgType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'system' | 'call' | 'sticker' | 'order' | 'location' | 'contact';
+export type MsgType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'system' | 'call' | 'sticker' | 'order' | 'location' | 'contact' | 'poll';
+
+/** Polling ala WhatsApp — pertanyaan di text, pilihan + suara di sini */
+export type PollData = { options: string[]; multi?: boolean };
 
 export type SpotifyTrack = { id: string; kind: 'track' | 'playlist' | 'album'; title: string; thumb?: string };
 export type YouTubeTrack = { id: string; kind: 'youtube'; title: string; thumb?: string };
@@ -172,6 +181,9 @@ export type Message = {
   lat?: number;
   lng?: number;
   locationLabel?: string;
+  /** polling: data pilihan + suara per user (uid → index pilihan / array utk multi) */
+  poll?: PollData;
+  votes?: Record<string, number | number[]>;
   /** contact card message */
   contactName?: string;
   contactPhone?: string;

@@ -1,5 +1,5 @@
 /**
- * Firebase (existing project: projekwhattsaf).
+ * Firebase (project: whatsapp-zeroid — ganti cukup lewat env EXPO_PUBLIC_FIREBASE_*).
  * Native Android keeps using google-services.json; the JS layer reads the
  * web/app keys from EXPO_PUBLIC_FIREBASE_* env vars so no secret is hard-coded.
  *
@@ -16,9 +16,9 @@ import { Platform } from 'react-native';
 
 export const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY ?? '',
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? 'projekwhattsaf.firebaseapp.com',
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? 'projekwhattsaf',
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? 'projekwhattsaf.appspot.com',
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN ?? 'whatsapp-zeroid.firebaseapp.com',
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? 'whatsapp-zeroid',
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET ?? 'whatsapp-zeroid.firebasestorage.app',
   messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_SENDER_ID ?? '',
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID ?? '',
 };

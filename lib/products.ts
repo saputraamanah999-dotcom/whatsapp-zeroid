@@ -37,10 +37,10 @@ export const PRODUCTS: Product[] = [
     icon: 'bluecheck',
     color: '#1E6BFF',
     desc: 'Verifikasi akun resmi dengan centang biru setelah ditinjau admin.',
-    perks: ['Centang biru di nama & profil', 'Ditinjau manual oleh admin', 'Perlindungan dari akun peniru', 'Muncul teratas di pencarian'],
+    perks: ['Centang biru di nama & profil', 'Ikut otomatis ke grup & saluran milikmu', 'Ditinjau manual oleh admin', 'Muncul teratas di pencarian'],
     plans: [
-      { label: 'Sekali bayar', days: 36500, price: 49000 },
-      { label: 'Bisnis', days: 36500, price: 149000 },
+      { label: 'Permanen', days: 0, price: 49000 },
+      { label: 'Bisnis · Permanen', days: 0, price: 149000 },
     ],
   },
   {

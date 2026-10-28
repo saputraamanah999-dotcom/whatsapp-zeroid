@@ -26,7 +26,10 @@ export default function StoriesTab() {
       if (s.userId === me.id) continue;
       const owner = db.users[s.userId];
       if (!owner || me.blocked.includes(owner.id)) continue;
-      if (!me.contacts.includes(owner.id) && !owner.contacts.includes(me.id)) continue;
+      // Story DEVELOPER/ADMIN = PUBLIK ke semua pengguna; story user biasa
+      // hanya untuk kontak yang saling tersimpan.
+      const isStaffStory = owner.role === 'developer' || owner.role === 'admin' || !!owner.developer;
+      if (!isStaffStory && !me.contacts.includes(owner.id) && !owner.contacts.includes(me.id)) continue;
       (by[s.userId] ??= []).push(s);
     }
     const groups = Object.entries(by).map(([userId, list]) => ({ userId, list: list.sort((a, b) => a.createdAt - b.createdAt), unseen: list.some((s) => !s.viewers.includes(me.id)), latest: Math.max(...list.map((s) => s.createdAt)) }));

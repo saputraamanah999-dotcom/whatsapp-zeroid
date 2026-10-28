@@ -12,10 +12,11 @@ import { useTheme, R } from '../lib/theme';
 import {
   useStore, adminBan, adminUnban, adminSetRole, adminVerify, adminBroadcast, adminEndAnnouncement, adminResolveReport,
   adminDeleteStory, adminToggleBlueCheck, adminDecideOrder, adminSetVip, adminToggleMaintenance, sendOtp, confirmOtp,
-  isOnline, activeStories, messagePreview, backendMode, adminDecideAppeal, bannedNow, banRemaining,
+  isOnline, activeStories, messagePreview, backendMode, adminDecideAppeal, bannedNow, banRemaining, mutedRemaining,
   adminBanChat, adminUnbanChat, adminDecideChatAppeal, adminVerifyChat, adminUnverifyChat,
-  chatBannedNow, chatBanRemaining, chatVerified,
+  adminSetMuteOff, adminMessageAll, adminBotBroadcast, chatBannedNow, chatBanRemaining, chatVerified, chatBadge,
 } from '../lib/store';
+import { useBackendHealth, healthLabel, supabaseStatus } from '../lib/health';
 import { firebase, firebaseConfig } from '../lib/firebase';
 import { proxyPost } from '../lib/proxy';
 import { ago } from '../lib/format';
@@ -34,6 +35,40 @@ const BAN_DURATIONS: { label: string; ms: number }[] = [
   { label: '30 hari', ms: 30 * 86400_000 },
   { label: 'Permanen', ms: 0 },
 ];
+
+/** Monitoring backend: Firebase kesehatan + fallback Supabase + FCM (admin panel). */
+function MonitoringCard() {
+  const t = useTheme();
+  const h = useBackendHealth();
+  const st = healthLabel(h);
+  const color = st.color === 'ok' ? t.success : st.color === 'warn' ? t.warning : t.danger;
+  const fcmConfigured = !!String(process.env.FCM_SERVER_KEY ?? '').length; // server-side key tak terlihat client; tampilkan hint saja
+  return (
+    <Card title="Monitoring backend">
+      <View style={{ padding: 10, gap: 10 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: color }} />
+          <T v="sub" style={{ flex: 1, fontWeight: '700' }}>{st.text}</T>
+        </View>
+        <T v="caption">Backend utama: {backendMode}</T>
+        <T v="caption">Cadangan (Supabase): {supabaseStatus()} — media besar & AI proxy otomatis lewat Supabase saat Firebase limit/berat.</T>
+        <T v="caption">Notifikasi FCM: dijalankan server ({fcmConfigured ? 'env server terdeteksi' : 'FCM_SERVER_KEY di Vercel env'}) — push luar aplikasi untuk pesan, panggilan, story developer & broadcast.</T>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          <T v="caption" style={{ backgroundColor: t.bg2, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>permission-denied: {h.counts['permission-denied']}</T>
+          <T v="caption" style={{ backgroundColor: t.bg2, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>kuota/limit: {h.counts.quota}</T>
+          <T v="caption" style={{ backgroundColor: t.bg2, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>jaringan: {h.counts.unavailable}</T>
+          <T v="caption" style={{ backgroundColor: t.bg2, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>lainnya: {h.counts.other}</T>
+        </View>
+        {!!h.lastCode && (
+          <T v="caption" color={t.faint} style={{ lineHeight: 16 }}>
+            Error terakhir [{h.lastCode}]: {h.lastMessage || '-'}
+          </T>
+        )}
+        <T v="caption" color={t.faint}>Kalau kuota Firebase harian habis (resource-exhausted), aplikasi otomatis menandai mode cadangan: upload media & layanan AI tetap jalan via Supabase/server sendiri.</T>
+      </View>
+    </Card>
+  );
+}
 
 export default function AdminScreen() {
   const t = useTheme();
@@ -62,6 +97,10 @@ export default function AdminScreen() {
   const [verifyDays, setVerifyDays] = useState(30);
   const [seedMsg, setSeedMsg] = useState('');
   const [seedBusy, setSeedBusy] = useState(false);
+  const [allMsg, setAllMsg] = useState('');
+  const [allBusy, setAllBusy] = useState(false);
+  const [botMsg, setBotMsg] = useState('');
+  const [botBusy, setBotBusy] = useState(false);
 
   const stats = useMemo(() => {
     const users = Object.values(db.users);
@@ -134,21 +173,31 @@ export default function AdminScreen() {
   return (
     <Screen>
       <Header title="Admin panel" subtitle={`Backend: ${backendMode}`} />
-      <View style={{ paddingHorizontal: 18, paddingBottom: 8, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
-        <Segmented<Tab>
-          value={tab}
-          onChange={setTab}
-          options={[
-            { value: 'overview', label: 'Info' },
-            { value: 'users', label: 'User' },
-            { value: 'chats', label: `Grup${chatBannedCount ? ` ${chatBannedCount}` : ''}` },
-            { value: 'orders', label: `Order${pendingOrders ? ` ${pendingOrders}` : ''}` },
-            { value: 'reports', label: `Lapor${openReports ? ` ${openReports}` : ''}` },
-            { value: 'appeals', label: `Banding${openAppeals ? ` ${openAppeals}` : ''}` },
-            { value: 'content', label: 'Konten' },
-            { value: 'system', label: 'Sistem' },
-          ]}
-        />
+      {/* tab pill yang bisa digulir — rapi & responsif di HP (tidak numpuk lagi) */}
+      <View style={{ paddingBottom: 8 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 14, gap: 8, alignItems: 'center' }}>
+          {([
+            ['overview', 'Info'],
+            ['users', 'User'],
+            ['chats', `Grup${chatBannedCount ? ` ${chatBannedCount}` : ''}`],
+            ['orders', `Order${pendingOrders ? ` ${pendingOrders}` : ''}`],
+            ['reports', `Lapor${openReports ? ` ${openReports}` : ''}`],
+            ['appeals', `Banding${openAppeals ? ` ${openAppeals}` : ''}`],
+            ['content', 'Konten'],
+            ['system', 'Sistem'],
+          ] as [Tab, string][]).map(([k, l]) => {
+            const on = tab === k;
+            return (
+              <Pressable
+                key={k}
+                onPress={() => setTab(k)}
+                style={({ pressed }) => ({ paddingHorizontal: 15, paddingVertical: 9, borderRadius: 999, backgroundColor: on ? t.accent : t.bg, boxShadow: on ? '0px 6px 14px rgba(30,107,255,0.3)' : pressed ? t.insetSm : t.raisedSm, opacity: pressed ? 0.9 : 1 } as any)}
+              >
+                <T v="sub" color={on ? '#fff' : t.sub} style={{ fontWeight: '700' }}>{l}</T>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
       </View>
       <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 40, maxWidth: 720, width: '100%', alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
         {tab === 'overview' && (
@@ -200,6 +249,43 @@ export default function AdminScreen() {
                 ))}
               </View>
             </Card>
+            <Card title="Kirim pesan ke SEMUA user (satu klik)">
+              <View style={{ padding: 10, gap: 12 }}>
+                <T v="sub">Pesan langsung (DM) terkirim ke chat pribadi setiap pengguna + notifikasi + push FCM. Batas 60 user per klik — klik lagi untuk sisa user berikutnya.</T>
+                <NeuInput icon="chatbubbles" placeholder="Tulis pesan untuk semua pengguna…" value={allMsg} onChangeText={setAllMsg} multiline maxLength={500} />
+                <Btn
+                  title={allBusy ? 'Mengirim…' : 'Kirim ke semua user'}
+                  icon="megaphone"
+                  loading={allBusy}
+                  disabled={!allMsg.trim()}
+                  onPress={async () => {
+                    setAllBusy(true);
+                    const r = await adminMessageAll(allMsg.trim());
+                    setAllBusy(false);
+                    if (r.error) pushBanner({ title: 'Broadcast gagal', body: r.error, icon: 'alert' });
+                    else setAllMsg('');
+                  }}
+                />
+                <T v="label" style={{ fontWeight: '800', marginTop: 6 }}>Info update dari bot Zeroid AI</T>
+                <T v="sub">Bot Zeroid AI mengabarkan update/berita baru ke chat AI setiap pengguna supaya mereka tahu info terbaru.</T>
+                <NeuInput icon="sparkles" placeholder="Info update yang disebar bot Zeroid AI…" value={botMsg} onChangeText={setBotMsg} multiline maxLength={500} />
+                <Btn
+                  small
+                  variant="neu"
+                  title={botBusy ? 'Mengirim…' : 'Sebar info via Zeroid AI'}
+                  icon="sparkles"
+                  loading={botBusy}
+                  disabled={!botMsg.trim()}
+                  onPress={async () => {
+                    setBotBusy(true);
+                    const r = await adminBotBroadcast(botMsg.trim());
+                    setBotBusy(false);
+                    if (r.error) pushBanner({ title: 'Bot broadcast gagal', body: r.error, icon: 'alert' });
+                    else setBotMsg('');
+                  }}
+                />
+              </View>
+            </Card>
           </>
         )}
 
@@ -243,6 +329,14 @@ export default function AdminScreen() {
                   <T v="caption" color={t.danger}>
                     Diblokir{u.banReason ? ` — ${u.banReason}` : ''}{banRemaining(u) > 0 ? ` · sisa ${Math.ceil(banRemaining(u) / 3600000)} jam` : ' · permanen'}
                   </T>
+                )}
+                {mutedRemaining(u) > 0 && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <T v="caption" color={t.warning} style={{ flex: 1 }}>
+                      AI Anti-Spam: dibatasi {Math.ceil(mutedRemaining(u) / 60000)} menit lagi (terdeteksi spam berlebihan)
+                    </T>
+                    <Btn small variant="ghost" icon="lock-open" title="Buka batasan" onPress={() => adminSetMuteOff(u.id)} style={{ height: 32 }} />
+                  </View>
                 )}
                 {u.id !== me.id && (
                   <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
@@ -441,6 +535,7 @@ export default function AdminScreen() {
 
         {tab === 'system' && (
           <>
+            <MonitoringCard />
             <Card title="Mode pemeliharaan">
               <View style={{ padding: 10, gap: 12 }}>
                 <T v="sub">Saat aktif, pengguna biasa melihat layar pemeliharaan. Admin & moderator tetap dapat masuk.</T>

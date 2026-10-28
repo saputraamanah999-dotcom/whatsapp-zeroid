@@ -31,6 +31,8 @@ import {
   stickersFor,
   isVip,
   isMemberPlan,
+  planActive,
+  orderLimitRemaining,
 } from '../lib/store';
 import { PRODUCTS, PAYMENT_METHODS, rupiah, productOf } from '../lib/products';
 import { resolveMedia } from '../lib/spotify';
@@ -170,7 +172,8 @@ export function PremiumScreen() {
   const [buy, setBuy] = useState<{ product: ProductKey; plan: number } | null>(null);
   if (!me) return null;
   const myOrders = db.orders.filter((o) => o.userId === me.id);
-  const active = (k: ProductKey) => (k === 'vip' ? isVip(me) : k === 'member' ? isMemberPlan(me) : k === 'bluecheck' ? !!me.blueCheck : !!me.security);
+  const active = (k: ProductKey) => planActive(k, me);
+  const limit = orderLimitRemaining(me);
   return (
     <Screen>
       <Header title="Zeroid Premium" subtitle="VIP · Member · Centang biru · Keamanan" />
@@ -179,6 +182,12 @@ export function PremiumScreen() {
           <T v="h2">Konfirmasi manual oleh admin</T>
           <T v="sub" style={{ flex: 1, lineHeight: 20 }}>
             Pembayaran dikonfirmasi lewat chat dengan admin. Setelah transfer, kirim bukti di chat — fitur aktif setelah admin memverifikasi.
+          </T>
+        </Neu>
+        <Neu radius={R.md} style={{ padding: 12, flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+          <Ionicons name="speedometer" size={18} color={limit.left <= 1 ? t.warning : t.accent} />
+          <T v="caption" style={{ flex: 1 }}>
+            Limit pembelian: <T v="caption" style={{ fontWeight: '800' }}>{limit.left}x lagi</T> dalam 1 jam (maks 5x) — anti-spam. Produk yang masih aktif tidak bisa dibeli lagi sampai masa habis.
           </T>
         </Neu>
         {PRODUCTS.map((p) => (
@@ -210,14 +219,23 @@ export function PremiumScreen() {
               </View>
             ))}
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 }}>
-              {p.plans.map((pl, i) => (
-                <Pressable key={pl.label} onPress={() => setBuy({ product: p.key, plan: i })} style={({ pressed }) => ({ flexGrow: 1, flexBasis: '30%', padding: 12, borderRadius: R.md, backgroundColor: t.bg, boxShadow: pressed ? t.insetSm : t.raisedSm, alignItems: 'center' } as any)}>
-                  <T v="caption">{pl.label}</T>
-                  <T v="h3" color={p.color}>
-                    {rupiah(pl.price)}
-                  </T>
-                </Pressable>
-              ))}
+              {p.plans.map((pl, i) => {
+                const isActive = active(p.key);
+                return (
+                  <Pressable
+                    key={pl.label}
+                    disabled={isActive}
+                    onPress={() => setBuy({ product: p.key, plan: i })}
+                    style={({ pressed }) => ({ flexGrow: 1, flexBasis: '30%', padding: 12, borderRadius: R.md, backgroundColor: t.bg, boxShadow: pressed ? t.insetSm : t.raisedSm, alignItems: 'center', opacity: isActive ? 0.5 : 1 } as any)}
+                  >
+                    <T v="caption">{pl.label}</T>
+                    <T v="h3" color={p.color}>
+                      {rupiah(pl.price)}
+                    </T>
+                    {isActive && <T v="caption" color={t.success} style={{ fontSize: 10, fontWeight: '700' }}>TIDAK BISA BELI LAGI</T>}
+                  </Pressable>
+                );
+              })}
             </View>
           </Neu>
         ))}
@@ -246,7 +264,11 @@ export function PremiumScreen() {
           onPress: () => {
             if (!buy) return;
             const r = createOrder(buy.product, buy.plan, m.key);
-            if (r) nav.navigate('ChatRoom', { chatId: r.chatId });
+            if (r && 'error' in r) {
+              pushBanner({ title: 'Pembelian dibatasi', body: r.error, icon: 'alert' });
+              return;
+            }
+            if (r && 'chatId' in r) nav.navigate('ChatRoom', { chatId: r.chatId });
           },
         }))}
       />
@@ -437,7 +459,10 @@ export function MusicScreen() {
                 title={me?.spotify?.id === st.current.videoId ? 'Lagu profil saat ini' : 'Jadikan lagu profil'}
                 disabled={me?.spotify?.id === st.current.videoId}
                 onPress={() => {
-                  updateMe({ spotify: { id: st.current!.videoId, kind: 'track', title: st.current!.title, thumb: st.current!.thumb } as any });
+                  // kind:'youtube' — videoId berasal dari katalog YouTube, diputar via
+                  // pemutar YouTube resmi di profil (BUKAN embed Spotify — itu yang
+                  // bikin "Page not available").
+                  updateMe({ spotify: { id: st.current!.videoId, kind: 'youtube', title: st.current!.title, thumb: st.current!.thumb } as any });
                   pushBanner({ title: 'Lagu profil diperbarui', body: st.current!.title, icon: 'musical-notes' });
                 }}
                 style={{ flex: 2 }}

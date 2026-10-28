@@ -5,8 +5,9 @@ import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, IconBtn, Avatar, Neu, Btn, Badge } from '../../components/ui';
 import { useTheme, R } from '../../lib/theme';
-import { useStore, toggleFollow, unreadCount, lastMessage, messagePreview, openAI } from '../../lib/store';
+import { useStore, toggleFollow, unreadCount, lastMessage, messagePreview, openAI, chatBadge, chatLastMsg } from '../../lib/store';
 import { Chat } from '../../lib/types';
+import { VerifiedBadge } from '../../lib/icons';
 
 export default function DiscoverTab() {
   const t = useTheme();
@@ -23,8 +24,9 @@ export default function DiscoverTab() {
   const bot = db.chats[botId];
 
   const ChannelItem = ({ c, follow }: { c: Chat; follow?: boolean }) => {
-    const last = lastMessage(c.id, me.id);
+    const last = chatLastMsg(c, me.id);
     const un = unreadCount(c, me.id);
+    const isFollowing = c.members.includes(me.id);
     return (
       <Pressable onPress={() => nav.navigate('ChatRoom', { chatId: c.id })} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 12, borderRadius: R.lg, boxShadow: pressed ? t.insetSm : undefined } as any)}>
         <Avatar uri={c.avatar} name={c.name ?? ''} color={c.color} size={50} icon={c.avatar ? undefined : 'megaphone'} />
@@ -33,13 +35,18 @@ export default function DiscoverTab() {
             <T v="h3" numberOfLines={1} style={{ flexShrink: 1 }}>
               {c.name}
             </T>
-            {c.verified && <Ionicons name="checkmark-circle" size={15} color={t.accent} />}
+            {/* centang biru SVG resmi di nama saluran (ikut pemilik / beli) */}
+            {chatBadge(c, db) && <VerifiedBadge size={14} animate={false} />}
           </View>
           <T v="sub" numberOfLines={1}>
-            {follow ? `${c.members.length} pengikut · ${c.description ?? ''}` : messagePreview(last) || c.description}
+            {isFollowing ? `${c.members.length} pengikut · ${c.description ?? ''}` : messagePreview(last) || c.description}
           </T>
         </View>
-        {follow ? <Btn small title="Ikuti" onPress={() => toggleFollow(c.id)} style={{ height: 36 }} /> : <Badge n={un} />}
+        {isFollowing ? (
+          <Btn small title="Berhenti ikuti" variant="neu" onPress={() => toggleFollow(c.id)} style={{ height: 36 }} />
+        ) : (
+          <Btn small title="Ikuti" onPress={() => toggleFollow(c.id)} style={{ height: 36 }} />
+        )}
       </Pressable>
     );
   };
@@ -68,7 +75,7 @@ export default function DiscoverTab() {
                   Zeroid AI
                 </T>
                 <T v="caption" color="rgba(255,255,255,0.85)">
-                  {bot && unreadCount(bot, me.id) ? `${unreadCount(bot, me.id)} pesan baru` : 'Tanya apa saja · Jerexd'}
+                  {bot && unreadCount(bot, me.id) ? `${unreadCount(bot, me.id)} pesan baru` : 'Tanya apa saja · Saputra Developer'}
                 </T>
               </Pressable>
               {global && (

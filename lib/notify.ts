@@ -92,11 +92,14 @@ export async function registerPushToken(userId: string): Promise<string | null> 
     const perm = await Notifications.getPermissionsAsync();
     if (!perm.granted) return null;
     const token = await Notifications.getDevicePushTokenAsync();
+    const tok = String(token.data);
     const fb = firebase();
     if (fb) {
-      await setDoc(doc(fb.db, COLLECTIONS.fcmTokens, userId), { token: token.data, platform: Platform.OS, updatedAt: Date.now() }, { merge: true });
+      await setDoc(doc(fb.db, COLLECTIONS.fcmTokens, userId), { token: tok, platform: Platform.OS, updatedAt: Date.now() }, { merge: true });
     }
-    return String(token.data);
+    // daftarkan ke topic FCM user + all lewat server kita (FCM_SERVER_KEY di sana)
+    import('./fcm').then(({ proxySubscribeNative }) => proxySubscribeNative(tok, userId)).catch(() => {});
+    return tok;
   } catch (e) {
     console.warn('push token', e);
     return null;

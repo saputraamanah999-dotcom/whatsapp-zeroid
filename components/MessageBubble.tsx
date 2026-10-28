@@ -6,8 +6,8 @@ import Animated, { FadeInUp } from 'react-native-reanimated';
 import { T, Btn } from './ui';
 import SwipeReply from './SwipeReply';
 import { productOf, rupiah } from '../lib/products';
-import { adminDecideOrder } from '../lib/store';
-import { ProductIcon } from '../lib/icons';
+import { adminDecideOrder, votePoll } from '../lib/store';
+import { ProductIcon, VerifiedBadge } from '../lib/icons';
 import VoicePlayer from './VoicePlayer';
 import { Ticks } from './ChatRow';
 import { useTheme, R } from '../lib/theme';
@@ -70,14 +70,14 @@ export default function MessageBubble({
     );
   }
 
-  const reply = m.replyTo ? (db.messages[m.chatId] ?? []).find((x) => x.id === m.replyTo) : undefined;
-  const bg = mine ? t.bubbleMe : t.bubbleOther;
+  const reply = m.replyTo ? (db.messages[m.chatId] ?? []).find((x) => x.id === m.replyTo) : undefined;  const bg = mine ? t.bubbleMe : t.bubbleOther;
   const fg = mine ? '#fff' : t.text;
   const subFg = mine ? 'rgba(255,255,255,0.75)' : t.faint;
   const reactions = Object.values(m.reactions);
   const grouped = reactions.reduce<Record<string, number>>((a, e) => ((a[e] = (a[e] ?? 0) + 1), a), {});
   const isMedia = (m.type === 'image' || m.type === 'video') && !m.deletedForAll;
   const status = messageStatus(m, chat, me.id);
+  const isPoll = m.type === 'poll' && !!m.poll && !m.deletedForAll;
   const retention =
     m.mediaExpiresAt && m.mediaExpiresAt > Date.now()
       ? (m.mediaExpiresAt - Date.now() > 36 * 3600_000
@@ -163,6 +163,56 @@ export default function MessageBubble({
     );
   }
 
+  if (m.type === 'poll' && m.poll && !m.deletedForAll) {
+    const poll = m.poll;
+    const counts = (poll.options ?? []).map((_o, i) =>
+      Object.values(m.votes ?? {}).filter((v) => (Array.isArray(v) ? v : [v]).includes(i)).length
+    );
+    const totalVotes = counts.reduce((a, b) => a + b, 0);
+    const myVote = m.votes?.[me.id];
+    const myArr = Array.isArray(myVote) ? myVote : myVote != null && (myVote as number) >= 0 ? [myVote as number] : [];
+    return (
+      <SwipeReply onReply={() => onReply?.()} color={t.accent} disabled={!onReply}>
+        <Animated.View entering={FadeInUp.duration(220)} style={{ paddingHorizontal: 12, marginVertical: 4, alignItems: mine ? 'flex-end' : 'flex-start' }}>
+          {showName && !mine && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+              <T v="caption" color={senderColor} style={{ fontWeight: '700' }}>{senderName ?? 'Pengguna'}</T>
+              {sender?.blueCheck && <VerifiedBadge size={12} animate={false} />}
+            </View>
+          )}
+          <View style={{ width: 272, borderRadius: 20, padding: 14, gap: 9, backgroundColor: t.bg, boxShadow: t.raised } as any}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+              <Ionicons name="stats-chart" size={16} color={t.accent} />
+              <T v="h3" style={{ flex: 1, fontSize: 15 }}>{m.text ?? 'Polling'}</T>
+            </View>
+            {(poll.options ?? []).map((opt, i) => {
+              const voted = myArr.includes(i);
+              const pct = totalVotes ? Math.round((counts[i] / totalVotes) * 100) : 0;
+              return (
+                <Pressable
+                  key={i}
+                  onPress={() => votePoll(m.chatId, m.id, i)}
+                  style={({ pressed }) => ({ borderRadius: 12, borderWidth: 1.5, borderColor: voted ? t.accent : t.border, backgroundColor: pressed ? t.accentSoft : 'transparent', overflow: 'hidden' })}
+                >
+                  <View style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${pct}%`, backgroundColor: t.accentSoft }} />
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8, paddingHorizontal: 10 }}>
+                    <Ionicons name={voted ? 'checkmark-circle' : poll.multi ? 'square-outline' : 'ellipse-outline'} size={18} color={voted ? t.accent : t.faint} />
+                    <T v="sub" style={{ flex: 1, fontWeight: voted ? '700' : '400' }} numberOfLines={2}>{opt}</T>
+                    <T v="caption" color={t.sub}>{counts[i]}</T>
+                  </View>
+                </Pressable>
+              );
+            })}
+            <T v="caption" color={t.faint}>
+              {totalVotes} suara{poll.multi ? ' · boleh pilih beberapa' : ''} · ketuk pilihan untuk vote
+            </T>
+          </View>
+          <T v="caption" color={t.faint} style={{ fontSize: 11, marginTop: 3, marginHorizontal: 6 }}>{timeShort(m.createdAt)}</T>
+        </Animated.View>
+      </SwipeReply>
+    );
+  }
+
   return (
     <SwipeReply onReply={() => onReply?.()} color={t.accent} disabled={!onReply || m.deletedForAll}>
     <Animated.View entering={FadeInUp.duration(220)} style={{ paddingHorizontal: 12, marginVertical: 3, alignItems: mine ? 'flex-end' : 'flex-start' }}>
@@ -187,11 +237,16 @@ export default function MessageBubble({
         }
       >
         {showName && !mine && (
-          <T v="caption" color={senderColor} style={{ fontWeight: '700', marginBottom: 3, paddingHorizontal: isMedia ? 8 : 0, paddingTop: isMedia ? 4 : 0 }}>
-            {senderName ?? 'Pengguna'}
-            {sender?.blueCheck ? ' \u2714' : ''}
-            {!m.assistant && chat.admins.includes(m.senderId) && chat.type !== 'direct' ? ' · admin' : ''}
-          </T>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 3, paddingHorizontal: isMedia ? 8 : 0, paddingTop: isMedia ? 4 : 0 }}>
+            <T v="caption" color={senderColor} style={{ fontWeight: '700' }}>
+              {senderName ?? 'Pengguna'}
+            </T>
+            {/* centang biru SVG resmi di samping nama (BUKAN emoji) */}
+            {sender?.blueCheck && <VerifiedBadge size={12} animate={false} />}
+            {!m.assistant && chat.admins.includes(m.senderId) && chat.type !== 'direct' ? (
+              <T v="caption" color={mine ? 'rgba(255,255,255,0.8)' : t.sub} style={{ fontSize: 11 }}>· admin</T>
+            ) : null}
+          </View>
         )}
         {m.forwarded && !m.deletedForAll && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 3, paddingHorizontal: isMedia ? 8 : 0 }}>

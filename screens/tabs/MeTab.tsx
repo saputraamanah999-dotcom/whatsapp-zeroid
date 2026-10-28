@@ -4,10 +4,10 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, Avatar, Neu, Row, Card, Segmented, UserBadges } from '../../components/ui';
-import SpotifyPlayer from '../../components/SpotifyPlayer';
+import MediaPlayer from '../../components/MediaPlayer';
 import { Confirm } from '../../components/Sheet';
 import { useTheme, useThemeMode, R, ThemeMode } from '../../lib/theme';
-import { useStore, logout, setTheme, backendMode } from '../../lib/store';
+import { useStore, logout, setTheme, backendMode, updateMe } from '../../lib/store';
 
 export default function MeTab() {
   const t = useTheme();
@@ -58,7 +58,14 @@ export default function MeTab() {
       {me.spotify && (
         <Card title="Lagu profil">
           <View style={{ padding: 6 }}>
-            <SpotifyPlayer track={me.spotify} />
+            {/* MediaPlayer: YouTube & Spotify embed — kind:'youtube' dari katalog ZEROID MUSIC */}
+            <MediaPlayer track={me.spotify} />
+            <Pressable
+              onPress={() => (updateMe({ spotify: null }), undefined)}
+              style={{ alignSelf: 'flex-end', marginTop: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: t.bg2 }}
+            >
+              <T v="caption" color={t.danger} style={{ fontWeight: '700' }}>Hapus lagu profil</T>
+            </Pressable>
           </View>
         </Card>
       )}

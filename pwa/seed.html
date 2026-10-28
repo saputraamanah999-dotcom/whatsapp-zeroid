@@ -15,6 +15,7 @@
   .muted { color:var(--sub); font-size:13px; line-height:1.55; }
   label { display:block; font-size:12px; font-weight:700; margin:10px 0 4px; color:var(--sub); }
   input { width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-size:14px; background:#fff; color:var(--text); }
+  textarea { width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-size:12px; background:#0f1720; color:#cfe3ff; font-family:ui-monospace,Consolas,monospace; min-height:220px; }
   .row { display:flex; gap:10px; flex-wrap:wrap; } .row > * { flex:1; min-width:220px; }
   button { cursor:pointer; border:0; border-radius:999px; padding:12px 20px; font-size:14px; font-weight:800; }
   .primary { background:var(--accent); color:#fff; }
@@ -30,25 +31,25 @@
 <body>
 <div class="wrap">
   <div class="card">
-    <h1>Zeroid WhatsApp — Seed Firebase</h1>
+    <h1>Zeroid WhatsApp — Seed Firebase (v6)</h1>
     <p class="muted">
-      Alat ini <b>membuat koleksi & dokumen awal Firebase secara otomatis</b> dan menyiapkan akun
-      <b>developer/admin</b>. Idempotent — aman dijalankan berulang (yang sudah ada dilewati).
-      Isi konfigurasi web app dari <b>Firebase Console → Project settings → General → Your apps → SDK setup and configuration → Config</b>.
+      Membuat <b>SEMUA koleksi & dokumen awal</b> Firebase otomatis (chat global, saluran Zeroid AI,
+      config, akun developer). Idempotent — aman dijalankan berulang. Config di bawah sudah terisi untuk
+      project baru <b>whatsapp-zeroid</b>; kalau ganti project lagi, cukup isi ulang lalu jalankan.
     </p>
   </div>
 
   <div class="card">
     <h2>1 · Konfigurasi Firebase</h2>
     <div class="row">
-      <div><label>apiKey *</label><input id="apiKey" placeholder="AIza..." /></div>
-      <div><label>authDomain</label><input id="authDomain" value="projekwhattsaf.firebaseapp.com" /></div>
-      <div><label>projectId</label><input id="projectId" value="projekwhattsaf" /></div>
+      <div><label>apiKey *</label><input id="apiKey" value="AIzaSyBiiwHAEY8nExO09bWkc5DAB-5lhUMWsMA" /></div>
+      <div><label>authDomain</label><input id="authDomain" value="whatsapp-zeroid.firebaseapp.com" /></div>
+      <div><label>projectId</label><input id="projectId" value="whatsapp-zeroid" /></div>
     </div>
     <div class="row">
-      <div><label>storageBucket</label><input id="storageBucket" value="projekwhattsaf.appspot.com" /></div>
-      <div><label>messagingSenderId</label><input id="senderId" placeholder="1234567890" /></div>
-      <div><label>appId *</label><input id="appId" placeholder="1:123:web:abc" /></div>
+      <div><label>storageBucket</label><input id="storageBucket" value="whatsapp-zeroid.firebasestorage.app" /></div>
+      <div><label>messagingSenderId</label><input id="senderId" value="199234471979" /></div>
+      <div><label>appId *</label><input id="appId" value="1:199234471979:web:eb0c2d8477adae3fc4826e" /></div>
     </div>
     <button class="ghost" id="btnFill" style="margin-top:10px">Muat config tersimpan</button>
   </div>
@@ -58,22 +59,32 @@
     <div class="row">
       <div><label>Email</label><input id="admEmail" value="gedejulianto148@gmail.com" /></div>
       <div><label>Password</label><input id="admPass" value="saputra123@" /></div>
-      <div><label>Nama tampilan</label><input id="admName" value="Gede Julianto (Developer)" /></div>
+      <div><label>Nama tampilan</label><input id="admName" value="Saputra Developer" /></div>
     </div>
     <p class="muted">
-      Akun dibuat bila belum ada, lalu diberi <span class="code">role: "developer"</span>.
-      Pengangkatan role memakai <b>pintu bootstrap</b>: hanya boleh selama dokumen <span class="code">config/bootstrap</span>
-      belum ada — alat ini langsung membuatnya setelah selesai, sehingga pintu tertutup permanen.
+      Akun dibuat bila belum ada, lalu diberi <span class="code">role: "developer"</span> + <span class="code">blueCheck: true</span>.
+      Pintu bootstrap (kenaikan role) hanya terbuka selama <span class="code">config/bootstrap</span> belum ada — alat ini
+      membuatnya otomatis setelah selesai supaya pintu terkunci permanen.
     </p>
   </div>
 
   <div class="card">
-    <h2>3 · Indexes (WAJIB — sekali klik)</h2>
+    <h2>3 · Rules (WAJIB — sekali setelah ganti project)</h2>
     <p class="muted">
-      Notifikasi real-time, riwayat panggilan, dan pesanan premium butuh <b>composite index</b>.
-      Tanpa ini, fitur tersebut diam (tanpa error yang terlihat). Klik keempat tombol di bawah satu per satu —
-      Firebase Console akan terbuka dengan index <b>sudah terisi otomatis</b>, tinggal tekan <b>Create index</b>.
-      Tunggu statusnya berubah jadi <span class="code">Enabled</span> (1–3 menit).
+      Buka <b>Firebase Console → Firestore Database → Rules</b> → hapus semua → <b>tempel isi di bawah</b> → <b>Publish</b>.
+      Versi ini sudah memperbaiki: Story gagal (toleransi jam HP), patungan centang biru, vote polling,
+      mute anti-spam, dan limit pembelian.
+      <button class="ghost" id="btnCopyRules" style="margin-left:8px;padding:8px 16px">📋 Salin rules</button>
+    </p>
+    <textarea id="rulesBox" spellcheck="false" readonly></textarea>
+  </div>
+
+  <div class="card">
+    <h2>4 · Indexes (WAJIB — sekali klik)</h2>
+    <p class="muted">
+      Notifikasi realtime, riwayat panggilan, dan pesanan butuh composite index. Klik tombol di bawah —
+      Console terbuka dengan index <b>sudah terisi otomatis</b> untuk project yang diisi di atas, tinggal tekan
+      <b>Create index</b>. Tunggu status jadi <span class="code">Enabled</span> (1–3 menit).
     </p>
     <div class="row" style="margin-top:8px">
       <button class="ghost" id="idxNotif">🔔 Index notifications</button>
@@ -86,9 +97,9 @@
   </div>
 
   <div class="card">
-    <h2>4 · Jalankan</h2>
-    <p class="muted">⚠️ <b>Pertama:</b> publish <b>firestore.rules</b> versi terbaru (dari ZIP, ada klausa bootstrap) di
-      Firebase Console → Firestore Database → Rules. Tanpa itu, langkah role akan <i>permission-denied</i>.</p>
+    <h2>5 · Jalankan</h2>
+    <p class="muted">⚠️ <b>Pertama:</b> aktifkan <b>Authentication → Sign-in method → Email/Password</b> di project baru,
+      lalu publish Rules (langkah 3). Setelah itu klik seed di bawah.</p>
     <div class="row">
       <button class="primary" id="btnSeed">🚀 Buat koleksi & akun developer</button>
       <button class="ghost" id="btnVerify">🔍 Verifikasi ulang</button>
@@ -98,7 +109,7 @@
 
   <div class="card">
     <h2>Log</h2>
-    <div id="log">Siap. (build v5 — seed SEMUA koleksi + tombol index sekali-klik)</div>
+    <div id="log">Siap. (build v6 — project whatsapp-zeroid + chat global c_global + saluran Zeroid AI + rules siap tempel)</div>
   </div>
 
   <div class="card">
@@ -106,20 +117,18 @@
       <summary>Koleksi apa saja yang dibuat?</summary>
       <table style="margin-top:10px">
         <tr><th>Dokumen</th><th>Isi</th><th>Fungsi</th></tr>
-        <tr><td><span class="code">users/{uid}</span></td><td>profil developer, role: developer</td><td>akun admin panel & akses penuh</td></tr>
+        <tr><td><span class="code">users/{uid}</span></td><td>profil developer, role: developer, centang biru</td><td>akun admin panel & akses penuh</td></tr>
         <tr><td><span class="code">config/bootstrap</span></td><td>createdBy, at</td><td>mengunci pintu bootstrap role</td></tr>
-        <tr><td><span class="code">config/platform</span></td><td>maintenance: {enabled:false,…}</td><td> saklar maintenance & flag</td></tr>
-        <tr><td><span class="code">chats/global</span></td><td>type: global, members, admins</td><td>ruang obrolan global</td></tr>
-        <tr><td><span class="code">chats/global/messages/{welcome}</span></td><td>pesan sambutan</td><td>menghidupkan subkoleksi pesan</td></tr>
+        <tr><td><span class="code">config/platform</span></td><td>maintenance: {enabled:false}</td><td>saklar maintenance & flag</td></tr>
+        <tr><td><span class="code">chats/c_global</span></td><td>type: global + pesan sambutan</td><td>chat global yang selalu tampil PERTAMA di daftar chat</td></tr>
+        <tr><td><span class="code">chats/ch_zeroid_ai</span></td><td>saluran "Zeroid AI" — "Tanya apa saja · Saputra Developer" + centang biru</td><td>saluran resmi pengumuman aplikasi</td></tr>
         <tr><td><span class="code">announcements/welcome</span></td><td>pengumuman aktif 7 hari</td><td>banner pengumuman di aplikasi</td></tr>
-        <tr><td><span class="code">notifications/{welcome}</span></td><td>notifikasi sambutan</td><td>menghidupkan pusat notifikasi</td></tr>
         <tr><td><span class="code">usernames/…</span></td><td>reservasi username developer</td><td>peta keunikan username</td></tr>
+        <tr><td><span class="code">stories, calls, reports, orders, stickers, invites, audit_logs, anime_favs, bans, appeals, fcm_tokens, notifications</span></td><td>dokumen penanda <span class="code">_schema</span></td><td>materialisasi semua koleksi sistem</td></tr>
       </table>
       <p class="muted">
-        <b>BARU v5 — koleksi sistem ikut dimaterialisasi</b> lewat dokumen penanda <span class="code">_schema</span>
-        (tidak muncul di daftar pengguna): <span class="code">stories, calls, reports, orders, stickers, invites,
-        audit_logs, anime_favs, bans, appeals, fcm_tokens</span>. Koleksi <span class="code">mail</span> sengaja
-        TIDAK diisi (dokumen di sana memicu extension Trigger Email mengirim email sungguhan).
+        Koleksi <span class="code">mail</span> sengaja TIDAK diisi (dokumen di sana memicu extension Trigger Email mengirim email sungguhan).
+        Push FCM: set <span class="code">FCM_SERVER_KEY</span> di Vercel env — notifikasi luar aplikasi/website jalan lewat <span class="code">/api/notify</span>.
       </p>
     </details>
   </div>
@@ -129,6 +138,276 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
+const RULES_TEXT = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function userDoc() { return get(/databases/$(db)/documents/users/$(me())).data; }
+    function hasProfile() { return signedIn() && exists(/databases/$(db)/documents/users/$(me())); }
+    function role() { return hasProfile() ? userDoc().get('role', 'user') : 'user'; }
+    function isAdmin() { return signedIn() && (role() == 'admin' || role() == 'developer'); }
+    function isMod() { return signedIn() && (role() == 'admin' || role() == 'developer' || role() == 'moderator'); }
+    function banBlocked() {
+      return hasProfile() && (
+        userDoc().get('banned', false) == true
+        || userDoc().get('suspendedUntil', 0) > request.time.toMillis()
+        || userDoc().get('banUntil', 0) > request.time.toMillis()
+      );
+    }
+    function notBanned() { return signedIn() && !banBlocked(); }
+
+    function chat(chatId) { return get(/databases/$(db)/documents/chats/$(chatId)).data; }
+    function chatExists(chatId) { return exists(/databases/$(db)/documents/chats/$(chatId)); }
+    function chatType(chatId) { return chatExists(chatId) ? chat(chatId).get('type', '') : ''; }
+    function chatMembers(chatId) { return chatExists(chatId) ? chat(chatId).get('members', []) : []; }
+    function isMemberOf(chatId) {
+      return signedIn() && chatExists(chatId) &&
+        (chatType(chatId) == 'global' || chatType(chatId) == 'channel' || chatType(chatId) == 'ai' || me() in chatMembers(chatId));
+    }
+    function isChatAdmin(chatId) { return signedIn() && chatExists(chatId) && me() in chat(chatId).get('admins', []); }
+    function chatBanned(chatId) {
+      return chatExists(chatId) && (
+        chat(chatId).get('banned', false) == true
+        || chat(chatId).get('banUntil', 0) > request.time.toMillis()
+      );
+    }
+
+    function selfProfileUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['name','about','avatar','banner','bannerType','color','phone','username','pin','spotify',
+                  'privacy','notif','blocked','contacts','lastSeen','otpCode','otpExpires',
+                  'otpVerified','verified','fcmToken','mutedUntil','orderAttempts']);
+    }
+    function memberChatUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['lastRead','typing','pinnedBy','mutedBy','archivedBy','lastMsg','blueCheckPot']);
+    }
+    function adminChatUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['members','admins','name','description','avatar','postPolicy','inviteCode','disappearing']);
+    }
+    function memberMsgUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['deliveredAt','reactions','starredBy','votes']);
+    }
+    function senderMsgUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['deliveredAt','deletedFor','deletedForAll','reactions','starredBy','text','editedAt','uri','thumb','storagePath']);
+    }
+    function otherDirect(chatId) {
+      let ms = chatMembers(chatId);
+      return ms[0] == me() ? ms[1] : ms[0];
+    }
+    function peerBlocked(chatId) {
+      return chatType(chatId) == 'direct'
+        && chatMembers(chatId).size() == 2
+        && exists(/databases/$(db)/documents/users/$(otherDirect(chatId)))
+        && me() in get(/databases/$(db)/documents/users/$(otherDirect(chatId))).data.get('blocked', []);
+    }
+
+    match /users/{uid} {
+      allow get: if signedIn();
+      allow list: if signedIn();
+      allow update: if (request.auth.uid == uid && selfProfileUpdate() && notBanned())
+                    || (request.auth.uid == uid
+                        && !exists(/databases/$(db)/documents/config/bootstrap)
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role','blueCheck','developer']))
+                    || isAdmin();
+      allow create: if request.auth.uid == uid
+                    && (request.resource.data.get('role', 'user') == 'user'
+                        || (request.resource.data.get('role', 'user') == 'developer'
+                            && !exists(/databases/$(db)/documents/config/bootstrap)));
+      allow delete: if request.auth.uid == uid || isAdmin();
+    }
+
+    match /usernames/{name} {
+      allow get: if true;
+      allow list: if true;
+      allow create: if signedIn() && request.resource.data.get('uid', '') == me() && !exists(/databases/$(db)/documents/usernames/$(name));
+      allow update, delete: if signedIn() && (resource.data.get('uid', '') == me() || isAdmin());
+    }
+
+    match /fcm_tokens/{uid} {
+      allow read, write: if request.auth.uid == uid;
+    }
+
+    match /chats/{chatId} {
+      allow get: if isMemberOf(chatId) || (signedIn() && resource.get('type', '') in ['channel', 'global']);
+      allow list: if signedIn();
+      allow create: if signedIn() && notBanned() && request.auth.uid in request.resource.data.get('members', [])
+                    && request.resource.data.get('members', []).size() > 0;
+      allow update: if isAdmin()
+                    || (isMemberOf(chatId) && isChatAdmin(chatId) && notBanned() && adminChatUpdate())
+                    || (isMemberOf(chatId) && notBanned() && memberChatUpdate())
+                    || (isMemberOf(chatId) && notBanned() && chatBanned(chatId)
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['banAppeal']))
+                    || (signedIn() && !(me() in resource.data.get('members', []))
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
+                        && request.resource.data.get('members', []).hasAll(resource.data.get('members', []))
+                        && request.resource.data.get('members', []).size() == resource.data.get('members', []).size() + 1)
+                    || (signedIn() && me() in resource.data.get('members', [])
+                        && !(me() in request.resource.data.get('members', []))
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
+                        && resource.data.get('members', []).hasAll(request.resource.data.get('members', []))
+                        && resource.data.get('members', []).size() == request.resource.data.get('members', []).size() + 1);
+      allow delete: if isAdmin();
+
+      match /messages/{mid} {
+        allow read: if isMemberOf(chatId);
+        allow create: if signedIn() && notBanned()
+                      && request.resource.data.get('senderId', '') == me()
+                      && isMemberOf(chatId)
+                      && !peerBlocked(chatId)
+                      && (!chatBanned(chatId) || isAdmin())
+                      && (isAdmin()
+                          || !hasProfile()
+                          || (userDoc().get('mutedUntil', 0) <= request.time.toMillis()))
+                      && (chatType(chatId) != 'channel' || isChatAdmin(chatId) || chat(chatId).get('postPolicy', 'everyone') == 'everyone' || isAdmin());
+        allow update: if isAdmin()
+                      || (isMemberOf(chatId) && notBanned() && memberMsgUpdate())
+                      || (isMemberOf(chatId) && notBanned() && resource.data.get('senderId', '') == me() && senderMsgUpdate());
+        allow delete: if isAdmin() || (resource.data.get('senderId', '') == me());
+      }
+    }
+
+    match /stories/{sid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && notBanned() && request.resource.data.get('userId', '') == me()
+                    && request.resource.data.get('expiresAt', 0) < request.time.toMillis() + 172800001
+                    && request.resource.data.get('expiresAt', 0) > request.time.toMillis() - 3600000;
+      allow update: if (resource.data.get('userId', '') == me()) || isAdmin()
+                    || (signedIn()
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewers','likes'])
+                        && request.resource.data.get('viewers', []).hasAll(resource.data.get('viewers', []))
+                        && request.resource.data.get('likes', []).hasAll(resource.data.get('likes', []))
+                        && (request.resource.data.get('viewers', []).size() + request.resource.data.get('likes', []).size())
+                           == (resource.data.get('viewers', []).size() + resource.data.get('likes', []).size()) + 1);
+      allow delete: if resource.data.get('userId', '') == me() || isAdmin() || role() == 'moderator';
+    }
+
+    match /calls/{callId} {
+      allow read: if signedIn() && (resource.data.get('callerId', '') == me() || me() in resource.data.get('calleeIds', []));
+      allow create: if signedIn() && notBanned() && request.resource.data.get('callerId', '') == me()
+                    && !peerBlocked(request.resource.data.get('chatId', ''));
+      allow update: if signedIn() && (resource.data.get('callerId', '') == me() || me() in resource.data.get('calleeIds', []))
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','connectedAt','endedAt']);
+      allow delete: if resource.data.get('callerId', '') == me() || isAdmin();
+      match /signals/{sig} {
+        allow read: if signedIn() && resource.data.get('to', '') == me();
+        allow create: if signedIn() && request.resource.data.get('from', '') == me();
+        allow delete: if signedIn() && (resource.data.get('from', '') == me() || resource.data.get('to', '') == me());
+      }
+    }
+
+    match /notifications/{nid} {
+      allow read: if signedIn() && resource.data.get('userId', '') == me();
+      allow create: if signedIn();
+      allow update: if signedIn() && resource.data.get('userId', '') == me();
+      allow delete: if signedIn() && (resource.data.get('userId', '') == me() || isAdmin());
+    }
+
+    match /reports/{rid} {
+      allow create: if signedIn() && notBanned();
+      allow read, update, delete: if isMod();
+    }
+
+    match /bans/{uid} {
+      allow get: if signedIn() && (uid == me() || isMod());
+      allow list: if isMod();
+      allow create, update: if isMod();
+      allow delete: if isMod();
+    }
+
+    match /appeals/{uid} {
+      allow get: if signedIn() && (uid == me() || isMod());
+      allow list: if isMod();
+      allow create: if request.auth.uid == uid;
+      allow update: if (request.auth.uid == uid
+                        && resource.data.get('status', 'pending') == 'pending'
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['message','status','updatedAt']))
+                    || (isMod()
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','decidedAt','adminNote']));
+      allow delete: if isMod();
+    }
+
+    match /orders/{oid} {
+      allow create: if signedIn() && notBanned() && request.resource.data.get('userId', '') == me()
+                    && request.resource.data.get('status', '') == 'pending';
+      allow read: if signedIn() && (resource.data.get('userId', '') == me() || isMod());
+      allow update: if isAdmin()
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','decidedAt']);
+      allow delete: if isAdmin();
+    }
+
+    match /stickers/{sid} {
+      allow read: if signedIn() && (resource.data.get('global', false) == true || resource.data.get('ownerId', '') == me());
+      allow create: if signedIn() && notBanned() && request.resource.data.get('ownerId', '') == me()
+                    && (request.resource.data.get('global', false) != true || isAdmin());
+      allow delete: if resource.data.get('ownerId', '') == me() || isAdmin();
+    }
+
+    match /anime_favs/{fid} {
+      allow read: if signedIn() && resource.data.get('uid', '') == me();
+      allow create: if signedIn() && notBanned() && request.resource.data.get('uid', '') == me();
+      allow update: if signedIn() && resource.data.get('uid', '') == me() && request.resource.data.get('uid', '') == me();
+      allow delete: if signedIn() && resource.data.get('uid', '') == me();
+    }
+
+    match /announcements/{aid} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /audit_logs/{lid} {
+      allow read: if isMod();
+      allow create: if isMod() && request.resource.data.get('actorId', '') == me();
+      allow update, delete: if false;
+    }
+
+    match /config/{cid} {
+      allow read: if signedIn();
+      allow create: if isAdmin()
+                    || (cid == 'bootstrap' && signedIn()
+                        && request.resource.data.get('createdBy', '') == me()
+                        && !exists(/databases/$(db)/documents/config/bootstrap));
+      allow update, delete: if isAdmin();
+    }
+
+    match /mail/{id} {
+      allow create: if signedIn() && notBanned();
+      allow read: if isAdmin();
+    }
+  }
+}`;
+
+// ---- URL index composite: template project lama → dipetakan ke projectId aktif ----
+const TPL = {
+  idxNotif: 'ClRwcm9qZWN0cy9wcm9qZWt3aGF0dHNhZi9kYXRhYmFzZXMvKGRlZmF1bHQpL2NvbGxlY3Rpb25Hcm91cHMvbm90aWZpY2F0aW9ucy9pbmRleGVzL18QARoKCgZ1c2VySWQQARoNCgljcmVhdGVkQXQQAhoMCghfX25hbWVfXxAC',
+  idxCallsIn: 'Ckxwcm9qZWN0cy9wcm9qZWt3aGF0dHNhZi9kYXRhYmFzZXMvKGRlZmF1bHQpL2NvbGxlY3Rpb25Hcm91cHMvY2FsbHMvaW5kZXhlcy9fEAEaDQoJY2FsbGVlSWRzGAEaDQoJc3RhcnRlZEF0EAIaDAoIX19uYW1lX18QAg',
+  idxCallsOut: 'Ckxwcm9qZWN0cy9wcm9qZWt3aGF0dHNhZi9kYXRhYmFzZXMvKGRlZmF1bHQpL2NvbGxlY3Rpb25Hcm91cHMvY2FsbHMvaW5kZXhlcy9fEAEaDAoIY2FsbGVySWQQARoNCglzdGFydGVkQXQQAhoMCghfX25hbWVfXxAC',
+  idxOrders: 'Ck1wcm9qZWN0cy9wcm9qZWt3aGF0dHNhZi9kYXRhYmFzZXMvKGRlZmF1bHQpL2NvbGxlY3Rpb25Hcm91cHMvb3JkZXJzL2luZGV4ZXMvXxABGgoKBnVzZXJJZBABGg0KCWNyZWF0ZWRBdBACGgwKCF9fbmFtZV9fEAI',
+};
+/** Ganti path project di dalam proto base64 + perbaiki varint panjangnya. */
+function mkIndexUrl(templateB64, projectId) {
+  const bin = atob(templateB64);
+  const oldP = 'projects/projekwhattsaf';
+  const newP = 'projects/' + projectId;
+  const idx = bin.indexOf(oldP);
+  if (idx < 0) return null;
+  const out = bin.slice(0, idx) + newP + bin.slice(idx + oldP.length);
+  const bytes = [];
+  for (const ch of out) bytes.push(ch.charCodeAt(0));
+  // struktur proto: byte[0]=0x0A (field header), byte[1]=varint panjang PATH,
+  // lalu path (…/indexes/). Baca panjang asli dari template, lalu sesuaikan.
+  const newLen = bin.charCodeAt(1) - oldP.length + newP.length;
+  bytes[1] = newLen & 0x7f;
+  let b64 = '';
+  try { b64 = btoa(bytes.map((b) => String.fromCharCode(b)).join('')); } catch { return null; }
+  return 'https://console.firebase.google.com/v1/r/project/' + projectId + '/firestore/indexes?create_composite=' + b64;
+}
+
 const $ = (id) => document.getElementById(id);
 const logEl = $('log');
 const log = (msg, cls) => {
@@ -138,18 +417,13 @@ const log = (msg, cls) => {
   logEl.appendChild(line);
   logEl.scrollTop = logEl.scrollHeight;
 };
-const setPill = (id, text, cls) => { $(id).innerHTML = `<span class="pill ${cls ?? ''}">${text}</span>`; };
+$('rulesBox').value = RULES_TEXT;
+$('btnCopyRules').onclick = async () => {
+  try { await navigator.clipboard.writeText(RULES_TEXT); log('Rules disalin ke clipboard — tempel di Firebase Console → Rules → Publish.', 'ok'); }
+  catch { $('rulesBox').select(); log('Tekan Ctrl+C untuk menyalin.', 'warn'); }
+};
 
-// Snapshot checker yang KEBAL kedua gaya SDK:
-//  - compat / modular JS SDK : .exists() adalah METHOD
-//  - gaya property (v8/admin-like runtime): .exists adalah BOOLEAN
-// Tanpa ini, runtime tertentu melempar "bootSnap.exists is not a function".
 const docExists = (s) => (s != null && (typeof s.exists === 'function' ? !!s.exists() : !!s.exists));
-
-// Bedakan 'dokumen BELUM ADA' dari 'rules menolak':
-// get() pada dokumen yang belum ada BISA permission-denied kalau rules
-// mengakses resource.data untuk path itu (contoh: chats). Anggap deny = belum ada,
-// lalu coba buat — kalau create pun ditolak, pesan errornya yang akan menjelaskan.
 const probe = async (ref) => {
   try {
     const snap = await ref.get();
@@ -160,13 +434,13 @@ const probe = async (ref) => {
     throw e;
   }
 };
-// Pesan error yang bisa dieksekusi pengguna, bukan kode mentah.
 const why = (e, what) => {
   const code = String(e?.code ?? '');
   if (code === 'permission-denied' || /insufficient permissions/i.test(String(e?.message ?? '')))
-    return 'Rules menolak akses ' + what + '. FIX: publish firestore.rules versi baru (di ZIP / folder unduhan) ke Firebase Console → Firestore Database → Rules → Publish (Langkah A di PANDUAN-PEMASANGAN.md), lalu jalankan seed lagi.';
+    return 'Rules menolak akses ' + what + '. FIX: publish rules di langkah 3 (kotak Rules → Copy → Console → Rules → Publish), lalu jalankan seed lagi.';
   if (code === 'unavailable' || code === 'deadline-exceeded')
     return 'Firebase tidak terjangkau (jaringan/kuota). Coba lagi. (' + code + ')';
+  if (code === 'resource-exhausted') return 'Kuota Firebase habis untuk project ini. (' + code + ')';
   return e?.message ?? code ?? String(e);
 };
 
@@ -177,14 +451,19 @@ $('btnSeed').onclick = () => run(true);
 $('btnVerify').onclick = () => run(false);
 fill();
 
-// ---- Composite index satu-klik (URL resmi Firebase Console, index terisi otomatis) ----
-const INDEX_URLS = [
-  ['idxNotif', 'notifications (userId + createdAt)', 'https://console.firebase.google.com/v1/r/project/projekwhattsaf/firestore/indexes?create_composite=ClRwcm9qZWN0cy9wcm9qZWt3aGF0dHNhZi9kYXRhYmFzZXMvKGRlZmF1bHQpL2NvbGxlY3Rpb25Hcm91cHMvbm90aWZpY2F0aW9ucy9pbmRleGVzL18QARoKCgZ1c2VySWQQARoNCgljcmVhdGVkQXQQAhoMCghfX25hbWVfXxAC'],
-  ['idxCallsIn', 'calls (calleeIds array-contains + startedAt)', 'https://console.firebase.google.com/v1/r/project/projekwhattsaf/firestore/indexes?create_composite=Ckxwcm9qZWN0cy9wcm9qZWt3aGF0dHNhZi9kYXRhYmFzZXMvKGRlZmF1bHQpL2NvbGxlY3Rpb25Hcm91cHMvY2FsbHMvaW5kZXhlcy9fEAEaDQoJY2FsbGVlSWRzGAEaDQoJc3RhcnRlZEF0EAIaDAoIX19uYW1lX18QAg'],
-  ['idxCallsOut', 'calls (callerId + startedAt)', 'https://console.firebase.google.com/v1/r/project/projekwhattsaf/firestore/indexes?create_composite=Ckxwcm9qZWN0cy9wcm9qZWt3aGF0dHNhZi9kYXRhYmFzZXMvKGRlZmF1bHQpL2NvbGxlY3Rpb25Hcm91cHMvY2FsbHMvaW5kZXhlcy9fEAEaDAoIY2FsbGVySWQQARoNCglzdGFydGVkQXQQAhoMCghfX25hbWVfXxAC'],
-  ['idxOrders', 'orders (userId + createdAt)', 'https://console.firebase.google.com/v1/r/project/projekwhattsaf/firestore/indexes?create_composite=Ck1wcm9qZWN0cy9wcm9qZWt3aGF0dHNhZi9kYXRhYmFzZXMvKGRlZmF1bHQpL2NvbGxlY3Rpb25Hcm91cHMvb3JkZXJzL2luZGV4ZXMvXxABGgoKBnVzZXJJZBABGg0KCWNyZWF0ZWRBdBACGgwKCF9fbmFtZV9fEAI'],
-];
-INDEX_URLS.forEach(([id]) => { $(id).onclick = () => { window.open(INDEX_URLS.find((x) => x[0] === id)[2], '_blank'); log('Membuka Firebase Console untuk ' + id + ' — tekan Create index di sana.', 'warn'); }; });
+function refreshIndexUrls() {
+  const pid = ($('projectId').value.trim() || 'whatsapp-zeroid');
+  for (const id of Object.keys(TPL)) {
+    const url = mkIndexUrl(TPL[id], pid);
+    $(id).onclick = () => {
+      if (!url) { log('Gagal membangun URL index — cek projectId.', 'err'); return; }
+      window.open(url, '_blank');
+      log('Membuka Firebase Console untuk ' + id + ' — tekan Create index di sana.', 'warn');
+    };
+  }
+}
+$('projectId').addEventListener('change', refreshIndexUrls);
+refreshIndexUrls();
 
 function cfg() {
   FIELDS.forEach((f) => localStorage.setItem('zeroid-seed-' + f, $(f).value.trim()));
@@ -240,11 +519,11 @@ async function run(seedMode) {
     // --- 3) users/{uid} + role ---
     const uRef = db.collection('users').doc(user.uid);
     const uSnap = await uRef.get().catch((e) => { throw new Error(why(e, 'users/{uid} (read)')); });
-    const name = $('admName').value.trim() || 'Developer';
+    const name = $('admName').value.trim() || 'Saputra Developer';
     const username = ($('admEmail').value.trim().split('@')[0] || 'developer').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
     if (!docExists(uSnap)) {
       await uRef.set({
-        name, email: $('admEmail').value.trim(), about: 'Developer Zeroid-whatsapp.', avatar: null,
+        name, email: $('admEmail').value.trim(), about: 'Hai! Developer Zeroid-whatsapp.', avatar: null,
         role: bootstrapOpen ? 'developer' : 'user', verified: !!user.emailVerified, banned: false,
         blueCheck: true, developer: true,
         username: username || null, lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
@@ -261,14 +540,12 @@ async function run(seedMode) {
           if (String(e?.code) === 'permission-denied' && !bootstrapOpen)
             throw new Error(
               'Role tidak bisa diangkat dari klien: config/bootstrap sudah ada (pintu tertutup) sedangkan akun ini masih role=' + (curRole ?? '?') + '. ' +
-              'SOLUSI sekali manual: Firebase Console → Firestore Database → data → koleksi users → buka dokumen UID ' + user.uid +
-              ' → edit field role → isi: developer → tambah field blueCheck (boolean) = true → Save. Atau hapus dokumen config/bootstrap lalu jalankan seed lagi.'
+              'SOLUSI sekali manual: Firebase Console → Firestore → users → dokumen ' + user.uid + ' → role = developer, blueCheck = true. Atau hapus config/bootstrap lalu jalankan seed lagi.'
             );
           throw new Error(why(e, 'users/{uid} role update'));
         });
         mark('users/{uid} diperbarui', true, 'role → developer · centang biru aktif');
       } else if (bootstrapOpen && (curRole === 'developer' || curRole === 'admin')) {
-        // pastikan centang biru & lencana developer terpasang (idempotent)
         await uRef.update({ blueCheck: true, developer: true }).catch(() => {});
         mark('users/{uid} sudah ada', true, 'role: ' + curRole + ' · centang biru dipastikan');
       } else {
@@ -292,31 +569,46 @@ async function run(seedMode) {
       mark('config/platform dibuat', true, 'maintenance: off');
     } else mark('config/platform sudah ada', true);
 
-    // --- 6) chats/global + pesan sambutan ---
-    const gRef = db.collection('chats').doc('global');
-    const gProbe = await probe(gRef).catch((e) => { throw new Error(why(e, 'chats/global (read)')); });
-    if (gProbe.denied) log('chats/global belum bisa dibaca karena dokumennya BELUM ADA (rules membaca resource.data saat get). Lanjut: coba buat sekarang.', 'warn');
+    // --- 6) CHAT GLOBAL (id c_global — dipakai aplikasi) + pesan sambutan ---
+    const gRef = db.collection('chats').doc('c_global');
+    const gProbe = await probe(gRef).catch((e) => { throw new Error(why(e, 'chats/c_global (read)')); });
     if (!gProbe.exists) {
       await gRef.set({
-        id: 'global', type: 'global', name: 'Obrolan Global',
+        id: 'c_global', type: 'global', name: 'Obrolan Global',
+        description: 'Chat publik untuk semua pengguna Zeroid.',
         members: [user.uid], admins: [user.uid], createdBy: user.uid,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         lastRead: {}, typing: {}, pinnedBy: [], mutedBy: [], archivedBy: [], postPolicy: 'everyone',
-      }).catch((e) => { throw new Error(why(e, 'chats/global (create)')); });
-      mark('chats/global dibuat', true);
-    } else mark('chats/global sudah ada', true);
+      }).catch((e) => { throw new Error(why(e, 'chats/c_global (create)')); });
+      mark('chats/c_global dibuat', true, 'chat global muncul pertama untuk semua user baru');
+    } else mark('chats/c_global sudah ada', true);
 
-    const wProbe = await probe(gRef.collection('messages').doc('welcome')).catch((e) => { throw new Error(why(e, 'chats/global/messages/welcome (read)')); });
+    const wProbe = await probe(gRef.collection('messages').doc('welcome')).catch((e) => { throw new Error(why(e, 'chats/c_global/messages/welcome (read)')); });
     if (!wProbe.exists) {
       await gRef.collection('messages').doc('welcome').set({
-        chatId: 'global', senderId: user.uid, type: 'system', text: 'Selamat datang di Zeroid-whatsapp! 🚀',
+        chatId: 'c_global', senderId: user.uid, type: 'system', text: 'Selamat datang di Zeroid-whatsapp! 🚀 Chat global terbuka untuk semua pengguna.',
         clientTime: Date.now(), createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         deletedFor: [], reactions: {}, starredBy: [],
-      }).catch((e) => { throw new Error(why(e, 'chats/global/messages/welcome (create)')); });
-      mark('chats/global/messages/welcome dibuat', true);
+      }).catch((e) => { throw new Error(why(e, 'chats/c_global/messages/welcome (create)')); });
+      mark('pesan sambutan dibuat', true);
     } else mark('pesan sambutan sudah ada', true);
 
-    // --- 7) usernames ---
+    // --- 7) SALURAN resmi "Zeroid AI" (deskripsi: Saputra Developer) ---
+    const zRef = db.collection('chats').doc('ch_zeroid_ai');
+    const zProbe = await probe(zRef).catch(() => ({ ok: false, exists: false, denied: true }));
+    if (!zProbe.exists) {
+      await zRef.set({
+        id: 'ch_zeroid_ai', type: 'channel', name: 'Zeroid AI',
+        description: 'Tanya apa saja · Saputra Developer',
+        members: [user.uid], admins: [user.uid], createdBy: user.uid,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        lastRead: {}, typing: {}, pinnedBy: [], mutedBy: [], archivedBy: [],
+        postPolicy: 'admins', verified: true, verifiedUntil: 0,
+      }).then(() => mark('chats/ch_zeroid_ai dibuat', true, 'saluran Zeroid AI · centang biru permanen'))
+        .catch((e) => mark('chats/ch_zeroid_ai', false, why(e, 'chats/ch_zeroid_ai (create)')));
+    } else mark('saluran Zeroid AI sudah ada', true);
+
+    // --- 8) usernames ---
     if (username) {
       const unRef = db.collection('usernames').doc(username);
       const unSnap = await unRef.get().catch((e) => { throw new Error(why(e, 'usernames (read)')); });
@@ -325,7 +617,7 @@ async function run(seedMode) {
       else mark('usernames/' + username, false, 'sudah dipakai UID lain — pilih username lain di aplikasi');
     }
 
-    // --- 8) pengumuman & notifikasi sambutan (butuh role sudah naik) ---
+    // --- 9) pengumuman & notifikasi sambutan ---
     if (seedMode) {
       const aSnap = await db.collection('announcements').doc('welcome').get().catch(() => null);
       if (aSnap && !docExists(aSnap)) {
@@ -341,15 +633,13 @@ async function run(seedMode) {
     const nSnap = await db.collection('notifications').doc('welcome-' + user.uid).get().catch(() => null);
     if (nSnap && !docExists(nSnap)) {
       await db.collection('notifications').doc('welcome-' + user.uid).set({
-        userId: user.uid, kind: 'system', title: 'Selamat datang!', body: 'Akun developer siap. Buka Status layanan untuk diagnosis.',
+        userId: user.uid, kind: 'system', title: 'Selamat datang!', body: 'Akun developer siap. Buka Admin panel → Sistem untuk monitoring.',
         createdAt: firebase.firestore.FieldValue.serverTimestamp(), read: false,
       }).then(() => mark('notifications/welcome dibuat', true))
         .catch((e) => mark('notifications/welcome', false, why(e, 'notifications (create)')));
     } else if (nSnap) mark('notifikasi sambutan sudah ada', true);
 
-    // --- 9) materialisasi SEMUA koleksi sistem (BARU v5) ---
-    // Firestore baru "menampilkan" koleksi setelah punya >=1 dokumen. Dokumen
-    // _schema di bawah adalah penanda aman: tidak cocok dengan query user mana pun.
+    // --- 10) materialisasi SEMUA koleksi sistem ---
     const now = Date.now();
     const systemDocs = [
       ['stories', '_schema', { userId: '_schema', type: 'text', text: 'schema-marker', bg: '#1E6BFF', createdAt: now, expiresAt: now - 1000, viewers: [], likes: [] }],
@@ -374,7 +664,6 @@ async function run(seedMode) {
         mark('koleksi ' + col, false, why(e, col + ' (create)'));
       }
     }
-    // fcm_tokens: satu dokumen untuk akun developer (token kosong, akan ditimpa saat login)
     try {
       const fRef = db.collection('fcm_tokens').doc(user.uid);
       const fSnap = await fRef.get().catch(() => null);
@@ -386,7 +675,8 @@ async function run(seedMode) {
     log('Selesai. ' + results.filter((r) => r.ok).length + '/' + results.length + ' langkah berhasil.', results.every((r) => r.ok) ? 'ok' : 'warn');
     if (results.every((r) => r.ok)) {
       log('AKUN DEVELOPER SIAP → login di aplikasi dengan ' + $('admEmail').value.trim(), 'ok');
-      log('Set JEREXD_APIKEY di Vercel env + (untuk APK) EXPO_PUBLIC_API_BASE — lihat docs/DEPLOYMENT.md', 'warn');
+      log('Set FCM_SERVER_KEY + JEREXD_APIKEY + IMGBB_APIKEY + Supabase keys di Vercel env → redeploy.', 'warn');
+      log('GANTI .env aplikasi ke project baru ini (sudah disiapkan di repo) lalu commit+push agar Vercel deploy ulang.', 'warn');
     }
   } catch (e) {
     log('ERROR: ' + (e.message ?? e.code ?? e), 'err');

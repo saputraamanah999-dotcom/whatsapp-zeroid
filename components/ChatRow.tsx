@@ -5,7 +5,8 @@ import { T, Avatar, Badge, UserBadges } from './ui';
 import { TypingDots } from './TypingDots';
 import { useTheme, R } from '../lib/theme';
 import { Chat, DB, User } from '../lib/types';
-import { chatTitle, chatPeer, lastMessage, messagePreview, unreadCount, isOnline, canSee, typingUsers, messageStatus, chatVerified } from '../lib/store';
+import { chatTitle, chatPeer, lastMessage, chatLastMsg, messagePreview, unreadCount, isOnline, canSee, typingUsers, messageStatus, chatBadge } from '../lib/store';
+import { VerifiedBadge } from '../lib/icons';
 import { chatTime } from '../lib/format';
 
 export function Ticks({ status, color }: { status: 'sending' | 'failed' | 'sent' | 'delivered' | 'read'; color?: string }) {
@@ -19,7 +20,7 @@ export function Ticks({ status, color }: { status: 'sending' | 'failed' | 'sent'
 export default function ChatRow({ chat, me, db, onPress, onLongPress }: { chat: Chat; me: User; db: DB; onPress: () => void; onLongPress?: () => void }) {
   const t = useTheme();
   const peer = chatPeer(chat, me.id, db);
-  const last = lastMessage(chat.id, me.id);
+  const last = chatLastMsg(chat, me.id);
   const unread = unreadCount(chat, me.id);
   const typing = typingUsers(chat, me.id);
   const title = chatTitle(chat, me.id, db);
@@ -44,7 +45,8 @@ export default function ChatRow({ chat, me, db, onPress, onLongPress }: { chat: 
           <T v="h3" numberOfLines={1} style={{ flexShrink: 1, fontSize: 16 }}>
             {title}
           </T>
-          {chat.type === 'direct' ? <UserBadges user={peer} /> : (chatVerified(chat) || chat.type === 'ai') && <Ionicons name="checkmark-circle" size={15} color={t.accent} />}
+          {/* centang biru: SVG resmi yang sama di SEMUA tempat (chat, grup, saluran, AI) */}
+          {chat.type === 'direct' ? <UserBadges user={peer} /> : chatBadge(chat, db) && <VerifiedBadge size={15} animate={false} />}
           <View style={{ flex: 1 }} />
           <T v="caption" color={unread ? t.accent : t.faint}>
             {last ? chatTime(last.createdAt) : ''}

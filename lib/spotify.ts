@@ -39,10 +39,13 @@ export async function resolveMedia(input: string): Promise<MediaTrack | null> {
   if (p) {
     try {
       const r = await fetch(`https://open.spotify.com/oembed?url=https://open.spotify.com/${p.kind}/${p.id}`);
+      if (!r.ok) throw new Error('oembed ' + r.status);
       const j = await r.json();
       return { ...p, title: j.title ?? 'Spotify', thumb: j.thumbnail_url };
     } catch {
-      return { ...p, title: 'Lagu Spotify' };
+      // oEmbed gagal = track tidak ada / tidak bisa di-embed → simpan sebagai
+      // lagu profil akan menampilkan "Page not available". Tolak link-nya.
+      return null;
     }
   }
   const y = parseYouTube(input);

@@ -50,22 +50,22 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(['name','about','avatar','banner','bannerType','color','phone','username','pin','spotify',
                   'privacy','notif','blocked','contacts','lastSeen','otpCode','otpExpires',
-                  'otpVerified','verified','fcmToken']);
+                  'otpVerified','verified','fcmToken','mutedUntil','orderAttempts']);
     }
-    // Which chat fields ANY member may touch (personal bookkeeping + send preview).
+    // Which chat fields ANY member may touch (personal bookkeeping + send preview + patungan pot).
     function memberChatUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys()
-        .hasOnly(['lastRead','typing','pinnedBy','mutedBy','archivedBy','lastMsg']);
+        .hasOnly(['lastRead','typing','pinnedBy','mutedBy','archivedBy','lastMsg','blueCheckPot']);
     }
     // Which chat fields ONLY chat admins (or global admins) may touch.
     function adminChatUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(['members','admins','name','description','avatar','postPolicy','inviteCode','disappearing']);
     }
-    // Message fields any member may touch (receipts, reactions, own stars).
+    // Message fields any member may touch (receipts, reactions, own stars, poll votes).
     function memberMsgUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys()
-        .hasOnly(['deliveredAt','reactions','starredBy']);
+        .hasOnly(['deliveredAt','reactions','starredBy','votes']);
     }
     // Message fields the SENDER may additionally touch (edit, delete, media metadata).
     function senderMsgUpdate() {
@@ -153,6 +153,10 @@ service cloud.firestore {
                       && isMemberOf(chatId)
                       && !peerBlocked(chatId)
                       && (!chatBanned(chatId) || isAdmin()) // grup/saluran dibanned → hanya admin bisa mengirim
+                      // AI Anti-Spam: user yang sedang dimute tidak bisa mengirim (admin tetap bebas)
+                      && (isAdmin()
+                          || !hasProfile()
+                          || (userDoc().get('mutedUntil', 0) <= request.time.toMillis()))
                       && (chatType(chatId) != 'channel' || isChatAdmin(chatId) || chat(chatId).get('postPolicy', 'everyone') == 'everyone' || isAdmin());
         allow update: if isAdmin()
                       || (isMemberOf(chatId) && notBanned() && memberMsgUpdate())
@@ -164,8 +168,12 @@ service cloud.firestore {
     // ---- stories (24h, cleaned by scheduled function) ----
     match /stories/{sid} {
       allow read: if signedIn();
+      // Jendela kadaluarsa 48 jam (bukan 24h+1s): jam HP sering beda beberapa
+      // detik/menit dari server — itulah penyebab "gagal mengirim Story
+      // gagal izinkan firebase". Klien mengirim 24h; 24 jam toleransi jam.
       allow create: if signedIn() && notBanned() && request.resource.data.get('userId', '') == me()
-                    && request.resource.data.get('expiresAt', 0) < request.time.toMillis() + 86400001;
+                    && request.resource.data.get('expiresAt', 0) < request.time.toMillis() + 172800001
+                    && request.resource.data.get('expiresAt', 0) > request.time.toMillis() - 3600000;
       // others may only add themselves to viewers/likes
       allow update: if (resource.data.get('userId', '') == me()) || isAdmin()
                     || (signedIn()

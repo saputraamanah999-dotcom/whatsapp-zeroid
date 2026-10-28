@@ -26,13 +26,18 @@ import {
   setPostPolicy,
   regenerateInvite,
   chatVerified,
+  chatBadge,
   createOrder,
+  contributeBlueCheckPot,
+  BLUECHECK_POT_TARGET,
+  isFullAdmin,
 } from '../lib/store';
 import { productOf, rupiah } from '../lib/products';
 import { ago } from '../lib/format';
 import { placeCall } from './tabs/CallsTab';
 import { pickGallery, uploadMedia } from '../lib/media';
 import { pushBanner } from '../lib/bus';
+import { VerifiedBadge } from '../lib/icons';
 
 export default function ChatInfo() {
   const t = useTheme();
@@ -63,7 +68,10 @@ export default function ChatInfo() {
 
   const peer = chatPeer(chat, me.id, db);
   const title = chatTitle(chat, me.id, db);
-  const isAdmin = chat.admins.includes(me.id) || me.role === 'admin';
+  // developer/admin global boleh mengatur SEMUA chat (termasuk global & saluran Zeroid AI)
+  const isAdmin = chat.admins.includes(me.id) || isFullAdmin(me);
+  const badge = chat.type === 'direct' ? !!(peer && (peer.blueCheck || peer.developer || peer.role === 'admin' || peer.role === 'developer')) : chatBadge(chat, db);
+  const autoVerified = !chatVerified(chat) && badge && chat.type !== 'direct' && chat.type !== 'ai'; // ikut dari pemilik
   const muted = chat.mutedBy.includes(me.id);
   const blocked = peer ? me.blocked.includes(peer.id) : false;
   const avatarUri = chat.type === 'direct' || chat.type === 'ai' ? (canSee(me, peer, peer?.privacy.profilePhoto ?? 'everyone') ? peer?.avatar : null) : chat.avatar;
@@ -83,15 +91,15 @@ export default function ChatInfo() {
 
   return (
     <Screen>
-      <Header title="Info" right={chat.type === 'group' || chat.type === 'channel' ? isAdmin ? <IconBtn icon="pencil" size={40} onPress={() => (setName(chat.name ?? ''), setDesc(chat.description ?? ''), setEditing(true))} /> : undefined : undefined} />
+      <Header title="Info" right={chat.type === 'group' || chat.type === 'channel' || (chat.type === 'global' && isFullAdmin(me)) ? isAdmin ? <IconBtn icon="pencil" size={40} onPress={() => (setName(chat.name ?? ''), setDesc(chat.description ?? ''), setEditing(true))} /> : undefined : undefined} />
       <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 40, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
         <View style={{ alignItems: 'center', marginBottom: 22 }}>
-          <Pressable disabled={!isAdmin || (chat.type !== 'group' && chat.type !== 'channel')} onPress={changePhoto}>
+          <Pressable disabled={!isAdmin || (chat.type !== 'group' && chat.type !== 'channel' && !(chat.type === 'global' && isFullAdmin(me)))} onPress={changePhoto} accessibilityLabel="Ganti foto chat">
             <Avatar uri={avatarUri} name={title} color={peer?.color ?? chat.color} size={120} icon={chat.type === 'ai' ? 'sparkles' : chat.type === 'global' ? 'globe' : chat.type === 'channel' && !chat.avatar ? 'megaphone' : chat.type === 'group' && !chat.avatar ? 'people' : undefined} />
           </Pressable>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 16 }}>
             <T v="h2">{title}</T>
-            {(chat.verified || chat.type === 'ai') && <Ionicons name="checkmark-circle" size={20} color={t.accent} />}
+            {badge && <VerifiedBadge size={20} animate={false} />}
           </View>
           <T v="sub" style={{ marginTop: 4 }}>
             {sub}
@@ -127,22 +135,70 @@ export default function ChatInfo() {
           </Card>
         )}
 
-        {/* centang biru grup/saluran — status + pembelian (kadaluarsa otomatis) */}
+        {/* centang biru grup/saluran — status + patungan + pembelian */}
         {(chat.type === 'group' || chat.type === 'channel') && (
           <Card title="Centang biru">
             <View style={{ padding: 12, gap: 10 }}>
-              {chatVerified(chat) ? (
+              {badge ? (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Ionicons name="checkmark-circle" size={18} color={t.accent} />
+                  <VerifiedBadge size={18} animate={false} />
                   <T v="sub" style={{ flex: 1, fontWeight: '700', color: t.accent }}>
                     {chat.type === 'channel' ? 'Saluran' : 'Grup'} ini terverifikasi
-                    {(chat.verifiedUntil ?? 0) > Date.now() ? ` — masa aktif ${Math.ceil(((chat.verifiedUntil ?? 0) - Date.now()) / 86400000)} hari lagi` : ' — permanen'}
+                    {chatVerified(chat)
+                      ? (chat.verifiedUntil ?? 0) > Date.now()
+                        ? ` — masa aktif ${Math.ceil(((chat.verifiedUntil ?? 0) - Date.now()) / 86400000)} hari lagi`
+                        : ' — permanen'
+                      : ' — otomatis ikut centang biru pemilik (tanpa beli lagi)'}
                   </T>
                 </View>
               ) : (
                 <T v="sub">Tandai {chat.type === 'channel' ? 'saluran' : 'grup'} ini sebagai resmi dengan centang biru — muncul di nama, daftar chat, dan info.</T>
               )}
-              {isAdmin && (
+              {/* PATUNGAN: anggota menyetor bersama sampai target tercapai */}
+              {!badge && (
+                <View style={{ gap: 8, borderRadius: R.md, padding: 12, backgroundColor: t.bg2 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Ionicons name="people-circle" size={18} color={t.accent} />
+                    <T v="caption" style={{ flex: 1, fontWeight: '800' }}>PATUNGAN BERSAMA — target {rupiah(BLUECHECK_POT_TARGET)} (permanen)</T>
+                  </View>
+                  {(() => {
+                    const pot = chat.blueCheckPot ?? {};
+                    const total = Object.values(pot).reduce((a: number, b: any) => a + Number(b ?? 0), 0) as number;
+                    const pct = Math.min(100, Math.round((total / BLUECHECK_POT_TARGET) * 100));
+                    return (
+                      <>
+                        <View style={{ height: 8, borderRadius: 4, backgroundColor: t.border, overflow: 'hidden' }}>
+                          <View style={{ width: `${pct}%`, height: '100%', borderRadius: 4, backgroundColor: t.accent }} />
+                        </View>
+                        <T v="caption" color={t.sub}>Terkumpul {rupiah(total)} dari {rupiah(BLUECHECK_POT_TARGET)} · {Object.keys(pot).length} anggota ikut</T>
+                        {!!Object.keys(pot).length && (
+                          <T v="caption" color={t.faint} numberOfLines={2}>
+                            {Object.entries(pot).map(([uid, v]: any) => `${db.users[uid]?.name?.split(' ')[0] ?? 'Anggota'}: ${rupiah(Number(v))}`).join(' · ')}
+                          </T>
+                        )}
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                          {[10000, 25000, 49000].map((amt) => (
+                            <Btn
+                              key={amt}
+                              small
+                              variant="primary"
+                              icon="wallet"
+                              title={`Ikut ${rupiah(amt)}`}
+                              onPress={async () => {
+                                const r = await contributeBlueCheckPot(chat.id, amt);
+                                if (r.ok) pushBanner({ title: r.reached ? 'Target tercapai!' : 'Kontribusi masuk', body: r.reached ? 'Pesanan centang biru dikirim ke admin untuk konfirmasi pembayaran.' : `Total patungan sekarang dilihat di info ${chat.name}.`, icon: 'wallet' });
+                                else pushBanner({ title: 'Patungan gagal', body: r.error ?? 'Coba lagi.', icon: 'alert' });
+                              }}
+                            />
+                          ))}
+                        </View>
+                        <T v="caption" color={t.faint}>Kalau target tercapai, pesanan otomatis dikirim ke admin — pembayaran dikonfirmasi lewat chat transaksi patungan.</T>
+                      </>
+                    );
+                  })()}
+                </View>
+              )}
+              {isAdmin && !autoVerified && (
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                   {productOf('bluecheck').plans.map((pl, i) => (
                     <Btn
@@ -152,14 +208,15 @@ export default function ChatInfo() {
                       icon="checkmark-circle"
                       title={`${pl.label} · ${rupiah(pl.price)}`}
                       onPress={() => {
-                        createOrder('bluecheck', i, 'qris', { id: chat.id, name: chat.name });
-                        pushBanner({ title: 'Pesanan dikirim', body: `Centang biru untuk "${chat.name}" menunggu konfirmasi admin.`, icon: 'checkmark-circle' });
+                        const r = createOrder('bluecheck', i, 'qris', { id: chat.id, name: chat.name });
+                        if (r && 'error' in r) pushBanner({ title: 'Tidak bisa memesan', body: r.error, icon: 'alert' });
+                        else if (r) pushBanner({ title: 'Pesanan dikirim', body: `Centang biru untuk "${chat.name}" menunggu konfirmasi admin.`, icon: 'checkmark-circle' });
                       }}
                     />
                   ))}
                 </View>
               )}
-              {!chatVerified(chat) && <T v="caption" color={t.faint}>Centang aktif setelah admin mengonfirmasi pembayaran. Jika masa aktif habis, centang hilang otomatis.</T>}
+              {!badge && <T v="caption" color={t.faint}>Centang aktif setelah admin mengonfirmasi pembayaran. Kalau pemilik sudah punya centang biru, grup/saluran otomatis ikut — tanpa beli lagi.</T>}
             </View>
           </Card>
         )}
@@ -227,9 +284,13 @@ export default function ChatInfo() {
                 <Pressable key={id} onPress={() => id !== me.id && setMemberSel(id)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10, borderRadius: R.md, backgroundColor: pressed ? t.accentSoft : 'transparent' })}>
                   <Avatar uri={canSee(me, u, u.privacy.profilePhoto) ? u.avatar : null} name={u.name} color={u.color} size={42} online={isOnline(u)} />
                   <View style={{ flex: 1 }}>
-                    <T v="body" style={{ fontWeight: '500' }}>
-                      {id === me.id ? 'Kamu' : u.name}
-                    </T>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                      <T v="body" style={{ fontWeight: '500' }} numberOfLines={1}>
+                        {id === me.id ? 'Kamu' : u.name}
+                      </T>
+                      {/* centang biru SVG resmi di nama anggota */}
+                      {(u.blueCheck || u.developer || u.role === 'admin' || u.role === 'developer') && <VerifiedBadge size={13} animate={false} />}
+                    </View>
                     <T v="caption" numberOfLines={1}>
                       {u.about}
                     </T>

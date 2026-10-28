@@ -34,6 +34,7 @@ import {
   createSticker,
   chatBannedNow,
   chatVerified,
+  chatBadge,
   isFullAdmin,
   subscribeMessages,
   unsubscribeMessages,
@@ -204,21 +205,13 @@ export default function ChatRoom() {
           </View>
         }
       />
-      {chat.type === 'direct' && peer?.blueCheck && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginBottom: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: R.md, backgroundColor: 'rgba(30,107,255,0.10)', borderWidth: 1, borderColor: 'rgba(30,107,255,0.25)' }}>
-          <Ionicons name="checkmark-circle" size={15} color={t.accent} />
+      {(chat.type === 'direct' ? !!peer && (peer.blueCheck || peer.developer || peer.role === 'admin' || peer.role === 'developer') : chatBadge(chat, db)) && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginBottom: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: R.md, backgroundColor: 'rgba(0,149,246,0.10)', borderWidth: 1, borderColor: 'rgba(0,149,246,0.25)' }}>
+          <VerifiedBadge size={15} animate={false} />
           <T v="caption" color={t.accent} style={{ flex: 1, fontWeight: '700' }}>
-            {title} terverifikasi centang biru — akun resmi, aman untuk chat dan transaksi.
-          </T>
-        </View>
-      )}
-      {/* centang biru GRUP/SALURAN: bar pengaman di atas chat, dengan sisa masa aktif */}
-      {chat.type !== 'direct' && chat.type !== 'ai' && chatVerified(chat) && (
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginBottom: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: R.md, backgroundColor: 'rgba(30,107,255,0.10)', borderWidth: 1, borderColor: 'rgba(30,107,255,0.25)' }}>
-          <VerifiedBadge size={15} />
-          <T v="caption" color={t.accent} style={{ flex: 1, fontWeight: '700' }}>
-            {title} terverifikasi centang biru{chat.type === 'channel' ? ' — saluran resmi, aman diikuti' : ' — grup resmi, aman untuk chat'}
-            {(chat.verifiedUntil ?? 0) > Date.now() ? ` (masa aktif ${Math.ceil(((chat.verifiedUntil ?? 0) - Date.now()) / 86400000)} hari lagi)` : ''}.
+            {chat.type === 'direct'
+              ? `${title} terverifikasi centang biru — akun resmi, aman untuk chat dan transaksi.`
+              : `${title} terverifikasi centang biru${chatBadge(chat, db) && !chatVerified(chat) ? ' (ikut dari pemilik)' : ''}${chat.type === 'channel' ? ' — saluran resmi, aman diikuti' : ' — grup resmi, aman untuk chat'}${(chat.verifiedUntil ?? 0) > Date.now() ? ` (masa aktif ${Math.ceil(((chat.verifiedUntil ?? 0) - Date.now()) / 86400000)} hari lagi)` : ''}.`}
           </T>
         </View>
       )}

@@ -15,6 +15,7 @@ import { useStore, initStore, acceptCall, declineCall, sendMessage, markRead, ad
 import { useTheme, R } from './lib/theme';
 import { navRef, setActiveRouteName } from './lib/bus';
 import { setupNotifications, registerPushToken } from './lib/notify';
+import { registerWebFcm } from './lib/fcm';
 import { isFirebaseConfigured } from './lib/firebase';
 import { ZeroidLogo, Icon } from './lib/icons';
 import { T } from './components/ui';
@@ -249,6 +250,8 @@ export default function App() {
   useEffect(() => {
     if (me && tokenFor.current !== me.id) {
       tokenFor.current = me.id;
+      // notifikasi luar app: web → token browser FCM; native → token expo-notifications
+      registerWebFcm(me.id);
       registerPushToken(me.id);
     }
   }, [me?.id]);

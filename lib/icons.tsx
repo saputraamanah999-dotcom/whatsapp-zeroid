@@ -4,8 +4,9 @@
  * Emoji are NEVER used as UI icons; emoji remain only inside message content,
  * the emoji picker and user reactions.
  */
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Svg, Path, Circle, Line, Rect, Polyline, Polygon, Ellipse, G, Defs, LinearGradient, Stop, SvgProps } from 'react-native-svg';
+import Animated, { FadeIn, useSharedValue, useAnimatedStyle, withSpring, withTiming, withDelay } from 'react-native-reanimated';
 
 export type IconName =
   | 'send' | 'paperclip' | 'smile' | 'mic' | 'camera' | 'x' | 'search' | 'phone' | 'phone-off'
@@ -144,12 +145,36 @@ export function VipBadge({ size = 16 }: { size?: number }) {
   );
 }
 
-export function VerifiedBadge({ size = 15, color = '#1E6BFF' }: { size?: number; color?: string }) {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 24 24">
-      <Path d="M12 1.8l2.35 1.94 3-.46 1.15 2.83 2.83 1.15-.46 3L22.8 12l-1.93 2.35.46 3-2.83 1.15-1.15 2.83-3-.46L12 22.8l-2.35-1.93-3 .46-1.15-2.83-2.83-1.15.46-3L1.2 12l1.93-2.35-.46-3 2.83-1.15L6.65 2.67l3 .46L12 1.8z" fill={color} />
-      <Path d="m8.6 12.2 2.2 2.2 4.6-4.8" stroke="#fff" strokeWidth="2.1" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+/**
+ * VerifiedBadge — centang biru RESMI Zeroid (SVG dari developer, dipakai di
+ * SEMUA tempat: profil, pencarian, chat, grup, saluran, nama pengirim pesan).
+ * Animasi pop ala spring (scale + rotate) memakai reanimated — padanan motion/react.
+ */
+export function VerifiedBadge({ size = 18, color = '#0095F6', animate = true }: { size?: number; color?: string; animate?: boolean }) {
+  const s = useSharedValue(animate ? 0 : 1);
+  const r = useSharedValue(animate ? -20 : 0);
+  const o = useSharedValue(animate ? 0 : 1);
+  useEffect(() => {
+    if (!animate) { s.value = 1; r.value = 0; o.value = 1; return; }
+    s.value = withDelay(250, withSpring(1, { stiffness: 260, damping: 18 }));
+    r.value = withDelay(250, withSpring(0, { stiffness: 260, damping: 18 }));
+    o.value = withDelay(250, withTiming(1, { duration: 120 }));
+  }, []);
+  const st = useAnimatedStyle(() => ({ transform: [{ scale: s.value }, { rotate: `${r.value}deg` }], opacity: o.value }));
+  const svg = (
+    <Svg width={size} height={size} viewBox="0 0 40 40" fill={color}>
+      <Path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v5.905h5.975L14.638 40l5.36-3.094L25.358 40l3.232-5.6h6.162v-6.01L40 25.359 36.905 20 40 14.641l-5.248-3.03v-6.46h-6.419L25.358 0l-5.36 3.094Zm7.415 11.225 2.254 2.287-11.43 11.5-6.835-6.93 2.244-2.258 4.587 4.581 9.18-9.18Z"
+      />
     </Svg>
+  );
+  if (!animate) return svg;
+  return (
+    <Animated.View entering={FadeIn.duration(1)} style={[{ alignItems: 'center', justifyContent: 'center' }, st]}>
+      {svg}
+    </Animated.View>
   );
 }
 

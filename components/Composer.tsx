@@ -11,6 +11,7 @@ import { useAudioRecorder, RecordingPresets, setAudioModeAsync } from 'expo-audi
 import * as Location from 'expo-location';
 import { T, Segmented, Btn } from './ui';
 import { Image } from 'expo-image';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { AppleEmoji, EMOJI_SET, DEFAULT_STICKERS } from './Emoji';
 import { Sheet } from './Sheet';
 import { Icon } from '../lib/icons';
@@ -26,6 +27,12 @@ import { pushBanner } from '../lib/bus';
 const MAX_INPUT_H = 110;
 const BTN = 34;
 const FAB = 42;
+
+/** polling tersedia di grup & chat global (ala WhatsApp) */
+function chatTypeForPoll(chatId: string, db: DB): boolean {
+  const c = db.chats[chatId];
+  return !!c && (c.type === 'group' || c.type === 'global');
+}
 
 function RecDot() {
   const o = useSharedValue(1);
@@ -70,6 +77,10 @@ export default function Composer({
   const [bratText, setBratText] = useState('');
   const [bratUrl, setBratUrl] = useState<string | null>(null);
   const [bratBusy, setBratBusy] = useState(false);
+  const [pollOpen, setPollOpen] = useState(false);
+  const [pollQ, setPollQ] = useState('');
+  const [pollOpts, setPollOpts] = useState(['', '']);
+  const [pollMulti, setPollMulti] = useState(false);
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const inputRef = useRef<TextInput>(null);
@@ -250,6 +261,19 @@ export default function Composer({
   const failedMsgs = (db.messages[chatId] ?? []).filter((m) => m.senderId === me.id && m.status === 'failed');
   const ctx = editing ?? replyTo;
   const multiline = inputH > 20;
+
+  const sendPoll = () => {
+    const q = pollQ.trim();
+    const opts = pollOpts.map((o) => o.trim()).filter(Boolean);
+    if (!q || opts.length < 2) return;
+    send({ type: 'poll', text: q, poll: { options: opts.slice(0, 6), multi: pollMulti } });
+    setPollOpen(false);
+    setPollQ('');
+    setPollOpts(['', '']);
+    setPollMulti(false);
+  };
+
+  const canPoll = chatTypeForPoll(chatId, db);
 
   return (
     <View style={{ paddingHorizontal: 8, paddingTop: 6, paddingBottom: 6, backgroundColor: t.bg }}>
@@ -438,8 +462,47 @@ export default function Composer({
           { icon: 'location', label: 'Lokasi', color: '#14C47A', onPress: sendLocation },
           { icon: 'person', label: 'Kontak', color: '#1E6BFF', onPress: () => setContactOpen(true) },
           { icon: 'mic', label: 'Pesan suara', color: '#14C47A', onPress: startRec },
+          ...(canPoll ? [{ icon: 'stats-chart' as const, label: 'Polling / Vote', color: '#FF7A9C', onPress: () => setPollOpen(true) }] : []),
         ]}
       />
+      {/* Sheet polling / vote ala WhatsApp */}
+      <Sheet visible={pollOpen} onClose={() => setPollOpen(false)} title="Buat polling">
+        <View style={{ gap: 12 }}>
+          <TextInput
+            value={pollQ}
+            onChangeText={setPollQ}
+            placeholder="Pertanyaan polling…"
+            placeholderTextColor={t.faint}
+            maxLength={120}
+            style={[font, { color: t.text, fontSize: 15, paddingVertical: 11, paddingHorizontal: 12, borderRadius: R.md, backgroundColor: t.bg2 }]}
+          />
+          {pollOpts.map((o, i) => (
+            <View key={i} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <TextInput
+                value={o}
+                onChangeText={(v) => setPollOpts((x) => x.map((y, j) => (j === i ? v : y)))}
+                placeholder={`Pilihan ${i + 1}`}
+                placeholderTextColor={t.faint}
+                maxLength={60}
+                style={[font, { flex: 1, color: t.text, fontSize: 15, paddingVertical: 10, paddingHorizontal: 12, borderRadius: R.md, backgroundColor: t.bg2 }]}
+              />
+              {pollOpts.length > 2 && i >= 2 && (
+                <Pressable onPress={() => setPollOpts((x) => x.filter((_, j) => j !== i))} hitSlop={8} accessibilityLabel="Hapus pilihan">
+                  <Icon name="x" size={18} color={t.danger} />
+                </Pressable>
+              )}
+            </View>
+          ))}
+          {pollOpts.length < 6 && (
+            <Btn small variant="ghost" icon="add" title="Tambah pilihan" onPress={() => setPollOpts((x) => [...x, ''])} />
+          )}
+          <Pressable onPress={() => setPollMulti(!pollMulti)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 4 }}>
+            <Ionicons name={pollMulti ? 'checkbox' : 'square-outline'} size={20} color={t.accent} />
+            <T v="sub" style={{ flex: 1 }}>Boleh pilih beberapa jawaban</T>
+          </Pressable>
+          <Btn small title="Kirim polling" icon="stats-chart" disabled={!pollQ.trim() || pollOpts.filter((o) => o.trim()).length < 2} onPress={sendPoll} />
+        </View>
+      </Sheet>
       <Sheet visible={contactOpen} onClose={() => setContactOpen(false)} title="Kirim kontak">
         <View style={{ gap: 10 }}>
           <TextInput

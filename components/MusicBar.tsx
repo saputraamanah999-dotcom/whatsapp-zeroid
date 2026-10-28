@@ -9,8 +9,8 @@
  *  - Mode embed: kalau direct audio tidak tersedia, memakai iframe/WebView
  *    YouTube resmi (tetap tersembunyi & terus bunyi lintas halaman).
  */
-import React, { useEffect, useState } from 'react';
-import { View, Pressable, Modal, Platform, ScrollView, ViewStyle } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { View, Pressable, Modal, Platform, ScrollView, ViewStyle, PanResponder, StyleSheet } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Animated, { FadeInDown, FadeOutDown, FadeIn, FadeOut } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -72,6 +72,18 @@ function SeekBar({ position, duration, accent, onSeek }: { position: number; dur
   );
 }
 
+/** posisi terakhir bulatan melayang — dipersist di sessionStorage/localStorage */
+const BUBBLE_POS_KEY = 'zeroid-bubble-pos';
+function loadBubblePos(): { x: number; y: number } | null {
+  try {
+    const raw = Platform.OS === 'web' ? window.localStorage.getItem(BUBBLE_POS_KEY) : null;
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+function saveBubblePos(p: { x: number; y: number }) {
+  try { if (Platform.OS === 'web') window.localStorage.setItem(BUBBLE_POS_KEY, JSON.stringify(p)); } catch {}
+}
+
 export default function MusicBar() {
   const st = usePlayer();
   const t = useTheme();
@@ -87,6 +99,41 @@ export default function MusicBar() {
   const [hidden, setHidden] = useState(false);
   const [lyr, setLyr] = useState<{ for: string; text: string; loading: boolean }>({ for: '', text: '', loading: false });
   const [tab, setTab] = useState<'player' | 'lyrics' | 'queue'>('player');
+  // gelembung melayang BISA DIGESER ke mana saja (drag) — posisi diingat
+  const savedPos = useMemo(loadBubblePos, []);
+  const [bubble, setBubble] = useState<{ x: number; y: number } | null>(savedPos ? savedPos : null);
+  const panBase = React.useRef<{ px: number; py: number; bx: number; by: number } | null>(null);
+  const bubblePan = useMemo(() => {
+    const D = require('react-native').Dimensions;
+    const defaultLeft = () => Math.max(6, D.get('window').width - 14 - 58);
+    const defaultTop = () => D.get('window').height - 58 - 104;
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) > 5 || Math.abs(g.dy) > 5,
+      onPanResponderGrant: (e) => {
+        panBase.current = {
+          px: e.nativeEvent.pageX,
+          py: e.nativeEvent.pageY,
+          bx: bubble?.x ?? defaultLeft(),
+          by: bubble?.y ?? defaultTop(),
+        };
+      },
+      onPanResponderMove: (e) => {
+        const b = panBase.current;
+        if (!b) return;
+        setBubble({
+          x: Math.max(4, Math.min(b.bx + (e.nativeEvent.pageX - b.px), D.get('window').width - 62)),
+          y: Math.max(40, Math.min(b.by + (e.nativeEvent.pageY - b.py), D.get('window').height - 62)),
+        });
+      },
+      onPanResponderRelease: () => {
+        if (bubble) saveBubblePos({ x: bubble.x, y: bubble.y });
+      },
+      onPanResponderTerminate: () => {
+        if (bubble) saveBubblePos({ x: bubble.x, y: bubble.y });
+      },
+    });
+  }, [bubble?.x, bubble?.y]);
   const song = st.current;
   const embedRef = React.useRef<any>(null);
   useEffect(() => { setEmbedNode(embedRef.current); }, [st.embed, song?.videoId]);
@@ -142,13 +189,17 @@ export default function MusicBar() {
 
   // gelembung melayang (disembunyikan manual ATAU otomatis di layar chat/dll)
   if ((hidden && !st.barVisible) || collapseToBubble) {
+    const bStyle: ViewStyle = bubble
+      ? { position: 'absolute', left: bubble.x, top: bubble.y, zIndex: 900 }
+      : { position: 'absolute', right: 14, bottom: insets.bottom + (collapseToBubble ? 136 : 104), zIndex: 900 };
     return (
       <>
         {st.embed && !st.fullOpen ? embedNodeEl : null}
-        <Animated.View entering={FadeIn.springify()} exiting={FadeOut} pointerEvents="box-none" style={{ position: 'absolute', right: 14, bottom: insets.bottom + (collapseToBubble ? 136 : 104), zIndex: 900 }}>
+        <Animated.View entering={FadeIn.springify()} exiting={FadeOut} pointerEvents="box-none" style={bStyle} {...bubblePan.panHandlers}>
           <Pressable
             onPress={() => { setHidden(false); setBarVisible(true); openFull(); }}
             onLongPress={() => { close(); setHidden(false); setBarVisible(true); }}
+            delayLongPress={600}
             style={({ pressed }) => [glass(t.dark, { width: 58, height: 58, borderRadius: 29, alignItems: 'center', justifyContent: 'center', boxShadow: '0px 10px 26px rgba(0,0,0,0.35)', opacity: pressed ? 0.9 : 1, overflow: 'hidden' } as ViewStyle)]}
           >
             {song.thumb ? (

@@ -42,7 +42,9 @@ import { AVATAR_COLORS, setThemeMode, ThemeMode } from './theme';
 import { pushBanner, activeChatId, navRef } from './bus';
 import { presentLocal } from './notify';
 import { askAI, thinkAI, analyzeImage, AI_PROVIDERS } from './ai';
-import { firebase, isFirebaseConfigured, COLLECTIONS as C } from './firebase';
+import { firebase, isFirebaseConfigured, COLLECTIONS as C, firebaseConfig } from './firebase';
+import { fcmPush } from './fcm';
+import { recordFbError } from './health';
 
 const THEME_KEY = 'zeroid-theme';
 const LOCK_KEY = 'zeroid-unlocked';
@@ -119,6 +121,7 @@ function mapUser(id: string, d: DocumentData): User {
     username: d.username, developer: !!d.developer, blueCheck: !!d.blueCheck, vipUntil: ts(d.vipUntil),
     memberUntil: ts(d.memberUntil), security: !!d.security, otpVerified: !!d.otpVerified, pin: d.pin, otpCode: d.otpCode, otpExpires: ts(d.otpExpires),
     spotify: d.spotify ?? null, verified: !!d.verified, banned: !!d.banned, suspendedUntil: ts(d.suspendedUntil),
+    mutedUntil: ts(d.mutedUntil), orderAttempts: Array.isArray(d.orderAttempts) ? d.orderAttempts : [],
     banReason: d.banReason, banUntil: ts(d.banUntil), lastSeen: ts(d.lastSeen), createdAt: ts(d.createdAt),
     privacy: { lastSeen: 'everyone', profilePhoto: 'everyone', about: 'everyone', groups: 'everyone', readReceipts: true, storyReplies: true, ...(d.privacy ?? {}) },
     notif: { messages: true, groups: true, stories: true, calls: true, preview: true, sound: true, ...(d.notif ?? {}) },
@@ -135,6 +138,7 @@ function mapChat(id: string, d: DocumentData): Chat {
     verified: !!d.verified, verifiedUntil: ts(d.verifiedUntil), banned: !!d.banned, banReason: d.banReason,
     banUntil: ts(d.banUntil), banAppeal: d.banAppeal ?? undefined,
     postPolicy: d.postPolicy ?? 'everyone', lastMsg: d.lastMsg, inviteCode: d.inviteCode,
+    blueCheckPot: d.blueCheckPot ?? undefined,
     disappearing: d.disappearing ?? 'off',
   };
 }
@@ -143,6 +147,19 @@ function mapChat(id: string, d: DocumentData): Chat {
 export function chatVerified(c?: Chat | null): boolean {
   if (!c) return false;
   return !!c.verified || (c.verifiedUntil ?? 0) > Date.now();
+}
+
+/**
+ * Centang biru otomatis dari PEMILIK: kalau pembuat grup/saluran punya centang
+ * biru (atau developer/admin), grup & saluran miliknya ikut terverifikasi
+ * TANPA beli lagi — sesuai aturan baru.
+ */
+export function chatBadge(c?: Chat | null, d: DB = db): boolean {
+  if (!c) return false;
+  if (c.type === 'ai') return true;
+  if (chatVerified(c)) return true;
+  const owner = c.createdBy ? d.users[c.createdBy] : undefined;
+  return !!owner && (owner.blueCheck || owner.developer || owner.role === 'admin' || owner.role === 'developer');
 }
 
 /** Grup/saluran sedang dibanned? (ban berjangka lewat otomatis) */
@@ -165,6 +182,7 @@ function mapMessage(id: string, d: DocumentData): Message {
     editedAt: ts(d.editedAt) || undefined, deletedForAll: !!d.deletedForAll, deletedFor: d.deletedFor ?? [],
     reactions: d.reactions ?? {}, starredBy: d.starredBy ?? [], forwarded: !!d.forwarded, orderId: d.orderId, assistant: !!d.assistant,
     lat: d.lat, lng: d.lng, locationLabel: d.locationLabel, contactName: d.contactName, contactPhone: d.contactPhone,
+    poll: d.poll ?? undefined, votes: d.votes ?? undefined,
     expiresAt: ts(d.expiresAt) || undefined, mediaExpiresAt: ts(d.mediaExpiresAt) || undefined, reasoning: d.reasoning,
   };
 }
@@ -504,10 +522,33 @@ export function lastMessage(chatId: string, meId: string): Message | undefined {
   return undefined;
 }
 
+/**
+ * Pesan terakhir untuk daftar chat — memakai db.messages bila tersedia,
+ * fallback ke chat.lastMsg (denormalised) supaya chat yang BELUM dibuka
+ * tetap tampil dengan preview + badge tidak dibaca (bukan "mulai percakapan").
+ */
+export function chatLastMsg(chat: Chat, meId: string): Message | undefined {
+  const live = lastMessage(chat.id, meId);
+  if (live) return live;
+  const lm = chat.lastMsg;
+  if (!lm || !lm.createdAt) return undefined;
+  return {
+    id: 'lastMsg', chatId: chat.id, senderId: lm.senderId, type: lm.type, text: lm.text,
+    createdAt: lm.createdAt, deletedFor: [], reactions: {}, starredBy: [],
+  };
+}
+
 export function unreadCount(chat: Chat, meId: string) {
   const lr = chat.lastRead[meId] ?? 0;
   const now = Date.now();
-  return (db.messages[chat.id] ?? []).filter((m) => m.createdAt > lr && m.senderId !== meId && m.type !== 'system' && !m.deletedFor.includes(meId) && !(m.expiresAt && m.expiresAt < now)).length;
+  const arr = db.messages[chat.id] ?? [];
+  if (arr.length) {
+    return arr.filter((m) => m.createdAt > lr && m.senderId !== meId && m.type !== 'system' && !m.deletedFor.includes(meId) && !(m.expiresAt && m.expiresAt < now)).length;
+  }
+  // chat belum pernah dibuka di sesi ini → pakai lastMsg denormalised
+  const lm = chat.lastMsg;
+  if (lm && lm.createdAt > lr && lm.senderId !== meId && lm.type !== 'system') return 1;
+  return 0;
 }
 
 export function chatTitle(chat: Chat, meId: string, d: DB = db) {
@@ -546,6 +587,7 @@ export function messagePreview(m?: Message) {
     case 'location': return 'Lokasi';
     case 'contact': return `Kontak: ${m.contactName ?? ''}`;
     case 'order': return m.text ?? 'Pesanan';
+    case 'poll': return `📊 Polling: ${m.text ?? ''}`;
     case 'call': return m.text ?? 'Panggilan';
     default: return m.text ?? '';
   }
@@ -555,6 +597,8 @@ function notifyFor(userId: string, kind: NotifKind, title: string, body: string,
   const fb = firebase();
   if (!fb || !userId) return;
   addDoc(collection(fb.db, C.notifications), clean({ id: '', userId, kind, title, body, createdAt: serverTimestamp(), read: false, ...extra })).catch(() => {});
+  // Push FCM (luar aplikasi/website) via server sendiri — best effort, tak pernah melempar error.
+  void fcmPush({ uids: [userId], title, body, kind, chatId: extra.chatId, storyUserId: extra.storyUserId });
 }
 
 // ============================ auth ============================
@@ -570,7 +614,7 @@ function fbError(e: any): string {
   if (c.includes('operation-not-allowed')) return 'Metode masuk ini belum diaktifkan di Firebase console.';
   if (c.includes('requires-recent-login')) return 'Sesi sudah lama. Keluar lalu masuk kembali, dan ulangi tindakan ini.';
   if (c.includes('permission-denied') || c.includes('insufficient permissions'))
-    return 'Server menolak aksi ini (izin Firestore). Admin perlu mempublikasikan Rules v4 terbaru di Firebase Console.';
+    return 'Server menolak aksi ini (izin Firestore). Admin perlu mempublikasikan Rules terbaru di Firebase Console (pwa/seed.html → langkah Rules).';
   if (c.includes('unavailable') || c.includes('network')) return 'Koneksi ke server terputus. Periksa internet kamu.';
   return e?.message ?? 'Terjadi kesalahan.';
 }
@@ -944,11 +988,76 @@ export function typingUsers(chat: Chat, meId: string) {
 
 // ============================ messages ============================
 
-export type OutMsg = Partial<Pick<Message, 'type' | 'text' | 'uri' | 'fileName' | 'fileSize' | 'duration' | 'mime' | 'width' | 'height' | 'thumb' | 'storagePath' | 'replyTo' | 'forwarded' | 'orderId' | 'assistant' | 'lat' | 'lng' | 'locationLabel' | 'contactName' | 'contactPhone' | 'reasoning' | 'mediaExpiresAt'>>;
+export type OutMsg = Partial<Pick<Message, 'type' | 'text' | 'uri' | 'fileName' | 'fileSize' | 'duration' | 'mime' | 'width' | 'height' | 'thumb' | 'storagePath' | 'replyTo' | 'forwarded' | 'orderId' | 'assistant' | 'lat' | 'lng' | 'locationLabel' | 'contactName' | 'contactPhone' | 'reasoning' | 'mediaExpiresAt' | 'poll'>>;
 
 /** disappearing-message TTL in ms for a chat, or 0 when off */
 export const disappearingMs = (c?: Chat | null): number =>
   c?.disappearing === '24h' ? 24 * 3600000 : c?.disappearing === '7d' ? 7 * 86400000 : c?.disappearing === '90d' ? 90 * 86400000 : 0;
+
+// ---------- AI Anti-Spam ----------
+// Jendela geser 10 detik: > 6 pesan = mencurigakan → mute otomatis 10 menit +
+// laporan ke admin + pesan penjelasan ke pengirim (durasi & cara chat admin).
+const SPAM_WINDOW = 10_000;
+const SPAM_MAX = 6;
+const MUTE_MS = 10 * 60_000;
+let sendTimes: number[] = [];
+
+export function mutedRemaining(u?: User | null): number {
+  return Math.max(0, (u?.mutedUntil ?? 0) - Date.now());
+}
+
+function spamCheck(): boolean {
+  const me = getMe();
+  if (!me) return false;
+  if (mutedRemaining(me) > 0) {
+    pushBanner({
+      title: 'Kirim pesan dibatasi',
+      body: `AI Anti-Spam membatasimu ${fmtDur(mutedRemaining(me) / 1000)} lagi. Kalau ini salah, tulis masalahmu ke admin lewat chat global.`,
+      icon: 'shield',
+    });
+    return true;
+  }
+  const now = Date.now();
+  sendTimes = sendTimes.filter((t) => now - t < SPAM_WINDOW);
+  sendTimes.push(now);
+  if (sendTimes.length > SPAM_MAX) {
+    sendTimes = [];
+    const until = now + MUTE_MS;
+    const fb = firebase();
+    if (fb) updateDoc(doc(fb.db, C.users, me.id), { mutedUntil: until }).catch(() => {});
+    pushBanner({
+      title: 'AI Anti-Spam: kamu dibatasi 10 menit',
+      body: 'Pesanmu terdeteksi berlebihan (mencurigakan). Kalau ini salah atau ada masalah, tulis aja ke admin — admin bisa membuka lebih cepat.',
+      icon: 'alert',
+    });
+    notifyFor(me.id, 'admin', 'Kamu dibatasi sementara', 'AI Anti-Spam mendeteksi pengiriman berlebihan. Masa pembatasan 10 menit. Tulis masalahmu ke admin untuk dibuka lebih cepat.', { chatId: 'c_global' });
+    // laporan ke semua admin/developer
+    for (const a of Object.values(db.users).filter((x) => x.role === 'admin' || x.role === 'developer')) {
+      notifyFor(a.id, 'admin', 'Spam terdeteksi', `${me.name} (@${me.username ?? me.id.slice(0, 6)}) dibatasi otomatis 10 menit oleh AI Anti-Spam.`);
+    }
+    return true;
+  }
+  return false;
+}
+
+// ---------- mentions: @username / @semua ----------
+/** Resolve mention dari teks → daftar uid anggota grup yang diberi notifikasi. */
+function mentionUids(chat: Chat, text: string): string[] {
+  if (!text || (chat.type !== 'group' && chat.type !== 'global')) return [];
+  const handles = new Set<string>();
+  for (const m of text.matchAll(/@([a-zA-Z0-9._]+)/g)) handles.add(m[1].toLowerCase());
+  if (!handles.size) return [];
+  const all = [...handles].some((h) => ['semua', 'all', 'everyone', 'sini'].includes(h));
+  const sender = getMe()?.id ?? '';
+  if (all) return chat.members.filter((u) => u !== sender);
+  const uids: string[] = [];
+  for (const h of handles) {
+    const u = Object.values(db.users).find((x) => x.username === h);
+    if (u && chat.members.includes(u.id) && u.id !== sender) uids.push(u.id);
+  }
+  return [...new Set(uids)];
+}
+
 
 export async function sendMessage(chatId: string, payload: OutMsg): Promise<Message | null> {
   const sender = getMe()?.id;
@@ -979,6 +1088,10 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     pushBanner({ title: 'Grup/Saluran dibanned', body: chat.banReason || 'Grup atau saluran ini diblokir admin — tulis banding di layar tinjauan.', icon: 'ban' });
     return null;
   }
+  // AI Anti-Spam: pesan sistem/AI tidak ikut dihitung
+  if (!payload.assistant && payload.type !== 'system') {
+    if (spamCheck()) return null;
+  }
   const ref = doc(collection(fb.db, C.chats, chatId, 'messages'));
   const ttl = disappearingMs(chat);
   const local: Message = {
@@ -987,6 +1100,7 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     mime: payload.mime, width: payload.width, height: payload.height, thumb: payload.thumb,
     storagePath: payload.storagePath, replyTo: payload.replyTo, forwarded: payload.forwarded, orderId: payload.orderId, assistant: payload.assistant,
     lat: payload.lat, lng: payload.lng, locationLabel: payload.locationLabel, contactName: payload.contactName, contactPhone: payload.contactPhone,
+    poll: payload.poll, votes: payload.poll ? {} : undefined,
     reasoning: payload.reasoning, expiresAt: ttl ? Date.now() + ttl : undefined, mediaExpiresAt: payload.mediaExpiresAt,
     createdAt: Date.now(), deletedFor: [], reactions: {}, starredBy: [], status: 'sending',
   };
@@ -1000,6 +1114,7 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     orderId: local.orderId, assistant: local.assistant ?? null, lat: local.lat ?? null, lng: local.lng ?? null,
     locationLabel: local.locationLabel ?? null, contactName: local.contactName ?? null, contactPhone: local.contactPhone ?? null,
     reasoning: local.reasoning ?? null, expiresAt: local.expiresAt ?? null, mediaExpiresAt: local.mediaExpiresAt ?? null,
+    poll: local.poll ?? null, votes: {},
     clientTime: local.createdAt, createdAt: serverTimestamp(),
     deletedFor: [], reactions: {}, starredBy: [],
   };
@@ -1008,6 +1123,12 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     // denormalised preview + clear my typing
     const pv = messagePreview({ ...local, status: undefined } as Message);
     updateDoc(doc(fb.db, C.chats, chatId), { lastMsg: { text: pv.slice(0, 120), type: local.type, senderId: sender, createdAt: local.createdAt }, [`typing.${sender}`]: 0 }).catch(() => {});
+    // mention notifications: @username / @semua di grup & global
+    const mentions = mentionUids(chat, local.text ?? '');
+    for (const u of mentions.slice(0, 30)) {
+      const name = db.users[sender]?.name ?? 'Seseorang';
+      notifyFor(u, 'group', `${name} menyebut kamu`, `${chat.name ?? 'Grup'}: ${(local.text ?? '').slice(0, 80)}`, { chatId });
+    }
     // recipients mark delivered when they receive it (listener side)
     return local;
   } catch (e: any) {
@@ -1076,6 +1197,28 @@ export function toggleStar(chatId: string, id: string) {
   const m = (db.messages[chatId] ?? []).find((x) => x.id === id);
   if (!m) return;
   updateDoc(doc(fb.db, C.chats, chatId, 'messages', id), { starredBy: m.starredBy.includes(me.id) ? arrayRemove(me.id) : arrayUnion(me.id) }).catch(() => {});
+}
+
+// ============================ polling (vote) ============================
+
+/** Vote polling ala WhatsApp — ketuk pilihan untuk memilih / membatalkan. */
+export function votePoll(chatId: string, msgId: string, optionIdx: number) {
+  const me = getMe()!;
+  const fb = firebase();
+  if (!fb) return;
+  const m = (db.messages[chatId] ?? []).find((x) => x.id === msgId);
+  if (!m?.poll) return;
+  const cur = m.votes?.[me.id];
+  let next: number | number[];
+  if (m.poll.multi) {
+    const arr = Array.isArray(cur) ? [...cur] : [];
+    const i = arr.indexOf(optionIdx);
+    if (i >= 0) arr.splice(i, 1); else arr.push(optionIdx);
+    next = arr;
+  } else {
+    next = cur === optionIdx ? -1 : optionIdx;
+  }
+  updateDoc(doc(fb.db, C.chats, chatId, 'messages', msgId), { [`votes.${me.id}`]: next }).catch(() => {});
 }
 
 export function forwardMessage(msg: Message, chatIds: string[]) {
@@ -1199,7 +1342,21 @@ export function postStory(s: Pick<Story, 'type' | 'text' | 'bg' | 'uri'>) {
   addDoc(collection(fb.db, C.stories), {
     userId: me.id, type: s.type, text: s.text ?? null, bg: s.bg ?? null, uri: s.uri ?? null,
     createdAt: serverTimestamp(), expiresAt: Date.now() + 24 * 3600000, viewers: [], likes: [],
-  }).catch((e) => pushBanner({ title: 'Gagal mengirim Story', body: fbError(e), icon: 'alert' }));
+  })
+    .then(() => {
+      // SW developer/admin = PUBLIK ke semua pengguna + notif ke semua user
+      if (me.role === 'developer' || me.role === 'admin') {
+        const targets = Object.values(db.users).filter((u) => u.id !== me.id && !u.banned).slice(0, 200);
+        for (const u of targets) {
+          notifyFor(u.id, 'story', 'Story Developer', `${me.name} baru saja posting Story — lihat sekarang!`, { storyUserId: me.id });
+        }
+        void fcmPush({ topic: 'all', title: 'Story Developer', body: `${me.name} baru saja posting Story di Zeroid.`, kind: 'story', storyUserId: me.id });
+      }
+    })
+    .catch((e) => {
+      recordFbError(e);
+      pushBanner({ title: 'Gagal mengirim Story', body: fbError(e), icon: 'alert' });
+    });
 }
 
 export function viewStory(storyId: string) {
@@ -1262,6 +1419,14 @@ export function startCall(chatId: string, video: boolean): string | null {
   setDoc(doc(fb.db, C.calls, id), {
     id, chatId, callerId: me.id, calleeIds: [callee], video, status: 'ringing', startedAt: serverTimestamp(),
   }).catch((e) => pushBanner({ title: 'Gagal memulai panggilan', body: fbError(e), icon: 'alert' }));
+  // Push FCM: panggilan masuk berdering juga saat aplikasi ditutup / di luar website
+  void fcmPush({
+    uids: [callee],
+    title: `${peer.name} · panggilan ${video ? 'video' : 'suara'} masuk`,
+    body: 'Ketuk untuk menerima panggilan Zeroid.',
+    kind: 'call',
+    chatId,
+  });
   return id;
 }
 
@@ -1561,6 +1726,16 @@ export function adminUnverifyChat(chatId: string) {
   audit('unverify_chat', chatId);
 }
 
+/** Admin membuka batasan AI Anti-Spam lebih cepat. */
+export function adminSetMuteOff(userId: string) {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFullAdmin(me)) return;
+  updateDoc(doc(fb.db, C.users, userId), { mutedUntil: 0 }).catch((e) => pushBanner({ title: 'Gagal', body: fbError(e), icon: 'alert' }));
+  notifyFor(userId, 'admin', 'Batasan dibuka', 'Admin membuka batasan spam akunmu. Terima kasih sudah berkoordinasi!');
+  audit('unmute', userId);
+}
+
 export function adminSetRole(userId: string, role: 'user' | 'moderator' | 'admin') {
   const me = getMe();
   const fb = firebase();
@@ -1660,10 +1835,13 @@ export function adminDecideOrder(orderId: string, approve: boolean) {
       if (o.product === 'bluecheck') batch.update(doc(fb.db, C.users, o.userId), { blueCheck: true });
       if (o.product === 'security') batch.update(doc(fb.db, C.users, o.userId), { security: true });
     }
-    // centang biru untuk GRUP/SALURAN: pasang verifiedUntil = now + days (kadaluarsa otomatis)
+    // centang biru untuk GRUP/SALURAN: days=0 → PERMANEN (verified: true)
     if (o.product === 'bluecheck' && o.forChatId) {
       const target = db.chats[o.forChatId];
-      if (target) batch.update(doc(fb.db, C.chats, o.forChatId), { verifiedUntil: Math.max(Date.now(), target.verifiedUntil ?? 0) + o.days * 86400000 });
+      if (target) {
+        if (o.days > 0) batch.update(doc(fb.db, C.chats, o.forChatId), { verifiedUntil: Math.max(Date.now(), target.verifiedUntil ?? 0) + o.days * 86400000 });
+        else batch.update(doc(fb.db, C.chats, o.forChatId), { verified: true, verifiedUntil: 0 });
+      }
     }
   }
   batch.commit().catch(() => {});
@@ -1677,7 +1855,62 @@ export function adminDecideOrder(orderId: string, approve: boolean) {
   audit('decide_order', orderId, approve ? 'approved' : 'rejected');
 }
 
-export const backendMode = isFirebaseConfigured ? 'Firebase (projekwhattsaf)' : 'Belum dikonfigurasi';
+// ============================ broadcast ke SEMUA user ============================
+
+/**
+ * Admin/developer mengirim pesan DM ke SEMUA pengguna sekaligus (satu klik):
+ * setiap user dapat chat langsung + notifikasi + push FCM.
+ * Batas 60 user per klik biar aman dari kuota — ulangi untuk sisanya.
+ */
+export async function adminMessageAll(text: string): Promise<{ sent: number; error?: string }> {
+  const me = getMe();
+  const fb = firebase();
+  const body = text.trim();
+  if (!me || !fb || !isFullAdmin(me)) return { sent: 0, error: 'Tidak diizinkan.' };
+  if (!body) return { sent: 0, error: 'Pesan kosong.' };
+  const targets = Object.values(db.users).filter((u) => u.id !== me.id && !u.banned).slice(0, 60);
+  let sent = 0;
+  for (const u of targets) {
+    const cid = openDirect(u.id);
+    await sendMessage(cid, { text: body });
+    sent++;
+  }
+  void fcmPush({ topic: 'all', title: `Pesan dari ${me.name}`, body: body.slice(0, 120), kind: 'admin', chatId: 'c_global' });
+  audit('message_all', undefined, `${sent} pengguna`);
+  pushBanner({ title: 'Broadcast terkirim', body: `Pesan dikirim ke ${sent} pengguna.`, icon: 'megaphone' });
+  return { sent };
+}
+
+/** Bot Zeroid AI menyebar info update ke chat AI setiap user (satu klik). */
+export async function adminBotBroadcast(text: string): Promise<{ sent: number; error?: string }> {
+  const me = getMe();
+  const fb = firebase();
+  const body = text.trim();
+  if (!me || !fb || !isFullAdmin(me)) return { sent: 0, error: 'Tidak diizinkan.' };
+  if (!body) return { sent: 0, error: 'Pesan kosong.' };
+  const targets = Object.values(db.users).filter((u) => !u.banned).slice(0, 60);
+  let sent = 0;
+  for (const u of targets) {
+    const cid = 'ai_' + u.id;
+    try {
+      await setDoc(doc(fb.db, C.chats, cid), {
+        id: cid, type: 'ai', name: 'Zeroid AI', members: [u.id], admins: [u.id], createdBy: u.id,
+        createdAt: serverTimestamp(), lastRead: {}, typing: {}, pinnedBy: [], mutedBy: [], archivedBy: [], postPolicy: 'everyone',
+      }, { merge: true });
+      await addDoc(collection(fb.db, C.chats, cid, 'messages'), {
+        chatId: cid, senderId: u.id, type: 'system', text: `Zeroid AI · Update: ${body}`,
+        clientTime: Date.now(), createdAt: serverTimestamp(), deletedFor: [], reactions: {}, starredBy: [],
+      });
+      notifyFor(u.id, 'system', 'Info dari Zeroid AI', body.slice(0, 120));
+      sent++;
+    } catch {}
+  }
+  audit('bot_broadcast', undefined, `${sent} pengguna`);
+  pushBanner({ title: 'Info bot terkirim', body: `Zeroid AI mengabarkan ${sent} pengguna.`, icon: 'sparkles' });
+  return { sent };
+}
+
+export const backendMode = isFirebaseConfigured ? `Firebase (${firebaseConfig.projectId || 'terhubung'})` : 'Belum dikonfigurasi';
 
 // ============================ username & contacts ============================
 
@@ -1874,17 +2107,52 @@ export function stickersFor(userId: string, d: DB = db) {
 
 // ============================ premium orders ============================
 
-export function createOrder(product: ProductKey, planIdx: number, methodKey: string, forChat?: { id: string; name?: string }): { orderId: string; chatId: string } | null {
+// LIMIT PEMBELIAN (anti-spam): maks 5x pencet dalam 1 jam + jeda antar order.
+const ORDER_WINDOW = 60 * 60_000; // 1 jam
+const ORDER_MAX = 5;
+
+export function orderLimitRemaining(u?: User | null): { left: number; waitMs: number } {
+  const now = Date.now();
+  const attempts = (u?.orderAttempts ?? []).filter((t) => now - t < ORDER_WINDOW);
+  if (attempts.length >= ORDER_MAX) return { left: 0, waitMs: ORDER_WINDOW - (now - Math.min(...attempts)) };
+  return { left: ORDER_MAX - attempts.length, waitMs: 0 };
+}
+
+/** Apakah product ini sedang aktif di akun? (beli lagi dilarang sampai masa habis) */
+export function planActive(k: ProductKey, u?: User | null): boolean {
+  if (!u) return false;
+  if (k === 'vip') return (u.vipUntil ?? 0) > Date.now();
+  if (k === 'member') return (u.memberUntil ?? 0) > Date.now();
+  if (k === 'bluecheck') return !!u.blueCheck;
+  if (k === 'security') return !!u.security;
+  return false;
+}
+
+export function createOrder(product: ProductKey, planIdx: number, methodKey: string, forChat?: { id: string; name?: string }): { orderId: string; chatId: string } | { error: string } | null {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb) return null;
   const p = productOf(product);
   const plan = p.plans[planIdx] ?? p.plans[0];
+  // 1) sudah aktif → jangan beli lagi sampai masa habis
+  if (!forChat && planActive(product, me)) {
+    const until = product === 'vip' ? me.vipUntil : product === 'member' ? me.memberUntil : 0;
+    const msg = until ? `sudah aktif hingga ${new Date(until).toLocaleDateString('id-ID')}` : 'sudah aktif (permanen)';
+    return { error: `${p.title} kamu ${msg}. Tunggu masa habis sebelum membeli lagi.` };
+  }
+  // 2) limit 5x per jam + jeda 1 jam antar pembelian
+  const { left, waitMs } = orderLimitRemaining(me);
+  if (left <= 0) {
+    const mins = Math.ceil(waitMs / 60000);
+    return { error: `Limit beli tercapai (maks ${ORDER_MAX}x per jam). Coba lagi dalam ${mins} menit.` };
+  }
   const method = PAYMENT_METHODS.find((m) => m.key === methodKey) ?? PAYMENT_METHODS[0];
   // find or create the admin direct chat (first admin user)
   const admin = Object.values(db.users).find((u) => u.role === 'admin') ?? Object.values(db.users).find((u) => u.role === 'developer');
   const chatId = admin ? openDirect(admin.id) : openDirect(me.id);
   const orderId = uid('ord_');
+  // catat percobaan (untuk limit) — best effort
+  updateDoc(doc(fb.db, C.users, me.id), { orderAttempts: [...(me.orderAttempts ?? []).filter((t) => Date.now() - t < ORDER_WINDOW), Date.now()] }).catch(() => {});
   addDoc(collection(fb.db, C.orders), {
     userId: me.id, product, plan: plan.label, price: plan.price, days: plan.days,
     status: 'pending', method: method.label, chatId, createdAt: serverTimestamp(),
@@ -1896,6 +2164,36 @@ export function createOrder(product: ProductKey, planIdx: number, methodKey: str
     notifyFor(admin.id, 'admin', 'Pesanan baru', `${me.name} memesan ${label} (${rupiah(plan.price)}) via ${method.label}`, { chatId });
   }
   return { orderId, chatId };
+}
+
+// ============================ patungan centang biru (grup/saluran) ============================
+
+export const BLUECHECK_POT_TARGET = 49000;
+
+/** Anggota ikut patungan: tambah kontribusi ke pot grup/saluran. */
+export async function contributeBlueCheckPot(chatId: string, amount: number): Promise<{ ok: boolean; error?: string; reached?: boolean }> {
+  const me = getMe();
+  const fb = firebase();
+  const chat = db.chats[chatId];
+  if (!me || !fb || !chat) return { ok: false, error: 'Belum masuk.' };
+  if (!chat.members.includes(me.id)) return { ok: false, error: 'Hanya anggota yang bisa ikut patungan.' };
+  if (amount <= 0 || amount > 1_000_000) return { ok: false, error: 'Nominal tidak valid.' };
+  const pot = { ...(chat.blueCheckPot ?? {}) };
+  pot[me.id] = (pot[me.id] ?? 0) + amount;
+  const total = Object.values(pot).reduce((a: number, b: any) => a + Number(b ?? 0), 0) as number;
+  try {
+    await updateDoc(doc(fb.db, C.chats, chatId), { blueCheckPot: pot });
+    sysMsg(chatId, `${me.name} ikut patungan centang biru — total terkumpul ${rupiah(total)} dari ${rupiah(BLUECHECK_POT_TARGET)}`, me.id);
+    // pot tercapai → order otomatis dibuat atas nama peng-contributor terakhir
+    if (total >= BLUECHECK_POT_TARGET) {
+      const r = createOrder('bluecheck', 0, 'patungan', { id: chatId, name: chat.name });
+      if (r && 'chatId' in r) sysMsg(chatId, `Patungan tercapai ${rupiah(total)} — pesanan centang biru permanen dikirim ke admin untuk dikonfirmasi.`, me.id);
+      return { ok: true, reached: true };
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: fbError(e) };
+  }
 }
 
 export const isVip = (u?: User | null) => (u?.vipUntil ?? 0) > Date.now();
