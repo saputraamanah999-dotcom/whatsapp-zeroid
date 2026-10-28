@@ -109,7 +109,7 @@
 
   <div class="card">
     <h2>Log</h2>
-    <div id="log">Siap. (build v6 — project whatsapp-zeroid + chat global c_global + saluran Zeroid AI + rules siap tempel)</div>
+    <div id="log">Siap. (build v7 — project whatsapp-zeroid + rules v7 + fix tanggal + VN/call/video call + polling siap)</div>
   </div>
 
   <div class="card">
@@ -299,6 +299,12 @@ service cloud.firestore {
         allow create: if signedIn() && request.resource.data.get('from', '') == me();
         allow delete: if signedIn() && (resource.data.get('from', '') == me() || resource.data.get('to', '') == me());
       }
+    }
+
+    match /invites/{iid} {
+      allow get, list: if signedIn();
+      allow create: if signedIn() && notBanned() && request.resource.data.get('createdBy', '') == me();
+      allow update, delete: if resource.data.get('createdBy', '') == me() || isAdmin();
     }
 
     match /notifications/{nid} {

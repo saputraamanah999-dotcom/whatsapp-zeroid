@@ -5,7 +5,7 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function me() { return request.auth.uid; }
 
-    // ---- DEFENSIVE HELPERS (v5: + ban grup/saluran & banding) ----
+    // ---- DEFENSIVE HELPERS (v7: + invites, sync seed.html v7) ----
     // Selama ini error "Missing or insufficient permissions" muncul karena rules
     // membaca field yang BELUM ADA di dokumen (banned, blocked, members, type…).
     // Di security rules, membaca key yang tidak ada = ERROR = rule otomatis MENOLAK.
@@ -198,6 +198,13 @@ service cloud.firestore {
         allow create: if signedIn() && request.resource.data.get('from', '') == me();
         allow delete: if signedIn() && (resource.data.get('from', '') == me() || resource.data.get('to', '') == me());
       }
+    }
+
+    // ---- group/channel invite links (join by code) ----
+    match /invites/{iid} {
+      allow get, list: if signedIn();
+      allow create: if signedIn() && notBanned() && request.resource.data.get('createdBy', '') == me();
+      allow update, delete: if resource.data.get('createdBy', '') == me() || isAdmin();
     }
 
     // ---- notifications (in-app notification center) ----

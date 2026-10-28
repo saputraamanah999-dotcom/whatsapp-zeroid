@@ -143,7 +143,7 @@ export default function ChatRoom() {
 
   const canPost = chat.type !== 'channel' || chat.admins.includes(me.id) || me.role === 'admin';
   const blocked = chat.type === 'direct' && peer && me.blocked.includes(peer.id);
-  const callable = chat.type === 'direct' || chat.type === 'group';
+  const callable = chat.type === 'direct'; // panggilan WebRTC hanya chat pribadi (infra peer-to-peer)
 
   const jumpTo = (id: string) => {
     const idx = items.findIndex((x) => x.kind === 'msg' && x.m.id === id);

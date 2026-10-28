@@ -111,8 +111,33 @@ const ts = (v: any): number => {
   if (typeof v === 'number') return v;
   if (v instanceof Timestamp) return v.toMillis();
   if (typeof v?.toMillis === 'function') return v.toMillis();
+  // Firestore Timestamp sebagai objek polos { seconds, nanoseconds }
+  if (typeof v === 'object' && typeof v.seconds === 'number') return v.seconds * 1000;
+  if (typeof v === 'string') { const p = Date.parse(v); return isFinite(p) ? p : 0; }
   return 0;
 };
+
+/** Field tanggal yang wajib dinormalisasi ke epoch-ms saat dokumen mentah masuk db. */
+const DATE_KEYS = new Set(['createdAt', 'updatedAt', 'startedAt', 'connectedAt', 'endedAt', 'bannedAt',
+  'decidedAt', 'resolvedAt', 'activeUntil', 'expiresAt', 'readAt', 'lastSeen', 'until', 'clientTime',
+  'mutedUntil', 'banUntil', 'suspendedUntil', 'verifiedUntil', 'vipUntil', 'mediaExpiresAt']);
+
+/**
+ * Normalisasi dokumen mentah dari Firestore: semua field tanggal (Timestamp /
+ * {seconds} / string ISO / detik) → epoch-ms. Inilah obat bug "20014 hari lalu"
+ * — dokumen tanpa konversi membuat new Date(Timestamp) jatuh ke 1970.
+ */
+function normDates<T extends Record<string, any>>(o: T): T {
+  if (!o || typeof o !== 'object') return o;
+  const out: any = { ...o };
+  for (const k of Object.keys(out)) {
+    const v = out[k];
+    if (DATE_KEYS.has(k)) out[k] = ts(v);
+    else if (k === 'lastMsg' && v && typeof v === 'object') out[k] = { ...v, createdAt: ts(v.createdAt) };
+  }
+  return out;
+}
+const rawDoc = <T extends Record<string, any>>(d: any): T => normDates({ id: d.id, ...d.data() }) as T;
 
 function mapUser(id: string, d: DocumentData): User {
   return {
@@ -278,7 +303,7 @@ function attachUserSubs(fbUid: string) {
   // my notifications (+ foreground local banners honoring per-user prefs)
   notifSub = onSnapshot(query(collection(fb.db, C.notifications), where('userId', '==', fbUid), orderBy('createdAt', 'desc'), fsLimit(60)), (s) => {
     const prevMax = db.notifications.reduce((mx, n) => Math.max(mx, n.createdAt), 0);
-    const next = s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as AppNotification[];
+    const next = s.docs.map(rawDoc) as AppNotification[];
     db.notifications = next;
     bump();
     // foreground banner: only for genuinely new docs, not on first load
@@ -321,25 +346,25 @@ function attachUserSubs(fbUid: string) {
 
   // my stickers + global stickers
   miscSubs.push(onSnapshot(query(collection(fb.db, C.stickers), where('ownerId', '==', fbUid)), (s) => {
-    const mine = s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Sticker[];
+    const mine = s.docs.map(rawDoc) as Sticker[];
     db.stickers = [...mine, ...db.stickers.filter((x) => x.global)];
     bump();
   }, () => {}));
   miscSubs.push(onSnapshot(query(collection(fb.db, C.stickers), where('global', '==', true), fsLimit(100)), (s) => {
-    const globals = s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as Sticker[];
+    const globals = s.docs.map(rawDoc) as Sticker[];
     db.stickers = [...db.stickers.filter((x) => x.ownerId !== fbUid), ...globals];
     bump();
   }, () => {}));
 
   // my anime favourites (private, per-user)
   miscSubs.push(onSnapshot(query(collection(fb.db, C.animeFavs), where('uid', '==', fbUid), fsLimit(300)), (s) => {
-    db.animeFavs = s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as AnimeFav[];
+    db.animeFavs = s.docs.map(rawDoc) as AnimeFav[];
     bump();
   }, () => {}));
 
   // my appeal (terlihat saat dibanned — status banding realtime)
   miscSubs.push(onSnapshot(doc(fb.db, C.appeals, fbUid), (s) => {
-    const a = s.exists() ? ({ id: s.id, ...(s.data() as any) } as Appeal) : null;
+    const a = s.exists() ? (normDates({ id: s.id, ...s.data() }) as Appeal) : null;
     db.appeals = a
       ? [a, ...db.appeals.filter((x) => x.id !== fbUid)]
       : db.appeals.filter((x) => x.id !== fbUid);
@@ -349,14 +374,14 @@ function attachUserSubs(fbUid: string) {
   // my orders
   miscSubs.push(onSnapshot(query(collection(fb.db, C.orders), where('userId', '==', fbUid), orderBy('createdAt', 'desc'), fsLimit(30)), (s) => {
     const byId = new Map(db.orders.map((o) => [o.id, o]));
-    s.docs.forEach((d) => byId.set(d.id, { id: d.id, ...(d.data() as any) }));
+    s.docs.forEach((d) => byId.set(d.id, rawDoc(d)));
     db.orders = [...byId.values()].sort((a: any, b: any) => b.createdAt - a.createdAt);
     bump();
   }, (e) => console.warn('orders sub', e)));
 
   // announcements + platform config
   miscSubs.push(onSnapshot(query(collection(fb.db, C.announcements), orderBy('createdAt', 'desc'), fsLimit(10)), (s) => {
-    db.announcements = s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as any;
+    db.announcements = s.docs.map(rawDoc) as any;
     bump();
   }, () => {}));
   miscSubs.push(onSnapshot(doc(fb.db, C.config, 'platform'), (s) => {
@@ -372,21 +397,21 @@ function attachUserSubs(fbUid: string) {
   setTimeout(() => {
     if (!isAdminish()) return;
     adminSubs.push(onSnapshot(query(collection(fb.db, C.reports), orderBy('createdAt', 'desc'), fsLimit(100)), (s) => {
-      db.reports = s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as any; bump();
+      db.reports = s.docs.map(rawDoc) as any; bump();
     }, () => {}));
     adminSubs.push(onSnapshot(query(collection(fb.db, C.orders), orderBy('createdAt', 'desc'), fsLimit(60)), (s) => {
       const byId = new Map(db.orders.map((o) => [o.id, o]));
-      s.docs.forEach((d) => byId.set(d.id, { id: d.id, ...(d.data() as any) }));
+      s.docs.forEach((d) => byId.set(d.id, rawDoc(d)));
       db.orders = [...byId.values()].sort((a: any, b: any) => b.createdAt - a.createdAt); bump();
     }, () => {}));
     adminSubs.push(onSnapshot(query(collection(fb.db, C.audit), orderBy('createdAt', 'desc'), fsLimit(80)), (s) => {
-      db.audit = s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as any; bump();
+      db.audit = s.docs.map(rawDoc) as any; bump();
     }, () => {}));
     adminSubs.push(onSnapshot(query(collection(fb.db, C.appeals), orderBy('createdAt', 'desc'), fsLimit(100)), (s) => {
-      db.appeals = s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as any; bump();
+      db.appeals = s.docs.map(rawDoc) as any; bump();
     }, (e) => console.warn('appeals sub', e)));
     adminSubs.push(onSnapshot(query(collection(fb.db, C.bans), orderBy('bannedAt', 'desc'), fsLimit(100)), (s) => {
-      db.bans = s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as any; bump();
+      db.bans = s.docs.map(rawDoc) as any; bump();
     }, (e) => console.warn('bans sub', e)));
   }, 1500);
 }
