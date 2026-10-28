@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Zeroid WhatsApp — Seed Firebase</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>" />
+<style>
+  :root { --bg:#e9edf3; --card:#f3f6fa; --text:#1b2433; --sub:#5f6b7d; --line:#d5dce6; --accent:#1e6bff; --ok:#0e9f6e; --err:#e02424; --warn:#c27803; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:ui-sans-serif,system-ui,'Segoe UI',Roboto,Arial,sans-serif; background:var(--bg); color:var(--text); padding:18px; }
+  .wrap { max-width:860px; margin:0 auto; display:flex; flex-direction:column; gap:16px; }
+  h1 { font-size:22px; margin:0 0 4px; } h2 { font-size:16px; margin:0 0 10px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; }
+  .muted { color:var(--sub); font-size:13px; line-height:1.55; }
+  label { display:block; font-size:12px; font-weight:700; margin:10px 0 4px; color:var(--sub); }
+  input { width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-size:14px; background:#fff; color:var(--text); }
+  .row { display:flex; gap:10px; flex-wrap:wrap; } .row > * { flex:1; min-width:220px; }
+  button { cursor:pointer; border:0; border-radius:999px; padding:12px 20px; font-size:14px; font-weight:800; }
+  .primary { background:var(--accent); color:#fff; }
+  .ghost { background:transparent; color:var(--accent); border:2px solid var(--accent); }
+  .pill { display:inline-block; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:800; background:#e5eaf2; color:var(--sub); }
+  .ok { background:#d3f4e6; color:var(--ok); } .err { background:#fbd5d5; color:var(--err); } .warn { background:#fdeeca; color:var(--warn); }
+  table { width:100%; border-collapse:collapse; font-size:13px; } td, th { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); }
+  #log { background:#0f1720; color:#cfe3ff; font-family:ui-monospace,Consolas,monospace; font-size:12px; border-radius:12px; padding:12px; height:240px; overflow:auto; white-space:pre-wrap; }
+  .code { font-family:ui-monospace,Consolas,monospace; background:#e5eaf2; padding:1px 6px; border-radius:6px; font-size:12px; }
+  details summary { cursor:pointer; font-weight:800; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Zeroid WhatsApp — Seed Firebase</h1>
+    <p class="muted">
+      Alat ini <b>membuat koleksi & dokumen awal Firebase secara otomatis</b> dan menyiapkan akun
+      <b>developer/admin</b>. Idempotent — aman dijalankan berulang (yang sudah ada dilewati).
+      Isi konfigurasi web app dari <b>Firebase Console → Project settings → General → Your apps → SDK setup and configuration → Config</b>.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>1 · Konfigurasi Firebase</h2>
+    <div class="row">
+      <div><label>apiKey *</label><input id="apiKey" placeholder="AIza..." /></div>
+      <div><label>authDomain</label><input id="authDomain" value="projekwhattsaf.firebaseapp.com" /></div>
+      <div><label>projectId</label><input id="projectId" value="projekwhattsaf" /></div>
+    </div>
+    <div class="row">
+      <div><label>storageBucket</label><input id="storageBucket" value="projekwhattsaf.appspot.com" /></div>
+      <div><label>messagingSenderId</label><input id="senderId" placeholder="1234567890" /></div>
+      <div><label>appId *</label><input id="appId" placeholder="1:123:web:abc" /></div>
+    </div>
+    <button class="ghost" id="btnFill" style="margin-top:10px">Muat config tersimpan</button>
+  </div>
+
+  <div class="card">
+    <h2>2 · Akun Developer / Admin</h2>
+    <div class="row">
+      <div><label>Email</label><input id="admEmail" value="gedejulianto148@gmail.com" /></div>
+      <div><label>Password</label><input id="admPass" value="saputra123@" /></div>
+      <div><label>Nama tampilan</label><input id="admName" value="Gede Julianto (Developer)" /></div>
+    </div>
+    <p class="muted">
+      Akun dibuat bila belum ada, lalu diberi <span class="code">role: "developer"</span>.
+      Pengangkatan role memakai <b>pintu bootstrap</b>: hanya boleh selama dokumen <span class="code">config/bootstrap</span>
+      belum ada — alat ini langsung membuatnya setelah selesai, sehingga pintu tertutup permanen.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>3 · Jalankan</h2>
+    <p class="muted">⚠️ <b>Pertama:</b> publish <b>firestore.rules</b> versi terbaru (dari ZIP, ada klausa bootstrap) di
+      Firebase Console → Firestore Database → Rules. Tanpa itu, langkah role akan <i>permission-denied</i>.</p>
+    <div class="row">
+      <button class="primary" id="btnSeed">🚀 Buat koleksi & akun developer</button>
+      <button class="ghost" id="btnVerify">🔍 Verifikasi ulang</button>
+    </div>
+    <div id="summary" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card">
+    <h2>Log</h2>
+    <div id="log">Siap. (build v3 — diagnostik rules + anti permission-denied)</div>
+  </div>
+
+  <div class="card">
+    <details>
+      <summary>Koleksi apa saja yang dibuat?</summary>
+      <table style="margin-top:10px">
+        <tr><th>Dokumen</th><th>Isi</th><th>Fungsi</th></tr>
+        <tr><td><span class="code">users/{uid}</span></td><td>profil developer, role: developer</td><td>akun admin panel & akses penuh</td></tr>
+        <tr><td><span class="code">config/bootstrap</span></td><td>createdBy, at</td><td>mengunci pintu bootstrap role</td></tr>
+        <tr><td><span class="code">config/platform</span></td><td>maintenance: {enabled:false,…}</td><td> saklar maintenance & flag</td></tr>
+        <tr><td><span class="code">chats/global</span></td><td>type: global, members, admins</td><td>ruang obrolan global</td></tr>
+        <tr><td><span class="code">chats/global/messages/{welcome}</span></td><td>pesan sambutan</td><td>menghidupkan subkoleksi pesan</td></tr>
+        <tr><td><span class="code">announcements/welcome</span></td><td>pengumuman aktif 7 hari</td><td>banner pengumuman di aplikasi</td></tr>
+        <tr><td><span class="code">notifications/{welcome}</span></td><td>notifikasi sambutan</td><td>menghidupkan pusat notifikasi</td></tr>
+        <tr><td><span class="code">usernames/…</span></td><td>reservasi username developer</td><td>peta keunikan username</td></tr>
+      </table>
+      <p class="muted">Koleksi lain (<span class="code">stories, calls, calls/{id}/signals, reports, orders, stickers, anime_favs, audit_logs, fcm_tokens, mail</span>)
+      dibuat otomatis oleh aplikasi saat pertama dipakai — rules-nya sudah menyiapkan semuanya.</p>
+    </details>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const logEl = $('log');
+const log = (msg, cls) => {
+  const line = document.createElement('div');
+  if (cls) line.style.color = cls === 'ok' ? '#5eead4' : cls === 'err' ? '#fca5a5' : '#fde68a';
+  line.textContent = `[${new Date().toLocaleTimeString('id-ID')}] ${msg}`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+};
+const setPill = (id, text, cls) => { $(id).innerHTML = `<span class="pill ${cls ?? ''}">${text}</span>`; };
+
+// Snapshot checker yang KEBAL kedua gaya SDK:
+//  - compat / modular JS SDK : .exists() adalah METHOD
+//  - gaya property (v8/admin-like runtime): .exists adalah BOOLEAN
+// Tanpa ini, runtime tertentu melempar "bootSnap.exists is not a function".
+const docExists = (s) => (s != null && (typeof s.exists === 'function' ? !!s.exists() : !!s.exists));
+
+// Bedakan 'dokumen BELUM ADA' dari 'rules menolak':
+// get() pada dokumen yang belum ada BISA permission-denied kalau rules
+// mengakses resource.data untuk path itu (contoh: chats). Anggap deny = belum ada,
+// lalu coba buat — kalau create pun ditolak, pesan errornya yang akan menjelaskan.
+const probe = async (ref) => {
+  try {
+    const snap = await ref.get();
+    return { ok: true, exists: docExists(snap), denied: false };
+  } catch (e) {
+    if (String(e?.code ?? '') === 'permission-denied' || /insufficient permissions/i.test(String(e?.message ?? '')))
+      return { ok: false, exists: false, denied: true };
+    throw e;
+  }
+};
+// Pesan error yang bisa dieksekusi pengguna, bukan kode mentah.
+const why = (e, what) => {
+  const code = String(e?.code ?? '');
+  if (code === 'permission-denied' || /insufficient permissions/i.test(String(e?.message ?? '')))
+    return 'Rules menolak akses ' + what + '. FIX: publish firestore.rules versi baru (di ZIP / folder unduhan) ke Firebase Console → Firestore Database → Rules → Publish (Langkah A di PANDUAN-PEMASANGAN.md), lalu jalankan seed lagi.';
+  if (code === 'unavailable' || code === 'deadline-exceeded')
+    return 'Firebase tidak terjangkau (jaringan/kuota). Coba lagi. (' + code + ')';
+  return e?.message ?? code ?? String(e);
+};
+
+const FIELDS = ['apiKey','authDomain','projectId','storageBucket','senderId','appId','admEmail','admPass','admName'];
+function fill() { FIELDS.forEach((f) => { const v = localStorage.getItem('zeroid-seed-' + f); if (v && $(f)) $(f).value = v; }); }
+$('btnFill').onclick = () => { fill(); log('Config tersimpan dimuat.', 'ok'); };
+$('btnSeed').onclick = () => run(true);
+$('btnVerify').onclick = () => run(false);
+fill();
+
+function cfg() {
+  FIELDS.forEach((f) => localStorage.setItem('zeroid-seed-' + f, $(f).value.trim()));
+  const c = { apiKey: $('apiKey').value.trim(), authDomain: $('authDomain').value.trim(), projectId: $('projectId').value.trim(),
+    storageBucket: $('storageBucket').value.trim(), messagingSenderId: $('senderId').value.trim(), appId: $('appId').value.trim() };
+  if (!c.apiKey || !c.appId) throw new Error('apiKey dan appId wajib diisi (Firebase Console → Project settings → Your apps).');
+  return c;
+}
+
+async function run(seedMode) {
+  $('btnSeed').disabled = $('btnVerify').disabled = true;
+  $('summary').innerHTML = '';
+  logEl.innerHTML = '';
+  const results = [];
+  const mark = (name, ok, note) => { results.push({ name, ok, note }); log(`${ok ? 'OK' : 'GAGAL'} — ${name}${note ? ' · ' + note : ''}`, ok ? 'ok' : 'err'); render(); };
+  const render = () => {
+    $('summary').innerHTML = '<table><tr><th>Langkah</th><th>Status</th><th>Catatan</th></tr>' +
+      results.map((r) => `<tr><td>${r.name}</td><td><span class="pill ${r.ok ? 'ok' : 'err'}">${r.ok ? 'BERHASIL' : 'GAGAL'}</span></td><td class="muted">${r.note ?? ''}</td></tr>`).join('') + '</table>';
+  };
+
+  try {
+    const c = cfg();
+    firebase.initializeApp(c);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    log('Firebase terinisialisasi (project ' + c.projectId + ').', 'ok');
+
+    // --- 1) akun developer ---
+    let user;
+    try {
+      const cred = await auth.signInWithEmailAndPassword($('admEmail').value.trim(), $('admPass').value);
+      user = cred.user;
+      mark('Auth: masuk akun developer', true, user.uid);
+    } catch (e) {
+      if (e.code === 'auth/user-not-found') {
+        const cred = await auth.createUserWithEmailAndPassword($('admEmail').value.trim(), $('admPass').value);
+        user = cred.user;
+        mark('Auth: akun developer dibuat', true, user.uid);
+      } else if (e.code === 'auth/wrong-password' || e.code === 'auth/invalid-credential') {
+        throw new Error('Akun sudah ada tapi password berbeda. Pakai password yang benar, atau reset di Firebase Auth.');
+      } else if (e.code === 'auth/operation-not-allowed') {
+        throw new Error('Provider Email/Password belum AKTIF — buka Firebase Console → Authentication → Sign-in method → aktifkan Email/Password.');
+      } else if (e.code === 'auth/email-already-in-use') {
+        throw new Error('Email terdaftar tapi bukan milik kredensial ini — coba login dengan password akun itu.');
+      } else throw e;
+    }
+
+    // --- 2) bootstrap check ---
+    const bootRef = db.collection('config').doc('bootstrap');
+    const bootSnap = await bootRef.get().catch((e) => { throw new Error(why(e, 'config/bootstrap (read)')); });
+    const bootstrapOpen = !docExists(bootSnap);
+
+    // --- 3) users/{uid} + role ---
+    const uRef = db.collection('users').doc(user.uid);
+    const uSnap = await uRef.get().catch((e) => { throw new Error(why(e, 'users/{uid} (read)')); });
+    const name = $('admName').value.trim() || 'Developer';
+    const username = ($('admEmail').value.trim().split('@')[0] || 'developer').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 20);
+    if (!docExists(uSnap)) {
+      await uRef.set({
+        name, email: $('admEmail').value.trim(), about: 'Developer Zeroid-whatsapp.', avatar: null,
+        role: bootstrapOpen ? 'developer' : 'user', verified: !!user.emailVerified, banned: false,
+        username: username || null, lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        privacy: { lastSeen: 'everyone', profilePhoto: 'everyone', about: 'everyone', groups: 'everyone', readReceipts: true, storyReplies: true },
+        notif: { messages: true, groups: true, stories: true, calls: true, preview: true, sound: true },
+        blocked: [], contacts: [],
+      }).catch((e) => { throw new Error(why(e, 'users/{uid} (create)')); });
+      mark('users/{uid} dibuat', true, 'role: ' + (bootstrapOpen ? 'developer' : 'user'));
+    } else {
+      const curRole = (uSnap.data() || {}).role;
+      if (bootstrapOpen && curRole !== 'developer' && curRole !== 'admin') {
+        await uRef.update({ role: 'developer' }).catch((e) => {
+          if (String(e?.code) === 'permission-denied' && !bootstrapOpen)
+            throw new Error(
+              'Role tidak bisa diangkat dari klien: config/bootstrap sudah ada (pintu tertutup) sedangkan akun ini masih role=' + (curRole ?? '?') + '. ' +
+              'SOLUSI sekali manual: Firebase Console → Firestore Database → data → koleksi users → buka dokumen UID ' + user.uid +
+              ' → edit field role → isi: developer → Save. Atau hapus dokumen config/bootstrap lalu jalankan seed lagi.'
+            );
+          throw new Error(why(e, 'users/{uid} role update'));
+        });
+        mark('users/{uid} diperbarui', true, 'role → developer');
+      } else {
+        mark('users/{uid} sudah ada', true, 'role: ' + curRole);
+      }
+    }
+
+    // --- 4) kunci bootstrap ---
+    if (seedMode) {
+      if (bootstrapOpen) {
+        await bootRef.set({ createdBy: user.uid, at: Date.now() }).catch((e) => { throw new Error(why(e, 'config/bootstrap (create)')); });
+        mark('config/bootstrap dibuat', true, 'pintu bootstrap terkunci permanen');
+      } else mark('config/bootstrap sudah ada', true, 'terkunci sebelumnya');
+    }
+
+    // --- 5) config/platform ---
+    const platRef = db.collection('config').doc('platform');
+    const platSnap = await platRef.get().catch((e) => { throw new Error(why(e, 'config/platform (read)')); });
+    if (!docExists(platSnap)) {
+      await platRef.set({ maintenance: { enabled: false, message: 'Sedang dalam pemeliharaan. Segera kembali.' } }).catch((e) => { throw new Error(why(e, 'config/platform (create)')); });
+      mark('config/platform dibuat', true, 'maintenance: off');
+    } else mark('config/platform sudah ada', true);
+
+    // --- 6) chats/global + pesan sambutan ---
+    const gRef = db.collection('chats').doc('global');
+    const gProbe = await probe(gRef).catch((e) => { throw new Error(why(e, 'chats/global (read)')); });
+    if (gProbe.denied) log('chats/global belum bisa dibaca karena dokumennya BELUM ADA (rules membaca resource.data saat get). Lanjut: coba buat sekarang.', 'warn');
+    if (!gProbe.exists) {
+      await gRef.set({
+        id: 'global', type: 'global', name: 'Obrolan Global',
+        members: [user.uid], admins: [user.uid], createdBy: user.uid,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        lastRead: {}, typing: {}, pinnedBy: [], mutedBy: [], archivedBy: [], postPolicy: 'everyone',
+      }).catch((e) => { throw new Error(why(e, 'chats/global (create)')); });
+      mark('chats/global dibuat', true);
+    } else mark('chats/global sudah ada', true);
+
+    const wProbe = await probe(gRef.collection('messages').doc('welcome')).catch((e) => { throw new Error(why(e, 'chats/global/messages/welcome (read)')); });
+    if (!wProbe.exists) {
+      await gRef.collection('messages').doc('welcome').set({
+        chatId: 'global', senderId: user.uid, type: 'system', text: 'Selamat datang di Zeroid-whatsapp! 🚀',
+        clientTime: Date.now(), createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        deletedFor: [], reactions: {}, starredBy: [],
+      }).catch((e) => { throw new Error(why(e, 'chats/global/messages/welcome (create)')); });
+      mark('chats/global/messages/welcome dibuat', true);
+    } else mark('pesan sambutan sudah ada', true);
+
+    // --- 7) usernames ---
+    if (username) {
+      const unRef = db.collection('usernames').doc(username);
+      const unSnap = await unRef.get().catch((e) => { throw new Error(why(e, 'usernames (read)')); });
+      if (!docExists(unSnap)) { await unRef.set({ uid: user.uid }).catch((e) => { throw new Error(why(e, 'usernames (create)')); }); mark('usernames/' + username + ' dibuat', true); }
+      else if ((unSnap.data() || {}).uid === user.uid) mark('usernames/' + username + ' sudah milikmu', true);
+      else mark('usernames/' + username, false, 'sudah dipakai UID lain — pilih username lain di aplikasi');
+    }
+
+    // --- 8) pengumuman & notifikasi sambutan (butuh role sudah naik) ---
+    if (seedMode) {
+      const aSnap = await db.collection('announcements').doc('welcome').get().catch(() => null);
+      if (aSnap && !docExists(aSnap)) {
+        await db.collection('announcements').doc('welcome').set({
+          title: 'Selamat datang di Zeroid-whatsapp', body: 'Fitur lengkap: chat realtime, grup, channel, story, panggilan, musik, anime & AI.',
+          level: 'info', popup: true, createdBy: user.uid,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(), activeUntil: Date.now() + 7 * 86400000,
+        }).then(() => mark('announcements/welcome dibuat', true))
+          .catch((e) => mark('announcements/welcome', false, e.code + ' — jalankan seed lagi setelah role naik'));
+      } else if (aSnap) mark('announcements/welcome sudah ada', true);
+    }
+
+    const nSnap = await db.collection('notifications').doc('welcome-' + user.uid).get().catch(() => null);
+    if (nSnap && !docExists(nSnap)) {
+      await db.collection('notifications').doc('welcome-' + user.uid).set({
+        userId: user.uid, kind: 'system', title: 'Selamat datang!', body: 'Akun developer siap. Buka Status layanan untuk diagnosis.',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(), read: false,
+      }).then(() => mark('notifications/welcome dibuat', true))
+        .catch((e) => mark('notifications/welcome', false, why(e, 'notifications (create)')));
+    } else if (nSnap) mark('notifikasi sambutan sudah ada', true);
+
+    log('Selesai. ' + results.filter((r) => r.ok).length + '/' + results.length + ' langkah berhasil.', results.every((r) => r.ok) ? 'ok' : 'warn');
+    if (results.every((r) => r.ok)) {
+      log('AKUN DEVELOPER SIAP → login di aplikasi dengan ' + $('admEmail').value.trim(), 'ok');
+      log('Set JEREXD_APIKEY di Vercel env + (untuk APK) EXPO_PUBLIC_API_BASE — lihat docs/DEPLOYMENT.md', 'warn');
+    }
+  } catch (e) {
+    log('ERROR: ' + (e.message ?? e.code ?? e), 'err');
+    mark('Selesai dengan error', false, e.message ?? e.code ?? String(e));
+  } finally {
+    $('btnSeed').disabled = $('btnVerify').disabled = false;
+  }
+}
+</script>
+</body>
+</html>

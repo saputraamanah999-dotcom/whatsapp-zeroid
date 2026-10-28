@@ -1,0 +1,73 @@
+import React from 'react';
+import { View, Pressable, ActivityIndicator } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { T, Avatar, Badge, UserBadges } from './ui';
+import { useTheme, R } from '../lib/theme';
+import { Chat, DB, User } from '../lib/types';
+import { chatTitle, chatPeer, lastMessage, messagePreview, unreadCount, isOnline, canSee, typingUsers, messageStatus } from '../lib/store';
+import { chatTime } from '../lib/format';
+
+export function Ticks({ status, color }: { status: 'sending' | 'failed' | 'sent' | 'delivered' | 'read'; color?: string }) {
+  const t = useTheme();
+  if (status === 'sending') return <Ionicons name="time" size={15} color={color ?? t.faint} />;
+  if (status === 'failed') return <Ionicons name="alert-circle" size={15} color={t.danger} />;
+  if (status === 'sent') return <Ionicons name="checkmark" size={16} color={color ?? t.faint} />;
+  return <Ionicons name="checkmark-done" size={16} color={status === 'read' ? (color ? '#9BE7FF' : t.accent2) : color ?? t.faint} />;
+}
+
+export default function ChatRow({ chat, me, db, onPress, onLongPress }: { chat: Chat; me: User; db: DB; onPress: () => void; onLongPress?: () => void }) {
+  const t = useTheme();
+  const peer = chatPeer(chat, me.id, db);
+  const last = lastMessage(chat.id, me.id);
+  const unread = unreadCount(chat, me.id);
+  const typing = typingUsers(chat, me.id);
+  const title = chatTitle(chat, me.id, db);
+  const showPhoto = chat.type === 'direct' ? canSee(me, peer, peer?.privacy.profilePhoto ?? 'everyone') : true;
+  const muted = chat.mutedBy.includes(me.id);
+  const pinned = chat.pinnedBy.includes(me.id);
+  const isGroupish = chat.type === 'group' || chat.type === 'channel' || chat.type === 'global';
+  const senderName = last && isGroupish && last.type !== 'system' ? (last.senderId === me.id ? 'Kamu' : db.users[last.senderId]?.name.split(' ')[0]) : null;
+
+  return (
+    <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={({ pressed }) => ({ marginHorizontal: 14, marginVertical: 5, borderRadius: R.lg, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: t.bg, boxShadow: pressed ? t.insetSm : undefined } as any)}>
+      <Avatar
+        uri={chat.type === 'direct' ? (showPhoto ? peer?.avatar : null) : chat.avatar}
+        name={title}
+        color={peer?.color ?? chat.color}
+        online={chat.type === 'direct' && isOnline(peer) && canSee(me, peer, peer?.privacy.lastSeen ?? 'everyone')}
+        icon={chat.type === 'ai' ? 'sparkles' : chat.type === 'global' ? 'globe' : chat.type === 'channel' && !chat.avatar ? 'megaphone' : chat.type === 'group' && !chat.avatar ? 'people' : undefined}
+        size={54}
+      />
+      <View style={{ flex: 1, gap: 4 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <T v="h3" numberOfLines={1} style={{ flexShrink: 1, fontSize: 16 }}>
+            {title}
+          </T>
+          {chat.type === 'direct' ? <UserBadges user={peer} /> : (chat.verified || chat.type === 'ai') && <Ionicons name="checkmark-circle" size={15} color={t.accent} />}
+          <View style={{ flex: 1 }} />
+          <T v="caption" color={unread ? t.accent : t.faint}>
+            {last ? chatTime(last.createdAt) : ''}
+          </T>
+        </View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          {typing.length ? (
+            <T v="sub" color={t.accent} numberOfLines={1} style={{ flex: 1, fontStyle: 'italic' }}>
+              {isGroupish ? `${db.users[typing[0]]?.name.split(' ')[0]} mengetik…` : 'mengetik…'}
+            </T>
+          ) : (
+            <>
+              {last && last.senderId === me.id && last.type !== 'system' && last.type !== 'call' && !last.deletedForAll && <Ticks status={messageStatus(last, chat, me.id)} />}
+              <T v="sub" numberOfLines={1} style={{ flex: 1 }} color={unread ? t.text : t.sub}>
+                {senderName ? `${senderName}: ` : ''}
+                {last ? messagePreview(last) : chat.description ?? 'Mulai percakapan'}
+              </T>
+            </>
+          )}
+          {muted && <Ionicons name="volume-mute" size={15} color={t.faint} />}
+          {pinned && <Ionicons name="pin" size={15} color={t.faint} />}
+          <Badge n={unread} color={muted ? t.faint : undefined} />
+        </View>
+      </View>
+    </Pressable>
+  );
+}

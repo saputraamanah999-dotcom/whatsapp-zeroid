@@ -1,0 +1,55 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function userDoc() { return get(/databases/$(databaseId)/documents/users/$(me())).data; }
+    function isAdmin() { return signedIn() && (userDoc().role == 'admin' || userDoc().role == 'developer'); }
+    function notBanned() { return signedIn() && userDoc().banned != true; }
+    function isImage() { return request.resource.contentType.matches('image/.*'); }
+    function isMedia() { return request.resource.contentType.matches('image/.*') || request.resource.contentType.matches('video/.*') || request.resource.contentType.matches('audio/.*') || request.resource.contentType.matches('application/.*'); }
+    function chatMember(chatId) { return signedIn() && me() in get(/databases/$(databaseId)/documents/chats/$(chatId)).data.members; }
+
+    // profile avatars: owner only, ≤5 MB, images only
+    match /avatars/{uid}/{file} {
+      allow read: if signedIn();
+      allow write: if signedIn() && uid == me() && isImage() && request.resource.size < 5 * 1024 * 1024 && notBanned();
+    }
+
+    // profile banners: owner only, ≤8 MB, images only
+    match /banners/{uid}/{file} {
+      allow read: if signedIn();
+      allow write: if signedIn() && uid == me() && isImage() && request.resource.size < 8 * 1024 * 1024 && notBanned();
+    }
+
+    // chat media: path must be chats/{chatId}/{file} and the sender must be a member, ≤60 MB
+    match /chats/{chatId}/{file} {
+      allow read: if chatMember(chatId);
+      allow write: if chatMember(chatId) && isMedia() && request.resource.size < 60 * 1024 * 1024 && notBanned();
+    }
+
+    // stories: owner writes ≤30 MB, signed-in users read
+    match /stories/{uid}/{file} {
+      allow read: if signedIn();
+      allow write: if signedIn() && uid == me() && isMedia() && request.resource.size < 30 * 1024 * 1024 && notBanned();
+    }
+
+    // stickers: owner ≤2 MB images; global stickers admin-only
+    match /stickers/{uid}/{file} {
+      allow read: if signedIn();
+      allow write: if signedIn() && uid == me() && isImage() && request.resource.size < 2 * 1024 * 1024 && notBanned();
+    }
+
+    // group avatars: any signed-in member creator, ≤5 MB
+    match /groups/{file} {
+      allow read: if signedIn();
+      allow write: if signedIn() && isImage() && request.resource.size < 5 * 1024 * 1024 && notBanned();
+    }
+
+    // everything else: deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

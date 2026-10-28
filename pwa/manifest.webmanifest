@@ -1,0 +1,25 @@
+{
+  "name": "Zeroid WhatsApp",
+  "short_name": "Zeroid",
+  "description": "Chat, panggilan suara & video, Story, dan musik — cepat, aman, dan elegan.",
+  "id": "/?source=pwa",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E9EDF3",
+  "theme_color": "#1E6BFF",
+  "lang": "id",
+  "dir": "ltr",
+  "categories": ["social", "communication"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-192-maskable.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Chat", "url": "/?tab=chat", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Panggilan", "url": "/?tab=calls", "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
