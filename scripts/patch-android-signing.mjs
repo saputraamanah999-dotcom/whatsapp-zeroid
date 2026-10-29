@@ -40,5 +40,12 @@ android {
 
 // letakkan blok sebelum baris terakhir supaya berlaku sebagai konfigurasi tambahan
 g = g.replace(/(dependencies \{)/, block + '\n$1');
+
+// OVERRIDE compileSdk → 36: androidx activity 1.11+/core 1.18+ (ditarik transitive)
+// mensyaratkan compileSdk 36, template Expo SDK 57 memakai 35 → checkReleaseAarMetadata gagal.
+if (!g.includes('zeroidCompileSdkOverride')) {
+  g += `\n// ===== ZEROID COMPILESDK OVERRIDE (auto-injected) =====\n// androidx.activity 1.11+ / androidx.core 1.18+ wajib compileSdk 36\nrootProject.ext.compileSdkVersion = 36\nandroid {\n    compileSdk rootProject.ext.compileSdkVersion // zeroidCompileSdkOverride\n}\n// ===== END ZEROID COMPILESDK OVERRIDE =====\n`;
+}
+
 fs.writeFileSync(gradlePath, g);
 console.log('signingConfig release disuntikkan ke', gradlePath.pathname);
