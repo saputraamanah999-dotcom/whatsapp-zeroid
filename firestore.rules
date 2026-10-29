@@ -189,6 +189,16 @@ service cloud.firestore {
                     // banding ban grup/saluran: anggota hanya boleh menulis field banAppeal
                     || (isMemberOf(chatId) && notBanned() && chatBanned(chatId)
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['banAppeal']))
+                    // AI GUARD v11 — penangguhan OTOMATIS ala WhatsApp: anggota yang
+                    // melihat pelanggaran (18+/spam) menangguhkan grup 60 menit.
+                    // Rem ketat: HANYA field guard, alasan wajib prefix [AUTO],
+                    // banUntil wajib di masa depan & maksimal +25 jam, grup belum
+                    // dibanned (tidak bisa menimpa/memperpanjang keputusan admin).
+                    || (isMemberOf(chatId) && notBanned() && !chatBanned(chatId)
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['banUntil','banReason','suspendedAuto','autoBanAt','modOffense'])
+                        && request.resource.data.get('banUntil', 0) > request.time.toMillis()
+                        && request.resource.data.get('banUntil', 0) <= request.time.toMillis() + 90000001
+                        && request.resource.data.get('banReason', '').matches('^\\[AUTO\\].*'))
                     || (signedIn() && !(me() in resource.data.get('members', []))
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
                         && request.resource.data.get('members', []).hasAll(resource.data.get('members', []))
@@ -294,15 +304,41 @@ service cloud.firestore {
       allow delete: if isMod();
     }
 
-    // ---- banips (anti buat akun baru saat diblokir) ----
-    // dokumen id = sha256(ip). Hanya user yang SEDANG DIBANNED boleh menulis IP-nya
-    // sendiri; semua user ter-auth bisa MEMBACA (dipakai saat daftar / login Google).
+    // ---- banips (anti buat akun baru saat diblokir) v11 ----
+    // dokumen id = sha256(ip) atau 's24_'+sha256(subnet). Hanya user yang SEDANG
+    // DIBANNED boleh menulis identitas-nya sendiri (uid harus = dirinya); semua
+    // user ter-auth bisa MEMBACA (dipakai gerbang daftar/login); ADMIN bebas
+    // menulis (mem-kunci IP/perangkat target saat adminBan) & query per-uid (unban).
     match /banips/{ipHash} {
       allow get: if signedIn();
       allow list: if isAdmin();
-      allow create, update: if banBlocked()
-        && request.resource.data.get('uid', '') == me()
-        && request.resource.data.get('at', 0) <= request.time.toMillis() + 3600000;
+      allow create, update: if isAdmin()
+        || (banBlocked()
+            && request.resource.data.get('uid', '') == me()
+            && request.resource.data.get('at', 0) <= request.time.toMillis() + 3600000);
+      allow delete: if isAdmin();
+    }
+
+    // ---- devices (v11: fingerprint perangkat anti ban-evasion) ----
+    // id = device hash. Klien menulis miliknya saat DIBANNED (lihat ban & banding);
+    // admin menulis saat adminBan (dari usermeta) & mem-buka saat adminUnban.
+    match /devices/{deviceHash} {
+      allow get: if signedIn();
+      allow list: if isAdmin();
+      allow create, update: if isAdmin()
+        || (banBlocked()
+            && request.resource.data.get('uid', '') == me()
+            && request.resource.data.get('at', 0) <= request.time.toMillis() + 3600000);
+      allow delete: if isAdmin();
+    }
+
+    // ---- usermeta (v11: IP/perangkat terakhir per akun, ditulis klien sendiri) ----
+    // Hanya field teknis hash (bukan IP mentah) — admin membacanya saat mem-ban.
+    match /usermeta/{uid} {
+      allow get: if signedIn() && (uid == me() || isAdmin());
+      allow list: if isAdmin();
+      allow create, update: if request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastIpHash','lastDeviceHash','at']);
       allow delete: if isAdmin();
     }
 

@@ -18,7 +18,7 @@ import { setupNotifications, registerPushToken } from './lib/notify';
 import { registerWebFcm } from './lib/fcm';
 import { isFirebaseConfigured } from './lib/firebase';
 import { ZeroidLogo, Icon } from './lib/icons';
-import { T } from './components/ui';
+import { T, Btn } from './components/ui';
 import { BannerHost, PermissionHost, IncomingCallHost, AnnouncementBanner, InstallBanner } from './components/Hosts';
 import MusicBar from './components/MusicBar';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -223,18 +223,24 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
 /**
  * Kunci perangkat saat ban aktif — TAMPIL SEBELUM login: membuat akun baru /
  * ganti akun / login Google TIDAK membantu sampai masa blokir selesai.
+ * SATU-SATUNYA pengecualian: Gmail yang dibanned sendiri tetap bisa masuk
+ * (lihat info ban + tulis banding ke developer) — tombol khusus tersedia,
+ * dan gerbang login hanya meloloskan email itu.
  * (Ban evasion guard — sesuai aturan moderasi Zeroid.)
  */
 function DeviceBanGate({ children }: { children: React.ReactNode }) {
-  const { deviceBan, ready } = useStore();
+  const { deviceBan, ready, me } = useStore();
   const t = useTheme();
   const [, force] = React.useState(0);
+  const [escape, setEscape] = React.useState(false); // tombol "masuk akun yang diblokir"
   React.useEffect(() => {
     if (!deviceBan) return;
     const iv = setInterval(() => force((x) => x + 1), 1000); // hitung mundur hidup
     return () => clearInterval(iv);
   }, [deviceBan?.until]);
-  if (!deviceBan || !ready) return <>{children}</>;
+  // akun yang dibanned sendiri boleh lewat → BannedScreen tampil (info + banding)
+  const ownAccount = !!me && (!!deviceBan && (me.email ?? '').toLowerCase() === (deviceBan.ownEmail ?? '').toLowerCase());
+  if (!deviceBan || !ready || ownAccount || (escape && !me)) return <>{children}</>;
   const left = deviceBan.until > 0 ? Math.max(0, deviceBan.until - Date.now()) : 0;
   const d = Math.floor(left / 86400000), h = Math.floor((left % 86400000) / 3600000), m = Math.floor((left % 3600000) / 60000), s = Math.floor((left % 60000) / 1000);
   const cd = deviceBan.until > 0 ? (d > 0 ? `${d} hari ${h} jam` : h > 0 ? `${h} jam ${m} menit` : `${m} menit ${s} detik`) : 'permanen';
@@ -245,14 +251,19 @@ function DeviceBanGate({ children }: { children: React.ReactNode }) {
       </View>
       <T v="h1" style={{ textAlign: 'center' }}>Perangkat ini diblokir</T>
       <T v="sub" style={{ textAlign: 'center', maxWidth: 400 }}>
-        {deviceBan.reason ?? 'Tercatat pada akun yang diblokir admin.'} Membuat akun baru atau ganti akun TIDAK akan membantu — tunggu masa blokir selesai.
+        {deviceBan.reason ?? 'Tercatat pada akun yang diblokir admin.'} Membuat akun baru atau ganti akun TIDAK akan membantu — tidak ada celah akun baru di perangkat/IP ini.
       </T>
       <View style={{ paddingHorizontal: 18, paddingVertical: 10, borderRadius: 14, backgroundColor: t.bg, boxShadow: t.raisedSm } as any}>
         <T v="h2" color={t.danger} style={{ fontVariant: ['tabular-nums'] }}>{cd}</T>
         <T v="caption" color={t.faint} style={{ textAlign: 'center' }}>sisa waktu blokir</T>
       </View>
+      {!!deviceBan.ownEmail && (
+        <Btn title={`Saya pemilik akun yang diblokir (${deviceBan.ownEmail})`} icon="log-in" variant="ghost" onPress={() => setEscape(true)} />
+      )}
       <T v="caption" color={t.faint} style={{ textAlign: 'center', maxWidth: 380 }}>
-        Setelah blokir terbuka, kamu bebas masuk kembali dengan akun mana pun. Jika merasa ada kekeliruan, hubungi admin melalui WhatsApp resmi Zeroid.
+        {deviceBan.ownEmail
+          ? `Hanya ${deviceBan.ownEmail} yang bisa masuk di sini untuk melihat info blokir & mengirim banding ke developer.`
+          : 'Jika merasa ada kekeliruan, hubungi developer melalui WhatsApp resmi Zeroid.'}
       </T>
     </View>
   );

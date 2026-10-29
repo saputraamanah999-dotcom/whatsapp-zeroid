@@ -35,7 +35,6 @@ import {
   chatBannedNow,
   chatVerified,
   chatBadge,
-  isFullAdmin,
   subscribeMessages,
   unsubscribeMessages,
   loadOlder,
@@ -133,9 +132,11 @@ export default function ChatRoom() {
       </Screen>
     );
   }
-  // GRUP/SALURAN DIBANNED → layar tinjauan penuh (alasan + banding), bukan banner.
-  // Admin/developer tetap masuk normal untuk moderasi.
-  if (chatBannedNow(chat) && !isFullAdmin(me)) {
+  // GRUP/SALURAN DIBANNED/DITANGGUHKAN → layar "Grup ini ditangguhkan" ala WA
+  // untuk SEMUA orang (termasuk developer — tidak lagi "cuman teks muncul").
+  // Developer/admin dapat tombol eksekusi (Ban pengirim / Buka penangguhan)
+  // langsung di layar tinjauan; admin grup dapat form minta peninjauan.
+  if (chatBannedNow(chat)) {
     return <ChatBannedScreen chat={chat} onBack={() => (nav.canGoBack() ? nav.goBack() : nav.navigate('Main'))} />;
   }
 

@@ -179,17 +179,40 @@ export function PremiumScreen() {
     <Screen>
       <Header title="Zeroid Premium" subtitle="VIP · Member · Centang biru · Keamanan" />
       <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 40, maxWidth: 720, width: '100%', alignSelf: 'center', gap: 18 }}>
-        <Neu radius={R.lg} style={{ padding: 16, flexDirection: 'row', gap: 12, alignItems: 'center' }}>
-          <T v="h2">Konfirmasi manual oleh admin</T>
-          <T v="sub" style={{ flex: 1, lineHeight: 20 }}>
-            Pembayaran dikonfirmasi lewat chat dengan admin. Setelah transfer, kirim bukti di chat — fitur aktif setelah admin memverifikasi.
-          </T>
-        </Neu>
-        <Neu radius={R.md} style={{ padding: 12, flexDirection: 'row', gap: 10, alignItems: 'center' }}>
-          <Ionicons name="speedometer" size={18} color={limit.left <= 1 ? t.warning : t.accent} />
-          <T v="caption" style={{ flex: 1 }}>
-            Limit pembelian: <T v="caption" style={{ fontWeight: '800' }}>{limit.left}x lagi</T> dalam 1 jam (maks 5x) — anti-spam. Produk yang masih aktif tidak bisa dibeli lagi sampai masa habis.
-          </T>
+        {/* INFO RAPI: konfirmasi manual + limit beli — satu kartu, baris rapi */}
+        <Neu radius={R.xl} style={{ padding: 16, gap: 12 }}>
+          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+            <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: t.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="shield-checkmark" size={22} color={t.accent} />
+            </View>
+            <View style={{ flex: 1, gap: 2 }}>
+              <T v="h3">Konfirmasi manual oleh admin</T>
+              <T v="caption" color={t.sub} style={{ lineHeight: 18 }}>
+                Transfer → kirim bukti di chat admin → fitur aktif setelah diverifikasi.
+              </T>
+            </View>
+            <Pressable
+              onPress={() => {
+                const adminUser = Object.values(db.users).find((x) => x.role === 'developer' || x.role === 'admin');
+                if (adminUser) nav.navigate('ChatRoom', { chatId: openDirect(adminUser.id) });
+              }}
+              style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: t.accentSoft } as any}
+            >
+              <T v="caption" color={t.accent} style={{ fontWeight: '800' }}>Chat admin</T>
+            </Pressable>
+          </View>
+          <View style={{ height: 1, backgroundColor: t.border }} />
+          <View style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Ionicons name="speedometer" size={16} color={limit.left <= 1 ? t.warning : t.accent} />
+              <T v="caption" style={{ flex: 1 }}>
+                <T v="caption" style={{ fontWeight: '800' }}>{limit.left}x</T> lagi dalam 1 jam (maks 5x) · produk aktif tak bisa dibeli ulang sampai habis masa berlaku
+              </T>
+            </View>
+            <View style={{ height: 6, borderRadius: 3, backgroundColor: t.bg2, overflow: 'hidden' } as any}>
+              <View style={{ width: `${Math.round((limit.left / 5) * 100)}%`, height: 6, borderRadius: 3, backgroundColor: limit.left <= 1 ? t.warning : t.accent } as any} />
+            </View>
+          </View>
         </Neu>
         {PRODUCTS.map((p) => (
           <Neu key={p.key} radius={R.xl} style={{ padding: 18, gap: 12 }}>

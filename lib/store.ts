@@ -36,7 +36,7 @@ import {
 } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { AppNotification, Call, Chat, ChatAppeal, DB, LeaderRow, Message, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav, Ban, Appeal, AiProfile } from './types';
+import { AppNotification, Call, Chat, ChatAppeal, DB, LeaderRow, Message, ModOffense, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav, Ban, Appeal, AiProfile } from './types';
 import { productOf, productSafe, rupiah, PAYMENT_METHODS } from './products';
 import { applyStreak } from './streak';
 import { refCodeFor, applyPendingReferral, captureRefFromUrl } from './points';
@@ -50,6 +50,8 @@ import { askAI, thinkAI, analyzeImage, AI_PROVIDERS } from './ai';
 import { firebase, isFirebaseConfigured, COLLECTIONS as C, firebaseConfig } from './firebase';
 import { fcmPush } from './fcm';
 import { recordFbError } from './health';
+import { detectViolation } from './moderation';
+import { getDeviceHash, sha256Hex } from './device';
 
 const THEME_KEY = 'zeroid-theme';
 const LOCK_KEY = 'zeroid-unlocked';
@@ -77,14 +79,14 @@ function clean<T>(v: T): T {
 type Snapshot = { ready: boolean; db: DB; me: User | null; locked: boolean; config: PlatformConfig | null; deviceBan: DeviceBan | null };
 
 /** Kunci perangkat untuk pelanggaran ban: selama ban aktif, ganti akun TIDAK membantu. */
-export type DeviceBan = { uid: string; name?: string; reason?: string; until: number };
+export type DeviceBan = { uid: string; name?: string; reason?: string; until: number; /** email akun yang dibanned — SATU-SATUNYA akun yang boleh login di perangkat ini */ ownEmail?: string };
 const DEV_BAN_KEY = 'zeroid-device-ban';
 export function readDeviceBan(): DeviceBan | null {
   try {
     const raw = isWeb ? window.localStorage.getItem(DEV_BAN_KEY) : null;
     if (!raw) return null;
     const d = JSON.parse(raw) as DeviceBan;
-    if (!d?.uid) return null;
+    if (!d || (!d.uid && !d.ownEmail)) return null;
     if (d.until > 0 && d.until <= Date.now()) { try { window.localStorage.removeItem(DEV_BAN_KEY); } catch {} return null; }
     return d;
   } catch { return null; }
@@ -190,6 +192,9 @@ function mapChat(id: string, d: DocumentData): Chat {
     pinnedBy: d.pinnedBy ?? [], mutedBy: d.mutedBy ?? [], archivedBy: d.archivedBy ?? [],
     verified: !!d.verified, verifiedUntil: ts(d.verifiedUntil), banned: !!d.banned, banReason: d.banReason,
     banUntil: ts(d.banUntil), banAppeal: d.banAppeal ?? undefined,
+    // AI GUARD — penangguhan otomatis + catatan pelanggar
+    suspendedAuto: !!d.suspendedAuto, autoBanAt: ts(d.autoBanAt),
+    modOffense: d.modOffense ? { ...d.modOffense, at: ts(d.modOffense.at) } : undefined,
     postPolicy: d.postPolicy ?? 'everyone', lastMsg: d.lastMsg, inviteCode: d.inviteCode,
     blueCheckPot: d.blueCheckPot ?? undefined,
     disappearing: d.disappearing ?? 'off',
@@ -471,6 +476,14 @@ export function subscribeMessages(chatId: string) {
     const server = s.docs.map((d) => mapMessage(d.id, d.data()));
     const local = db.messages[chatId] ?? [];
     const serverIds = new Set(server.map((m) => m.id));
+    // AI GUARD: periksa pesan BARU dari orang lain → tangguhkan grup bila 18+/spam
+    if (guardReady) {
+      for (const ch of s.docChanges()) {
+        if (ch.type !== 'added') continue;
+        const m = mapMessage(ch.doc.id, ch.doc.data());
+        if (m.senderId && m.senderId !== uid0) void guardIncoming(chatId, m);
+      }
+    }
     // keep optimistic messages that the server has not acknowledged yet
     const pending = local.filter((m) => (m.status === 'sending' || m.status === 'failed') && !serverIds.has(m.id));
     db.messages = { ...db.messages, [chatId]: [...server, ...pending] };
@@ -495,10 +508,209 @@ export function loadOlder(chatId: string) {
   subscribeMessages(chatId);
 }
 
+// ============================ AI GUARD (moderasi otomatis grup) ============================
+
+/**
+ * "Grup ini ditangguhkan" ala WhatsApp — kalau ada anggota mengirim konten
+ * 18+/porno, spam stiker, atau bom media, SEMUA klien anggota yang melihatnya
+ * menangguhkan grup otomatis:
+ *  - grup dikunci 60 menit (banReason prefix [AUTO]) — hanya developer/admin
+ *    yang bisa membuka lebih cepat / memperberat sanksi,
+ *  - pesan sistem menyebut SIAPA pengirimnya (nama + @username) → kelihatan
+ *    langsung siapa yang harus di-ban,
+ *  - catatan pelanggar (modOffense) disimpan di dokumen grup + notifikasi ke
+ *    seluruh admin/developer + pemilik grup.
+ * dedup: satu grup maks sekali per 5 menit supaya tidak menimpa ban admin.
+ */
+let guardReady = false;
+const guardSeen = new Map<string, number>(); // chatId → terakhir memicu (ms)
+
+function guardIncoming(chatId: string, m: Message) {
+  const chat = db.chats[chatId];
+  if (!chat) return;
+  if (chat.type !== 'group' && chat.type !== 'channel' && chat.type !== 'global') return;
+  if (chatBannedNow(chat)) return; // sudah ditangguhkan/banned — cukup
+  const v = detectViolation(m, db.messages[chatId] ?? []);
+  if (!v) return;
+  void autoSuspendGroup(chat, m, v);
+}
+
+async function autoSuspendGroup(chat: Chat, msg: Message, v: { kind: string; reason: string; label: string }) {
+  const fb = firebase();
+  const me = getMe();
+  if (!fb || !me) return;
+  const now = Date.now();
+  const last = guardSeen.get(chat.id) ?? 0;
+  if (now - last < 5 * 60_000) return; // dedup antar klien/perangkat
+  guardSeen.set(chat.id, now);
+
+  const sender = db.users[msg.senderId];
+  const offense: ModOffense = {
+    msgId: msg.id,
+    senderId: msg.senderId,
+    senderName: sender?.name ?? msg.senderId.slice(0, 6),
+    senderUsername: sender?.username ?? null,
+    kind: v.kind as ModOffense['kind'],
+    reason: v.reason,
+    excerpt: (msg.text ?? '').slice(0, 90),
+    at: now,
+  };
+  const until = now + 60 * 60_000; // 60 menit — developer bisa buka lebih cepat
+  const who = offense.senderUsername ? `${offense.senderName} (@${offense.senderUsername})` : offense.senderName;
+  const label = chat.type === 'channel' ? 'Saluran' : chat.type === 'global' ? 'Obrolan global' : 'Grup';
+  try {
+    // PENTING: pesan sistem dikirim SEBELUM penangguhan dipasang — rules hanya
+    // mengizinkan admin mengirim pesan di chat yang SUDAH dibanned. Dengan urutan
+    // ini klien anggota mana pun berhasil menuliskan nama pelanggar ke grup
+    // ("otomatis keliatan siapa yang ngirim porno itu di grup itu orangnya").
+    sysMsg(chat.id, `${label} ditangguhkan otomatis oleh AI Guard: ${v.label} dikirim oleh ${who}. Menunggu peninjauan developer.`, me.id);
+    await updateDoc(doc(fb.db, C.chats, chat.id), {
+      banUntil: until,
+      banReason: `[AUTO] ${v.label} — ${v.reason}`,
+      suspendedAuto: true,
+      autoBanAt: now,
+      modOffense: clean(offense),
+    });
+    audit('auto_suspend', chat.id, `${v.kind} oleh ${who} (msg ${msg.id})`);
+    for (const a of Object.values(db.users).filter((x) => x.role === 'admin' || x.role === 'developer')) {
+      notifyFor(a.id, 'admin', `${label} ditangguhkan otomatis`, `${chat.name ?? label}: ${v.label} dari ${who}. Buka grupnya untuk mengeksekusi ban pengirim.`, { chatId: chat.id });
+    }
+    const owner = db.users[chat.createdBy];
+    if (owner && owner.role !== 'admin' && owner.role !== 'developer') {
+      notifyFor(owner.id, 'admin', `${label} ditangguhkan otomatis`, `${chat.name ?? label} dikunci 60 menit: ${v.label} dari ${who}.`, { chatId: chat.id });
+    }
+    if (activeChatId === chat.id) {
+      pushBanner({ title: `${label} ditangguhkan`, body: `AI Guard mendeteksi ${v.label} dari ${who}. Menunggu peninjauan developer.`, icon: 'shield' });
+    }
+  } catch { /* klien lain yang juga melihat akan memicu; biarkan */ }
+}
+
+/**
+ * "Hapus grup untuk saya" (ala WhatsApp saat grup ditangguhkan) — anggota
+ * keluar sendiri dari grup/saluran yang ditangguhkan tanpa menunggu admin.
+ */
+export async function leaveSuspendedChat(chatId: string): Promise<{ ok: boolean; error?: string }> {
+  const fb = firebase();
+  const me = getMe();
+  if (!fb || !me) return { ok: false, error: 'Belum masuk.' };
+  const chat = db.chats[chatId];
+  if (!chat) return { ok: false, error: 'Grup tidak ditemukan.' };
+  try {
+    await updateDoc(doc(fb.db, C.chats, chatId), { members: arrayRemove(me.id) });
+    db.chats = { ...db.chats, [chatId]: { ...chat, members: chat.members.filter((u) => u !== me.id) } };
+    bump();
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: fbError(e) };
+  }
+}
+
 // ============================ init / auth state ============================
 
 let presenceTimer: ReturnType<typeof setInterval> | null = null;
 let callWatch: ReturnType<typeof setInterval> | null = null;
+
+function startGuard() { guardReady = true; }
+function stopGuard() { guardReady = false; guardSeen.clear(); }
+
+// ============================ gerbang anti ban-evasion ============================
+
+/**
+ * GERBANG SERVER-FIRST anti buat akun baru / ganti akun saat diblokir.
+ * /api/ban-gate membaca `banips` + `devices` dengan hak service account di
+ * server — TIDAK bisa dimanipulasi klien. Fallback: baca Firestore langsung.
+ *
+ * Aturan (kebijakan moderasi Zeroid):
+ *  - perangkat/IP tercatat pada akun diblokir → TIDAK BISA daftar akun baru
+ *    (email maupun Google) dan TIDAK BISA login akun lain;
+ *  - SATU-SATUNYA akun yang boleh masuk: Gmail yang dibanned sendiri
+ *    (verdict.own = true) untuk melihat info ban + menulis banding;
+ *  - banding hanya bisa dibuka oleh developer.
+ */
+type GateVerdict = { blocked: boolean; until: number; reason?: string; bannedEmail?: string; own?: boolean };
+const gateCache = new Map<string, GateVerdict & { _at: number }>();
+
+async function banGateCheck(email?: string): Promise<GateVerdict> {
+  const fb = firebase();
+  if (!fb || !isFirebaseConfigured) return { blocked: false, until: 0 };
+  const dh = await getDeviceHash();
+  const key = `${dh.slice(0, 16)}|${(email ?? '').toLowerCase()}`;
+  const hit = gateCache.get(key);
+  if (hit && Date.now() - hit._at < 10 * 60_000) return hit;
+  let verdict: GateVerdict = { blocked: false, until: 0 };
+  if (Platform.OS === 'web') {
+    try {
+      const r = await fetch('/api/ban-gate', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ deviceHash: dh, email: email ?? '' }), cache: 'no-store',
+      });
+      if (r.ok) {
+        const j = await r.json();
+        if (!j.degraded) verdict = { blocked: !!j.blocked, until: Number(j.until ?? 0), reason: j.reason, bannedEmail: j.bannedEmail, own: !!j.own };
+      }
+    } catch { /* offline → fallback di bawah */ }
+  }
+  if (!verdict.blocked) {
+    // fallback: baca Firestore langsung (banips IP penuh + devices)
+    try {
+      let ipHash = '';
+      if (Platform.OS === 'web') {
+        const r0 = await fetch('/api/ip-ban', { cache: 'no-store' }).catch(() => null);
+        if (r0?.ok) { const j0 = await r0.json().catch(() => ({} as any)); ipHash = String(j0.hash ?? ''); }
+      }
+      const now = Date.now();
+      const refs = [
+        ipHash ? doc(fb.db, 'banips', ipHash) : null,
+        dh && dh !== 'unknown-device' ? doc(fb.db, 'devices', dh) : null,
+      ].filter(Boolean) as ReturnType<typeof doc>[];
+      const docs = await Promise.all(refs.map((d) => getDoc(d).catch(() => null)));
+      for (const bd of docs) {
+        if (!bd || !bd.exists()) continue;
+        const until = Number(bd.data().until ?? 0);
+        if (until > 0 && until <= now) continue;
+        const bannedEmail = String(bd.data().email ?? '').toLowerCase();
+        verdict = {
+          blocked: true, until,
+          reason: String(bd.data().reason ?? 'Perangkat/IP tercatat pada akun yang diblokir.'),
+          bannedEmail, own: !!email && email === bannedEmail,
+        };
+        break;
+      }
+    } catch { /* jangan pernah memblokir login normal saat error jaringan */ }
+  }
+  gateCache.set(key, { ...verdict, _at: Date.now() });
+  return verdict;
+}
+
+/** Kunci perangkat + (opsional) hapus akun baru yang baru saja dibuat. */
+async function refuseSession(g: GateVerdict, opts: { deleteU?: FBUser | null } = {}) {
+  setDeviceBan({ uid: uid0 ?? '', until: g.until, reason: g.reason, ownEmail: g.bannedEmail });
+  const fb = firebase();
+  if (fb) {
+    await signOut(fb.auth).catch(() => {});
+    if (opts.deleteU) await fbDeleteUser(opts.deleteU).catch(() => {});
+  }
+  pushBanner({
+    title: 'Akses diblokir',
+    body: 'Perangkat/IP ini tercatat pada akun yang diblokir admin. Hanya Gmail yang dibanned yang bisa masuk (lihat info & banding). Akun baru / akun lain TIDAK bisa dibuat di sini.',
+    icon: 'ban',
+  });
+}
+
+/** Catat IP + perangkat sesi ini ke `usermeta/{uid}` — dipakai admin saat mem-ban. */
+async function recordUsermeta(who: string) {
+  try {
+    const fb = firebase();
+    if (!fb) return;
+    const dh = await getDeviceHash();
+    let ipHash = '';
+    if (Platform.OS === 'web') {
+      const r = await fetch('/api/ip-ban', { cache: 'no-store' }).catch(() => null);
+      if (r?.ok) { const j = await r.json().catch(() => ({} as any)); ipHash = String(j.hash ?? ''); }
+    }
+    setDoc(doc(fb.db, 'usermeta', who), { lastIpHash: ipHash || null, lastDeviceHash: dh || null, at: Date.now() }, { merge: true }).catch(() => {});
+  } catch { /* best effort */ }
+}
 
 export async function initStore() {
   const theme = isWeb ? window.localStorage.getItem(THEME_KEY) : await AsyncStorage.getItem(THEME_KEY);
@@ -521,32 +733,15 @@ export async function initStore() {
   }
 
   /**
-   * ANTI-AKUN-BARU-SAAT-DIBANNED: akun baru (email & Google) pada IP yang
-   * tercatat di `banips/{sha256(ip)}` DITOLAK — dipaksa keluar + perangkat
-   * dikunci sampai masa ban selesai. Akun lama yang dibanned tetap boleh masuk
-   * (mereka melihat BannedScreen); ganti akun lain TIDAK membantu (device lock).
+   * GERBANG ANTI BAN-EVASION berpindah ke level modul — lihat banGateCheck()
+   * di atas initStore(): dipakai bersama oleh onAuthStateChanged, register(),
+   * login(), dan loginGoogle().
    */
-  const assertNotIpBanned = async (uid: string): Promise<boolean> => {
-    try {
-      if (Platform.OS !== 'web') return true;
-      const r = await fetch('/api/ip-ban', { cache: 'no-store' });
-      if (!r.ok) return true;
-      const { hash } = await r.json();
-      if (!hash) return true;
-      const bd = await getDoc(doc(fb.db, 'banips', String(hash))).catch(() => null);
-      if (!bd || !bd.exists()) return true;
-      const until = Number(bd.data().until ?? 0);
-      if (until > 0 && until <= Date.now()) return true; // sudah lewat
-      setDeviceBan({ uid, until, reason: bd.data().reason ?? 'Akun pada perangkat/IP ini sedang diblokir' });
-      await signOut(fb.auth).catch(() => {});
-      pushBanner({ title: 'Dilarang membuat akun baru', body: 'Perangkat/IP kamu tercatat pada akun yang diblokir. Tunggu masa blokir selesai — membuat akun baru tidak akan membantu.', icon: 'ban' });
-      return false;
-    } catch { return true; }
-  };
 
   // restore theme-persisted session is handled by Firebase persistence; just observe.
   onAuthStateChanged(fb.auth, async (u: FBUser | null) => {
     clearAllSubs();
+    stopGuard();
     if (presenceTimer) { clearInterval(presenceTimer); presenceTimer = null; }
     if (callWatch) { clearInterval(callWatch); callWatch = null; }
     db = { ...EMPTY };
@@ -556,9 +751,14 @@ export async function initStore() {
     // ensure profile doc exists (first login / Google sign-in)
     const ref = doc(fb.db, C.users, u.uid);
     const snap = await getDoc(ref).catch(() => null);
-    if (snap && !snap.exists()) {
-      // akun BARU: cek ban IP/perangkat SEBELUM profil dibuat (blokir pendaftaran baru)
-      if (!(await assertNotIpBanned(u.uid))) { ready = true; bump(); return; }
+    const existed = !!(snap && snap.exists());
+    if (!existed) {
+      // akun BARU: gerbang ban SEBELUM profil dibuat (blokir pendaftaran baru)
+      const g = await banGateCheck(u.email ?? undefined);
+      if (g.blocked && !g.own) {
+        await refuseSession(g, { deleteU: u });
+        ready = true; bump(); return;
+      }
       await setDoc(ref, {
         name: u.displayName ?? u.email?.split('@')[0] ?? 'Pengguna', email: u.email ?? '',
         about: 'Hai! Aku pakai Zeroid-whatsapp.', avatar: u.photoURL ?? null, color: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
@@ -568,36 +768,48 @@ export async function initStore() {
         notif: { messages: true, groups: true, stories: true, calls: true, preview: true, sound: true },
         blocked: [], contacts: [],
       }).catch(() => {});
+      void recordUsermeta(u.uid);
       // referral link promosi: beri reward otomatis bila daftar lewat ?ref=CODE
       if (isWeb) captureRefFromUrl();
       void applyPendingReferral({ id: u.uid, points: 0 } as User).then((r) => {
         if (r?.ok) pushBanner({ title: 'Koin sambutan', body: `+${r.rewarded} koin dari ajakan temanmu — bisa dipakai bayar centang biru!`, icon: 'gift' });
       });
     } else {
+      // akun LAMA yang tidak sedang dibanned: pastikan bukan akun lain di
+      // perangkat/IP terblokir — HANYA pemilik Gmail yang dibanned boleh lewat.
+      const prof = snap!.data() as any;
+      if (!prof.banned) {
+        const g = await banGateCheck(u.email ?? undefined);
+        if (g.blocked && !g.own) {
+          await refuseSession(g);
+          ready = true; bump(); return;
+        }
+      }
       // pastikan SEMUA user punya kode referral (sekali)
-      const prof = snap && snap.exists() ? (snap.data() as any) : null;
       if (prof && !prof.referralCode) updateDoc(ref, { referralCode: refCodeFor(u.uid) }).catch(() => {});
+      void recordUsermeta(u.uid);
       if (isWeb) captureRefFromUrl();
       void applyPendingReferral({ id: u.uid, ...(prof ?? {}), points: prof?.points ?? 0 } as User).then((r) => {
         if (r?.ok) pushBanner({ title: 'Koin sambutan', body: `+${r.rewarded} koin dari ajakan temanmu!`, icon: 'gift' });
       });
     }
-    if (snap && snap.exists() && (snap.data() as any).banned) {
-      // JANGAN sign-out: pengguna dibanned tetap masuk supaya bisa melihat
-      // BannedScreen (alasan + sisa durasi + form banding ala WhatsApp).
-      // ANTI EVASION: kunci perangkat + catat IP ke banips (client best-effort).
-      const bd = snap.data() as any;
+    if (existed && (snap!.data() as any).banned) {
+      // JANGAN sign-out & JANGAN kunci perangkatnya sendiri: pengguna dibanned
+      // tetap masuk untuk melihat BannedScreen (alasan + sisa durasi + banding).
+      // ANTI EVASION: catat IP + PERANGKAT ke banips/devices supaya akun baru
+      // pada IP/perangkat ini ditolak server.
+      const bd = snap!.data() as any;
       const until = Number(bd.banUntil ?? bd.suspendedUntil ?? 0);
-      setDeviceBan({ uid: u.uid, name: bd.name, reason: bd.banReason, until });
-      registerBannedIp(u.uid, until, bd.banReason);
+      registerBannedIdentity(u.uid, u.email ?? '', until, bd.banReason);
       ready = true; bump();
       return;
     }
     // ban sudah dibuka → lepaskan kunci perangkat milik akun ini
     const dev = readDeviceBan();
-    if (dev && dev.uid === u.uid) setDeviceBan(null);
+    if (dev && (dev.uid === u.uid || dev.ownEmail === (u.email ?? '').toLowerCase())) setDeviceBan(null);
     attachUserSubs(u.uid);
     startPresence();
+    startGuard();
     ready = true; bump();
   });
 }
@@ -732,23 +944,44 @@ function notifyFor(userId: string, kind: NotifKind, title: string, body: string,
 // ============================ auth ============================
 
 /**
- * Catat IP akun yang dibanned ke `banips/{sha256(ip)}` + `bans/{uid}.ips`
- * (client best-effort; rules v9 hanya mengizinkan USER YANG SEDANG DIBANNED
- * menulis dokumen ini). Saat ban dibuka, dokumen kedaluwarsa sendiri.
+ * Catat IDENTITAS akun yang dibanned ke:
+ *  - `banips/{sha256(ip)}`           → blokir per IP penuh
+ *  - `banips/{s24_sha256(subnet)}`   → blokir per subnet (anti ganti-IP WiFi)
+ *  - `devices/{deviceHash}`          → blokir per PERANGKAT (fingerprint)
+ * Semua dokumen menyimpan `email` akun — SATU-SATUNYA akun yang masih boleh
+ * masuk untuk melihat info ban + banding. Rules v11 hanya mengizinkan user
+ * yang SEDANG DIBANNED menulis identitas miliknya sendiri; admin bebas.
  */
-async function registerBannedIp(uid: string, until: number, reason?: string) {
+async function registerBannedIdentity(uid0_: string, email: string, until: number, reason?: string) {
   try {
-    if (Platform.OS !== 'web') return;
     const fb = firebase();
     if (!fb) return;
-    const r = await fetch('/api/ip-ban', { cache: 'no-store' });
-    if (!r.ok) return;
-    const { ip, hash } = await r.json();
-    if (!hash) return;
     const { setDoc: sd, doc: dc } = await import('firebase/firestore');
-    await sd(dc(fb.db, 'banips', String(hash)), { uid, until: until ?? 0, reason: reason ?? '', ip: String(ip ?? '').slice(0, 45), at: Date.now() });
-    await updateDoc(doc(fb.db, C.bans, uid), { lastIp: String(ip ?? '').slice(0, 45), ips: arrayUnion(String(ip ?? '').slice(0, 45)) }).catch(() => {});
-  } catch { /* banned user mungkin tidak punya izin — abaikan */ }
+    const dh = await getDeviceHash();
+    const payload = (extra: Record<string, any>) => clean({
+      uid: uid0_, email: (email ?? '').toLowerCase(), until: until ?? 0, reason: reason ?? '', at: Date.now(), ...extra,
+    });
+    if (Platform.OS === 'web') {
+      const r = await fetch('/api/ip-ban', { cache: 'no-store' }).catch(() => null);
+      if (r?.ok) {
+        const { ip, hash: ipH } = await r.json().catch(() => ({} as any));
+        if (ipH) {
+          await sd(dc(fb.db, 'banips', String(ipH)), payload({ ip: String(ip ?? '').slice(0, 45) }), { merge: true }).catch(() => {});
+          // subnet /24 (IPv4) — hash format sama dengan /api/ban-gate
+          const ipv = String(ip ?? '');
+          if (ipv.includes('.')) {
+            const sub = ipv.split('.').slice(0, 3).join('.');
+            const sHash = 's24_' + await sha256Hex(sub);
+            await sd(dc(fb.db, 'banips', sHash), payload({ ip: sub + '.0/24' }), { merge: true }).catch(() => {});
+          }
+        }
+        await updateDoc(doc(fb.db, C.bans, uid0_), { lastIp: String(ip ?? '').slice(0, 45), ips: arrayUnion(String(ip ?? '').slice(0, 45)) }).catch(() => {});
+      }
+    }
+    if (dh && dh !== 'unknown-device') {
+      await sd(dc(fb.db, 'devices', dh), payload({}), { merge: true }).catch(() => {});
+    }
+  } catch { /* banned user mungkin tidak punya izin — fallback: admin menulis saat mem-ban */ }
 }
 
 function fbError(e: any): string {
@@ -781,24 +1014,23 @@ export async function register(name: string, email: string, password: string, us
   if (password.length < 6) return { ok: false, error: 'Password minimal 6 karakter.' };
   const fb = firebase();
   if (!fb) return { ok: false, error: 'Firebase belum dikonfigurasi.' };
+  // ===== GERBANG BAN (pre-flight): perangkat/IP terblokir → daftar akun baru DITOLAK
+  // sebelum akun sempat dibuat. Hanya Gmail yang dibanned boleh login (bukan daftar).
+  const g = await banGateCheck(email);
+  if (g.blocked && !g.own) {
+    setDeviceBan({ uid: '', until: g.until, reason: g.reason, ownEmail: g.bannedEmail });
+    return { ok: false, error: `Dilarang membuat akun baru: perangkat/IP ini tercatat pada akun yang diblokir admin. Tidak ada celah akun baru${g.bannedEmail ? ` — hanya ${g.bannedEmail} yang bisa masuk untuk lihat info & banding` : ''}. Hubungi developer lewat banding bila ini keliru.` };
+  }
   try {
     const cred = await createUserWithEmailAndPassword(fb.auth, email, password);
-    // ANTI-BAN-EVASION: akun baru pada IP yang sedang diblokir langsung DIHAPUS
-    try {
-      const r = await fetch('/api/ip-ban', { cache: 'no-store' });
-      const { hash } = r.ok ? await r.json() : {} as any;
-      if (hash) {
-        const bd = await getDoc(doc(fb.db, 'banips', String(hash))).catch(() => null);
-        const until = Number(bd?.data()?.until ?? 0);
-        if (bd && bd.exists() && (until === 0 || until > Date.now())) {
-          setDeviceBan({ uid: cred.user.uid, until, reason: 'Perangkat/IP tercatat pada akun yang diblokir' });
-          if (uname) deleteDoc(doc(fb.db, 'usernames', uname)).catch(() => {});
-          await signOut(fb.auth).catch(() => {});
-          await fbDeleteUser(cred.user).catch(() => {});
-          return { ok: false, error: 'Dilarang membuat akun baru: perangkat/IP ini tercatat pada akun yang diblokir. Tunggu masa blokir selesai.' };
-        }
-      }
-    } catch { /* pemeriksaan best-effort — jangan blokir pendaftaran normal */ }
+    // ANTI-BAN-EVASION (lapis kedua): gerbang baru saja berubah → akun baru pada
+    // perangkat/IP yang diblokir langsung DIHAPUS
+    const g2 = await banGateCheck(email);
+    if (g2.blocked && !g2.own) {
+      if (uname) deleteDoc(doc(fb.db, 'usernames', uname)).catch(() => {});
+      await refuseSession(g2, { deleteU: cred.user });
+      return { ok: false, error: 'Dilarang membuat akun baru: perangkat/IP ini tercatat pada akun yang diblokir. Tunggu masa blokir selesai.' };
+    }
     await fbUpdateProfile(cred.user, { displayName: name });
     await sendEmailVerification(cred.user).catch(() => {});
     const newUid = cred.user.uid;
@@ -827,6 +1059,13 @@ export async function login(email: string, password: string): Promise<{ ok: bool
   if (!isEmail(email)) return { ok: false, error: 'Format email tidak valid.' };
   const fb = firebase();
   if (!fb) return { ok: false, error: 'Firebase belum dikonfigurasi.' };
+  // ===== GERBANG BAN: perangkat/IP terblokir → HANYA Gmail yang dibanned sendiri
+  // yang boleh masuk (melihat info ban + banding). Akun lain / akun baru DITOLAK.
+  const g = await banGateCheck(email);
+  if (g.blocked && !g.own) {
+    setDeviceBan({ uid: '', until: g.until, reason: g.reason, ownEmail: g.bannedEmail });
+    return { ok: false, error: `Perangkat/IP ini diblokir admin. Login hanya bisa dengan akun yang dibanned (${g.bannedEmail ?? 'tercatat'}) untuk melihat info & mengirim banding — akun lain tidak bisa dibuka di sini.` };
+  }
   try {
     await signInWithEmailAndPassword(fb.auth, email, password);
     return { ok: true };
@@ -838,6 +1077,15 @@ export async function login(email: string, password: string): Promise<{ ok: bool
 export async function loginGoogle(): Promise<{ ok: boolean; error?: string }> {
   const fb = firebase();
   if (!fb) return { ok: false, error: 'Firebase belum dikonfigurasi.' };
+  // ===== GERBANG BAN (pre-flight): perangkat/IP terblokir → login Google akun
+  // mana pun DITOLAK di sini. Gmail yang dibanned tetap bisa masuk lewat jalur
+  // email/password (gate memberi izin ke emailnya sendiri); akun baru DITOLAK
+  // lagi di onAuthStateChanged (profil baru dihapus otomatis).
+  const g = await banGateCheck();
+  if (g.blocked) {
+    setDeviceBan({ uid: '', until: g.until, reason: g.reason, ownEmail: g.bannedEmail });
+    return { ok: false, error: `Perangkat/IP ini diblokir admin${g.bannedEmail ? ` — hanya ${g.bannedEmail} yang bisa masuk untuk lihat info & banding (pakai jalur email)` : ''}. Login Google dengan akun lain tidak bisa dibuka di sini.` };
+  }
   try {
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
@@ -1927,6 +2175,9 @@ export function banRemaining(u: User): number {
  * Ban pengguna dengan durasi. durationMs = 0 → permanen.
  * Menulis: users/{uid}.banned|banReason|banUntil + bans/{uid} (buku admin) +
  * hapus appeal lama agar bisa banding ulang setelah di-unban.
+ * ANTI EVASION: IP/perangkat TERAKHIR target (dari usermeta) langsung
+ * dicatat ke banips/devices oleh ADMIN — tidak bergantung pada korban
+ * membuka aplikasi, jadi akun baru pada IP/perangkat itu langsung ditolak server.
  */
 export function adminBan(userId: string, reason: string, durationMs: number) {
   const me = getMe();
@@ -1936,21 +2187,36 @@ export function adminBan(userId: string, reason: string, durationMs: number) {
   if (!u) return;
   const until = durationMs > 0 ? Date.now() + durationMs : 0;
   const permanent = durationMs <= 0;
+  const reasonText = reason || 'Pelanggaran aturan komunitas';
   updateDoc(doc(fb.db, C.users, userId), {
     banned: permanent,
-    banReason: reason || 'Pelanggaran aturan komunitas',
+    banReason: reasonText,
     suspendedUntil: permanent ? 0 : until,
     banUntil: permanent ? 0 : until,
   }).catch((e) => pushBanner({ title: 'Ban gagal', body: fbError(e), icon: 'alert' }));
   setDoc(doc(fb.db, C.bans, userId), {
-    uid: userId, name: u.name, reason: reason || 'Pelanggaran aturan komunitas',
+    uid: userId, name: u.name, reason: reasonText,
     bannedBy: me.id, bannedByName: me.name, bannedAt: Date.now(), until, active: true,
   }).catch(() => {});
   deleteDoc(doc(fb.db, C.appeals, userId)).catch(() => {});
-  audit(permanent ? 'ban' : 'ban_temp', userId, `${reason || '-'} · ${permanent ? 'permanen' : fmtDur(durationMs / 1000)}`);
+  audit(permanent ? 'ban' : 'ban_temp', userId, `${reasonText} · ${permanent ? 'permanen' : fmtDur(durationMs / 1000)}`);
+  // kunci IP + perangkat target (server gate membaca ini saat login/daftar)
+  void (async () => {
+    try {
+      const um = await getDoc(doc(fb.db, 'usermeta', userId)).catch(() => null);
+      const meta = um && um.exists() ? um.data() as any : null;
+      const rec = (extra: Record<string, any>) => clean({ uid: userId, email: (u.email ?? '').toLowerCase(), until, reason: reasonText, at: Date.now(), ...extra });
+      if (meta?.lastIpHash) await setDoc(doc(fb.db, 'banips', String(meta.lastIpHash)), rec({}), { merge: true }).catch(() => {});
+      if (meta?.lastDeviceHash && String(meta.lastDeviceHash) !== 'unknown-device') await setDoc(doc(fb.db, 'devices', String(meta.lastDeviceHash)), rec({}), { merge: true }).catch(() => {});
+      if (meta?.lastIpHash) await updateDoc(doc(fb.db, C.bans, userId), { lastIpHash: String(meta.lastIpHash), lastDeviceHash: meta?.lastDeviceHash ?? null }).catch(() => {});
+    } catch { /* best effort */ }
+  })();
 }
 
-/** Cabut ban + arsipkan catatan. */
+/**
+ * Cabut ban + arsipkan catatan + BUKA kunci IP/perangkat yang tercatat atas
+ * nama user ini (semua dokumen banips/devices miliknya dibuat kedaluwarsa).
+ */
 export function adminUnban(userId: string) {
   const me = getMe();
   const fb = firebase();
@@ -1958,6 +2224,15 @@ export function adminUnban(userId: string) {
   updateDoc(doc(fb.db, C.users, userId), { banned: false, banReason: null, suspendedUntil: 0, banUntil: 0 }).catch((e) => pushBanner({ title: 'Unban gagal', body: fbError(e), icon: 'alert' }));
   updateDoc(doc(fb.db, C.bans, userId), { active: false }).catch(() => {});
   audit('unban', userId);
+  // buka kunci semua IP/perangkat yang tercatat atas nama user ini
+  void (async () => {
+    try {
+      const snap = await getDocs(query(collection(fb.db, 'banips'), where('uid', '==', userId))).catch(() => null);
+      snap?.forEach((d) => updateDoc(d.ref, { until: Date.now() - 1000, openedAt: Date.now() }).catch(() => {}));
+      const dv = await getDocs(query(collection(fb.db, 'devices'), where('uid', '==', userId))).catch(() => null);
+      dv?.forEach((d) => updateDoc(d.ref, { until: Date.now() - 1000, openedAt: Date.now() }).catch(() => {}));
+    } catch { /* best effort */ }
+  })();
 }
 
 /** Pengguna dibanned menulis keterangannya (WhatsApp-style) — sekali per masa ban. */

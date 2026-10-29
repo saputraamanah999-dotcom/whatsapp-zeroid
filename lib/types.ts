@@ -93,6 +93,21 @@ export type ChatAppeal = {
   adminNote?: string;
 };
 
+/** Jenis pelanggaran yang dideteksi AI Guard (moderasi otomatis grup) */
+export type ViolationKind = 'porn' | 'sticker_spam' | 'media_bomb';
+
+/** Catatan pelanggar: SIAPA yang mengirim konten 18+/spam — ditampilkan agar developer bisa langsung ban */
+export type ModOffense = {
+  msgId: string;
+  senderId: string;
+  senderName: string;
+  senderUsername?: string | null;
+  kind: ViolationKind;
+  reason: string;
+  excerpt?: string;
+  at: number;
+};
+
 export type Chat = {
   id: string;
   type: ChatType;
@@ -118,6 +133,12 @@ export type Chat = {
   /** 0 = permanen */
   banUntil?: number;
   banAppeal?: ChatAppeal;
+  /** penangguhan OTOMATIS oleh AI Guard (konten 18+/spam stiker/bom media) */
+  suspendedAuto?: boolean;
+  /** epoch ms penangguhan otomatis dipasang */
+  autoBanAt?: number;
+  /** catatan pelanggar: siapa yang mengirim — agar developer bisa langsung eksekusi ban */
+  modOffense?: ModOffense;
   /** only admins can post (channels) */
   postPolicy?: 'everyone' | 'admins';
   /** denormalised last message for chat-list previews (written on send) */
