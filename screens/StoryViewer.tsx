@@ -11,6 +11,7 @@ import { useStore, activeStories, viewStory, likeStory, deleteStory, replyStory 
 import { ago } from '../lib/format';
 import { pushBanner } from '../lib/bus';
 import { VerifiedBadge } from '../lib/icons';
+import MentionText from '../components/MentionText';
 
 const DURATION = 5500;
 
@@ -71,6 +72,8 @@ export default function StoryViewer() {
 
   if (!story || !owner || !me) return <View style={{ flex: 1, backgroundColor: '#000' }} />;
   const liked = story.likes.includes(me.id);
+  // mention di SW: uid → username untuk highlight @name yang bisa ditap
+  const storyMentionRefs = (story.mentions ?? []).map((uid) => ({ uid, name: db.users[uid]?.username || db.users[uid]?.name || uid }));
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1, backgroundColor: '#000' }}>
@@ -81,17 +84,25 @@ export default function StoryViewer() {
           <StoryVideo uri={story.uri} paused={paused} />
         ) : (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 36 }}>
-            <T v="h1" color="#fff" style={{ textAlign: 'center', fontSize: 30, lineHeight: 40 }}>
-              {story.text ?? ''}
-            </T>
+            <MentionText
+              text={story.text ?? ''}
+              mentions={storyMentionRefs}
+              color="#fff"
+              onOpenUser={(uid) => uid !== me.id && nav.navigate('UserProfile', { userId: uid })}
+              style={{ textAlign: 'center', fontSize: 30, lineHeight: 40, fontWeight: '700' }}
+            />
           </View>
         )}
         {(story.type === 'image' || story.type === 'video') && !!story.text && (
           <View style={{ position: 'absolute', left: 0, right: 0, bottom: 120, alignItems: 'center', paddingHorizontal: 24 }}>
             <View style={{ backgroundColor: 'rgba(0,0,0,0.45)', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 16 }}>
-              <T v="body" color="#fff" style={{ textAlign: 'center', fontWeight: '600' }}>
-                {story.text}
-              </T>
+              <MentionText
+                text={story.text}
+                mentions={storyMentionRefs}
+                color="#fff"
+                onOpenUser={(uid) => uid !== me.id && nav.navigate('UserProfile', { userId: uid })}
+                style={{ textAlign: 'center', fontWeight: '600', fontSize: 16 }}
+              />
             </View>
           </View>
         )}

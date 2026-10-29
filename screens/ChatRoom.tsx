@@ -287,6 +287,7 @@ export default function ChatRoom() {
                   onOpenMedia={(m) => nav.navigate('MediaViewer', { uri: m.uri, type: m.type, caption: m.text })}
                   onReplyPress={jumpTo}
                   onReply={canPost && !blocked ? () => setReplyTo(item.m) : undefined}
+                  onOpenUser={(uid) => uid && uid !== me.id && nav.navigate('UserProfile', { userId: uid })}
                 />
               )
             }

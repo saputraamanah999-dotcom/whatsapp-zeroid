@@ -574,7 +574,7 @@ const docExists = (s) => (s != null && (typeof s.exists === 'function' ? !!s.exi
 const probe = async (ref) => {
   try {
     const snap = await ref.get();
-    return { ok: true, exists: docExists(snap), denied: false };
+    return { ok: true, exists: docExists(snap), denied: false, data: (typeof snap.data === 'function' ? snap.data() : null) ?? null };
   } catch (e) {
     if (String(e?.code ?? '') === 'permission-denied' || /insufficient permissions/i.test(String(e?.message ?? '')))
       return { ok: false, exists: false, denied: true };
@@ -751,12 +751,21 @@ async function run(seedMode) {
     const wProbe = await probe(gRef.collection('messages').doc('welcome')).catch((e) => { throw new Error(why(e, 'chats/c_global/messages/welcome (read)')); });
     if (!wProbe.exists) {
       await gRef.collection('messages').doc('welcome').set({
-        chatId: 'c_global', senderId: user.uid, type: 'system', text: 'Selamat datang di Zeroid-whatsapp! 🚀 Chat global terbuka untuk semua pengguna.',
+        chatId: 'c_global', senderId: user.uid, type: 'system', text: 'Selamat datang di Zeroid-whatsapp! Chat global terbuka untuk semua pengguna.',
         clientTime: Date.now(), createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         deletedFor: [], reactions: {}, starredBy: [],
       }).catch((e) => { throw new Error(why(e, 'chats/c_global/messages/welcome (create)')); });
       mark('pesan sambutan dibuat', true);
-    } else mark('pesan sambutan sudah ada', true);
+    } else {
+      // pembenahan: teks sambutan lama beremoji (🚀) → diganti teks bersih (ikon verifikasi kini SVG)
+      const wText = String((wProbe.data || {}).text ?? '');
+      if (/[\u{1F300}-\u{1FAFF}\u{2705}\u{274C}]/u.test(wText)) {
+        await gRef.collection('messages').doc('welcome').set({
+          text: 'Selamat datang di Zeroid-whatsapp! Chat global terbuka untuk semua pengguna.',
+        }, { merge: true }).catch(() => {});
+        mark('pesan sambutan dibersihkan dari emoji', true);
+      } else mark('pesan sambutan sudah ada', true);
+    }
 
     // --- 7) SALURAN resmi "Zeroid AI" (deskripsi: Saputra Developer) ---
     const zRef = db.collection('chats').doc('ch_zeroid_ai');

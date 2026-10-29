@@ -45,6 +45,7 @@ import { uid, hash, isEmail, duration as fmtDur } from './format';
 import { AVATAR_COLORS, setThemeMode, ThemeMode } from './theme';
 import { pushBanner, activeChatId, navRef } from './bus';
 import { presentLocal } from './notify';
+import { resolveMentions, MentionResolution } from './mentions';
 import { askAI, thinkAI, analyzeImage, AI_PROVIDERS } from './ai';
 import { firebase, isFirebaseConfigured, COLLECTIONS as C, firebaseConfig } from './firebase';
 import { fcmPush } from './fcm';
@@ -164,7 +165,7 @@ function normDates<T extends Record<string, any>>(o: T): T {
   }
   return out;
 }
-const rawDoc = <T extends Record<string, any>>(d: any): T => normDates({ id: d.id, ...d.data() }) as T;
+const rawDoc = <T extends Record<string, any>>(d: any): T => normDates({ ...d.data(), id: d.id }) as T;
 
 function mapUser(id: string, d: DocumentData): User {
   return {
@@ -239,6 +240,8 @@ function mapMessage(id: string, d: DocumentData): Message {
     lat: d.lat, lng: d.lng, locationLabel: d.locationLabel, contactName: d.contactName, contactPhone: d.contactPhone,
     poll: d.poll ?? undefined, votes: d.votes ?? undefined,
     expiresAt: ts(d.expiresAt) || undefined, mediaExpiresAt: ts(d.mediaExpiresAt) || undefined, reasoning: d.reasoning,
+    mentions: Array.isArray(d.mentions) ? d.mentions.filter((x: any) => x && x.uid) : undefined,
+    mentionsAll: !!d.mentionsAll, verified: !!d.verified,
   };
 }
 
@@ -246,6 +249,7 @@ function mapStory(id: string, d: DocumentData): Story {
   return {
     id, userId: d.userId, type: d.type ?? 'text', text: d.text, bg: d.bg, uri: d.uri,
     createdAt: ts(d.createdAt), expiresAt: ts(d.expiresAt), viewers: d.viewers ?? [], likes: d.likes ?? [],
+    mentions: Array.isArray(d.mentions) ? d.mentions.filter((x: any) => typeof x === 'string') : undefined,
   };
 }
 
@@ -702,7 +706,7 @@ export function messagePreview(m?: Message) {
     case 'location': return 'Lokasi';
     case 'contact': return `Kontak: ${m.contactName ?? ''}`;
     case 'order': return m.text ?? 'Pesanan';
-    case 'poll': return `📊 Polling: ${m.text ?? ''}`;
+    case 'poll': return `Polling: ${m.text ?? ''}`;
     case 'call': return m.text ?? 'Panggilan';
     default: return m.text ?? '';
   }
@@ -711,7 +715,9 @@ export function messagePreview(m?: Message) {
 function notifyFor(userId: string, kind: NotifKind, title: string, body: string, extra: Partial<AppNotification> = {}) {
   const fb = firebase();
   if (!fb || !userId) return;
-  addDoc(collection(fb.db, C.notifications), clean({ id: '', userId, kind, title, body, createdAt: serverTimestamp(), read: false, ...extra })).catch(() => {});
+  // PENTING: JANGAN simpan field id — rawDoc mengambil id dari snapshot; field id:''
+  // pernah menimpa id snapshot sehingga doc(db,'notifications','') CRASH (halaman Panggilan).
+  addDoc(collection(fb.db, C.notifications), clean({ userId, kind, title, body, createdAt: serverTimestamp(), read: false, ...extra })).catch(() => {});
   // Push FCM (luar aplikasi/website) via server sendiri — best effort, tak pernah melempar error.
   void fcmPush({ uids: [userId], title, body, kind, chatId: extra.chatId, storyUserId: extra.storyUserId });
 }
@@ -993,12 +999,12 @@ export function openAI(): string {
   return id;
 }
 
-function sysMsg(chatId: string, text: string, senderId: string) {
+function sysMsg(chatId: string, text: string, senderId: string, extra: { verified?: boolean } = {}) {
   const fb = firebase();
   if (!fb) return;
   addDoc(collection(fb.db, C.chats, chatId, 'messages'), {
     chatId, senderId, type: 'system', text, clientTime: Date.now(), createdAt: serverTimestamp(),
-    deletedFor: [], reactions: {}, starredBy: [],
+    deletedFor: [], reactions: {}, starredBy: [], verified: !!extra.verified,
   }).catch(() => {});
 }
 
@@ -1217,21 +1223,13 @@ function spamCheck(): boolean {
 }
 
 // ---------- mentions: @username / @semua ----------
-/** Resolve mention dari teks → daftar uid anggota grup yang diberi notifikasi. */
-function mentionUids(chat: Chat, text: string): string[] {
-  if (!text || (chat.type !== 'group' && chat.type !== 'global')) return [];
-  const handles = new Set<string>();
-  for (const m of text.matchAll(/@([a-zA-Z0-9._]+)/g)) handles.add(m[1].toLowerCase());
-  if (!handles.size) return [];
-  const all = [...handles].some((h) => ['semua', 'all', 'everyone', 'sini'].includes(h));
+/** Resolve mention dari teks pesan → uid target + referensi utk disimpan di pesan. */
+function resolveMsgMentions(chat: Chat, text: string): MentionResolution {
+  const empty: MentionResolution = { uids: [], refs: [], all: false };
+  if (!text || (chat.type !== 'group' && chat.type !== 'global')) return empty;
   const sender = getMe()?.id ?? '';
-  if (all) return chat.members.filter((u) => u !== sender);
-  const uids: string[] = [];
-  for (const h of handles) {
-    const u = Object.values(db.users).find((x) => x.username === h);
-    if (u && chat.members.includes(u.id) && u.id !== sender) uids.push(u.id);
-  }
-  return [...new Set(uids)];
+  const candidates = (chat.members ?? []).map((uid) => db.users[uid]).filter(Boolean);
+  return resolveMentions(text, candidates, sender);
 }
 
 
@@ -1280,6 +1278,10 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     reasoning: payload.reasoning, expiresAt: ttl ? Date.now() + ttl : undefined, mediaExpiresAt: payload.mediaExpiresAt,
     createdAt: Date.now(), deletedFor: [], reactions: {}, starredBy: [], status: 'sending',
   };
+  // mention @username / @semua (grup & global) — disimpan di pesan untuk highlight
+  const men = resolveMsgMentions(chat, payload.text ?? '');
+  if (men.refs.length) local.mentions = men.refs;
+  if (men.all) local.mentionsAll = true;
   // optimistic
   db.messages = { ...db.messages, [chatId]: [...(db.messages[chatId] ?? []), local] };
   bump();
@@ -1291,6 +1293,7 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     locationLabel: local.locationLabel ?? null, contactName: local.contactName ?? null, contactPhone: local.contactPhone ?? null,
     reasoning: local.reasoning ?? null, expiresAt: local.expiresAt ?? null, mediaExpiresAt: local.mediaExpiresAt ?? null,
     poll: local.poll ?? null, votes: {},
+    mentions: local.mentions ?? [], mentionsAll: !!local.mentionsAll,
     clientTime: local.createdAt, createdAt: serverTimestamp(),
     deletedFor: [], reactions: {}, starredBy: [],
   };
@@ -1301,11 +1304,11 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     updateDoc(doc(fb.db, C.chats, chatId), { lastMsg: { text: pv.slice(0, 120), type: local.type, senderId: sender, createdAt: local.createdAt }, [`typing.${sender}`]: 0 }).catch(() => {});
     // STREAK API: rawat api + kucing chat (hanya pesan sungguhan, bukan sistem/AI)
     if (!payload.assistant && payload.type !== 'system') void applyStreak(db.chats[chatId] ?? chat, getMe()!);
-    // mention notifications: @username / @semua di grup & global
-    const mentions = mentionUids(chat, local.text ?? '');
-    for (const u of mentions.slice(0, 30)) {
+    // mention notifications: @username / @semua di grup & global (realtime ke yang disebut)
+    for (const u of men.uids.slice(0, 30)) {
       const name = db.users[sender]?.name ?? 'Seseorang';
-      notifyFor(u, 'group', `${name} menyebut kamu`, `${chat.name ?? 'Grup'}: ${(local.text ?? '').slice(0, 80)}`, { chatId });
+      const tag = men.all ? 'Semua anggota disebut' : 'Menyebut kamu';
+      notifyFor(u, 'group', `${name} · ${tag}`, `${chat.name ?? 'Grup'}: ${(local.text ?? '').slice(0, 80)}`, { chatId });
     }
     // recipients mark delivered when they receive it (listener side)
     return local;
@@ -1326,12 +1329,14 @@ export function retryMessage(chatId: string, id: string) {
   db.messages = { ...db.messages, [chatId]: (db.messages[chatId] ?? []).map((x) => (x.id === id ? { ...x, status: 'sending' } : x)) };
   bump();
   const ref = doc(fb.db, C.chats, chatId, 'messages', id);
+  const rm = resolveMsgMentions(db.chats[chatId] ?? { type: 'direct' } as Chat, m.text ?? '');
   setDoc(ref, clean({
     chatId, senderId: me.id, type: m.type, text: m.text, uri: m.uri, fileName: m.fileName, fileSize: m.fileSize,
     duration: m.duration, mime: m.mime, width: m.width, height: m.height, thumb: m.thumb, storagePath: m.storagePath,
     replyTo: m.replyTo, forwarded: m.forwarded, lat: m.lat ?? null, lng: m.lng ?? null, locationLabel: m.locationLabel ?? null,
     contactName: m.contactName ?? null, contactPhone: m.contactPhone ?? null, expiresAt: m.expiresAt ?? null,
     mediaExpiresAt: m.mediaExpiresAt ?? null,
+    mentions: rm.refs, mentionsAll: rm.all,
     clientTime: m.createdAt, createdAt: serverTimestamp(), deletedFor: [], reactions: {}, starredBy: [],
   })).catch(() => {});
 }
@@ -1517,15 +1522,24 @@ export function postStory(s: Pick<Story, 'type' | 'text' | 'bg' | 'uri'>) {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb) return;
+  // SW mention: @username di teks/caption SW → simpan uid + notif ke yang disebut
+  const candidates = Object.values(db.users).filter(Boolean);
+  const men = resolveMentions(s.text ?? '', candidates, me.id);
   addDoc(collection(fb.db, C.stories), {
     userId: me.id, type: s.type, text: s.text ?? null, bg: s.bg ?? null, uri: s.uri ?? null,
     createdAt: serverTimestamp(), expiresAt: Date.now() + 24 * 3600000, viewers: [], likes: [],
+    mentions: men.uids,
   })
     .then(() => {
+      // SW mention realtime: notifikasi ke tiap user yang disebut (@username di SW)
+      for (const u of men.uids.slice(0, 30)) {
+        notifyFor(u, 'story', `${me.name} menyebut kamu di SW`, (s.text ?? '').slice(0, 80), { storyUserId: me.id });
+      }
       // SW developer/admin = PUBLIK ke semua pengguna + notif ke semua user
       if (me.role === 'developer' || me.role === 'admin') {
         const targets = Object.values(db.users).filter((u) => u.id !== me.id && !u.banned).slice(0, 200);
         for (const u of targets) {
+          if (men.uids.includes(u.id)) continue; // sudah dapat notif mention
           notifyFor(u.id, 'story', 'Story Developer', `${me.name} baru saja posting Story — lihat sekarang!`, { storyUserId: me.id });
         }
         void fcmPush({ topic: 'all', title: 'Story Developer', body: `${me.name} baru saja posting Story di Zeroid.`, kind: 'story', storyUserId: me.id });
@@ -1696,16 +1710,21 @@ export function markCallsSeen() {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb) return;
-  // optimis: badge hilang detik ini juga
-  db.users = { ...db.users, [me.id]: { ...me, lastCallsSeenAt: Date.now() } };
-  bump();
-  updateDoc(doc(fb.db, C.users, me.id), { lastCallsSeenAt: Date.now() }).catch(() => {});
-  const calls = db.notifications.filter((n) => n.kind === 'call' && !n.read && n.userId === me.id);
-  calls.slice(0, 30).forEach((n) => {
-    db.notifications = db.notifications.map((x) => (x.id === n.id ? { ...x, read: true } : x));
-    updateDoc(doc(fb.db, C.notifications, n.id), { read: true }).catch(() => {});
-  });
-  if (calls.length) bump();
+  try {
+    // optimis: badge hilang detik ini juga
+    db.users = { ...db.users, [me.id]: { ...me, lastCallsSeenAt: Date.now() } };
+    bump();
+    updateDoc(doc(fb.db, C.users, me.id), { lastCallsSeenAt: Date.now() }).catch(() => {});
+    // guard n.id: dokumen lama berisi field id:'' yang dulu menimpa id snapshot
+    const calls = db.notifications.filter((n) => n.kind === 'call' && !n.read && n.userId === me.id && n.id);
+    calls.slice(0, 30).forEach((n) => {
+      db.notifications = db.notifications.map((x) => (x.id === n.id ? { ...x, read: true } : x));
+      updateDoc(doc(fb.db, C.notifications, n.id), { read: true }).catch(() => {});
+    });
+    if (calls.length) bump();
+  } catch (e) {
+    console.warn('markCallsSeen', e); // jangan pernah crash tab Panggilan
+  }
 }
 
 function watchCalls() {
@@ -1725,23 +1744,31 @@ export function markNotificationsRead() {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb) return;
-  const batch = writeBatch(fb.db);
-  db.notifications.filter((n) => !n.read).slice(0, 300).forEach((n) => batch.update(doc(fb.db, C.notifications, n.id), { read: true }));
-  batch.commit().catch(() => {});
+  try {
+    const batch = writeBatch(fb.db);
+    db.notifications.filter((n) => !n.read && n.id).slice(0, 300).forEach((n) => batch.update(doc(fb.db, C.notifications, n.id), { read: true }));
+    batch.commit().catch(() => {});
+  } catch (e) {
+    console.warn('markNotificationsRead', e);
+  }
 }
 
 export function clearNotifications() {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb) return;
-  const batch = writeBatch(fb.db);
-  db.notifications.filter((n) => n.userId === me.id).slice(0, 300).forEach((n) => batch.delete(doc(fb.db, C.notifications, n.id)));
-  batch.commit().catch(() => {});
+  try {
+    const batch = writeBatch(fb.db);
+    db.notifications.filter((n) => n.userId === me.id && n.id).slice(0, 300).forEach((n) => batch.delete(doc(fb.db, C.notifications, n.id)));
+    batch.commit().catch(() => {});
+  } catch (e) {
+    console.warn('clearNotifications', e);
+  }
 }
 
 export function deleteNotification(id: string) {
   const fb = firebase();
-  if (!fb) return;
+  if (!fb || !id) return;
   deleteDoc(doc(fb.db, C.notifications, id)).catch(() => {});
 }
 
@@ -1941,7 +1968,8 @@ export function adminVerifyChat(chatId: string, days: number) {
   if (!chat) return;
   const base = Math.max(Date.now(), chat.verifiedUntil ?? 0);
   updateDoc(doc(fb.db, C.chats, chatId), { verifiedUntil: days > 0 ? base + days * 86400000 : 0, verified: days <= 0 }).catch((e) => pushBanner({ title: 'Gagal', body: fbError(e), icon: 'alert' }));
-  sysMsg(chatId, `✅ "${chat.name ?? 'Grup'}" kini terverifikasi${days > 0 ? ` selama ${days} hari` : ' (permanen)'}.`, me.id);
+  // ikon centang biru dirender sebagai SVG oleh MessageBubble (bukan emoji ✅)
+  sysMsg(chatId, `"${chat.name ?? 'Grup'}" kini terverifikasi${days > 0 ? ` selama ${days} hari` : ' (permanen)'}.`, me.id, { verified: true });
   audit('verify_chat', chatId, `days=${days}`);
 }
 

@@ -19,6 +19,8 @@ import { useTheme, font, R } from '../lib/theme';
 import { Message, DB, User } from '../lib/types';
 import { messagePreview, sendMessage, editMessage, setTyping, clearTyping, retryMessage, OutMsg, stickersFor, createSticker } from '../lib/store';
 import { bratSticker } from '../lib/supabase';
+import MentionSuggestions, { MentionOption } from './MentionSuggestions';
+import { activeMentionQuery, applyMention, mentionCandidates } from '../lib/mentions';
 import { ensurePermission } from '../lib/permissions';
 import { pickCamera, pickDocument, pickGallery, pickMultipleImages, uploadMedia, Picked, PreparedMedia, prepareForSend, MediaError } from '../lib/media';
 import { duration as fmt } from '../lib/format';
@@ -81,6 +83,14 @@ export default function Composer({
   const [pollQ, setPollQ] = useState('');
   const [pollOpts, setPollOpts] = useState(['', '']);
   const [pollMulti, setPollMulti] = useState(false);
+  // mention: query @ aktif (null = tidak sedang mengetik @)
+  const [mentionQ, setMentionQ] = useState<string | null>(null);
+  const chat = db.chats[chatId];
+  const mentionAllowAll = chat?.type === 'group' || chat?.type === 'global';
+  const mentionOptions: MentionOption[] =
+    mentionQ !== null && (chat?.type === 'group' || chat?.type === 'global' || chat?.type === 'channel')
+      ? mentionCandidates(chat?.members, db.users, mentionQ, mentionAllowAll)
+      : [];
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   const inputRef = useRef<TextInput>(null);
@@ -106,12 +116,14 @@ export default function Composer({
   const resetInput = () => {
     setText('');
     setInputH(20);
+    setMentionQ(null);
     clearTyping(chatId);
   };
 
   const submit = () => {
     const s = text.trim();
     if (!s) return;
+    setMentionQ(null);
     // web: minta izin notifikasi sekali per sesi, dalam konteks gestur pengguna
     if (Platform.OS === 'web' && !webNotifAsked) {
       webNotifAsked = true;
@@ -337,6 +349,18 @@ export default function Composer({
         </Animated.View>
       )}
 
+      {/* popup mention @username / @semua — muncul saat mengetik "@" */}
+      {mentionOptions.length > 0 && !recording && !pending && (
+        <MentionSuggestions
+          options={mentionOptions}
+          onPick={(o) => {
+            setText((x) => applyMention(x, o.insert));
+            setMentionQ(null);
+            inputRef.current?.focus();
+          }}
+        />
+      )}
+
       <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6 }}>
         {recording ? (
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: FAB, paddingHorizontal: 14, borderRadius: 22, backgroundColor: t.bg, boxShadow: t.inset } as ViewStyle}>
@@ -357,6 +381,7 @@ export default function Composer({
               value={text}
               onChangeText={(s) => {
                 setText(s);
+                setMentionQ(activeMentionQuery(s));
                 if (s) setTyping(chatId);
               }}
               placeholder={editing ? 'Edit pesan…' : 'Ketik pesan…'}

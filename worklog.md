@@ -99,3 +99,47 @@
 4. Cek `/api/version` untuk memastikan commit & env live; bila web masih lama:
    clear site data sekali (Chrome → Application → Clear storage), setelah itu
    auto-update SW v2 yang bekerja.
+
+## Ronde: FIX crash halaman Panggilan + mention @username/@semua lengkap + emoji-status → SVG centang biru (2026-10-29)
+
+### Bug yang diperbaiki
+1. **CRASH "Invalid document reference ... notifications has 1"** saat membuka tab
+   Panggilan — AKAR MASALAH: `rawDoc` menyebarkan `d.data()` SETELAH `id`, sehingga
+   field `id:''` yang tersimpan di dokumen notifikasi (dari notifyFor) MENIMPA id
+   snapshot → semua notifikasi punya `id:''` → `doc(db,'notifications','')` melempar
+   error → ErrorBoundary. Fix: (a) rawDoc = `{ ...d.data(), id: d.id }` (id snapshot
+   selalu menang, berlaku semua koleksi), (b) notifyFor tidak lagi menyimpan field
+   `id:''`, (c) guard `n.id` + try/catch di markCallsSeen / markNotificationsRead /
+   clearNotifications / deleteNotification.
+   Efik samping: notifikasi panggilan kini BENAR-BENAR terbaca saat tab dibuka
+   (dulu selalu crash → badge tidak pernah hilang).
+2. **Emoji ✅ di pesan sistem "kini terverifikasi (permanen)"** → pesan sekarang
+   tanpa emoji + field `verified:true` → MessageBubble merender ikon **centang biru
+   SVG resmi** (VerifiedBadge) di samping teks pesan sistem.
+3. Sapuan emoji-status lain: polling "📊" di preview → teks; tab leaderboard
+   "🔥/🪙" → teks bersih; DevGuard "🛡️" → ikon SVG shield-check; share referral
+   "🚀" dihapus; welcome message seed "🚀" dibersihkan + seed v9 MEMPERBAUI teks
+   sambutan lama yang masih beremoji (regex emoji → merge set).
+
+### Fitur BARU — mention lengkap (full stack)
+- **lib/mentions.ts** (BARU): parser @handle, resolver @username → uid,
+  dukungan **@semua/@all/@everyone/@sini** (tag semua anggota), splitMentionParts
+  untuk render, mentionCandidates + activeMentionQuery + applyMention untuk popup.
+- **components/MentionText.tsx** (BARU): teks dengan @username tersorot (aksen,
+  tebal) — tap → buka profil. Dipakai MessageBubble + StoryViewer (teks & caption).
+- **components/MentionSuggestions.tsx** (BARU): popup saran saat mengetik "@" —
+  avatar + nama + @username, opsi **@semua** di atas (grup/global).
+- **Composer**: deteksi token @ aktif → popup saran anggota; pilih → token diganti;
+  grup/global/channel, reset saat kirim/record/pending.
+- **store.ts**: pesan menyimpan `mentions:[{uid,name}]` + `mentionsAll` (optimis,
+  persist, retry) → notifikasi realtime "· Menyebut kamu / Semua anggota disebut"
+  ke tiap target (maks 30); SW: `postStory` menyimpan `mentions:[uid]` di story +
+  notif "menyebut kamu di SW" (tanpa dobel utk story developer).
+- **StoryCreate**: petunjuk "pakai @username untuk menyebut teman" + popup saran
+  dari semua pengguna (tanpa @semua); StoryViewer: caption/teks SW tersorot &
+  bisa ditap → profil.
+- **ChatRoom**: `onOpenUser` → tap mention membuka UserProfile.
+
+### Verifikasi
+- tsc --noEmit: 0 error; expo export web + pwa-postbuild: OK (mention code ada di
+  bundle); seed.html parse OK; smoke headless: app boot tanpa console error.

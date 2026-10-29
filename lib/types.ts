@@ -177,6 +177,9 @@ export type MediaMeta = {
 
 export type MessageStatus = 'sending' | 'sent' | 'failed';
 
+/** satu orang yang disebut pakai @username di pesan / SW */
+export type MentionRef = { uid: string; name: string };
+
 export type Message = {
   id: string;
   chatId: string;
@@ -220,6 +223,12 @@ export type Message = {
   reasoning?: string;
   /** true when written by the AI assistant through the current user's session */
   assistant?: boolean;
+  /** orang yang disebut pakai @username (grup/global) — untuk highlight + notif */
+  mentions?: MentionRef[];
+  /** pesan memakai @semua → semua anggota disebut */
+  mentionsAll?: boolean;
+  /** pesan sistem verifikasi centang biru → tampil dengan ikon SVG centang biru */
+  verified?: boolean;
   /** optimistic UI only — never persisted */
   status?: MessageStatus;
 };
@@ -235,6 +244,8 @@ export type Story = {
   expiresAt: number;
   viewers: string[];
   likes: string[];
+  /** uid yang disebut pakai @username di caption/teks SW */
+  mentions?: string[];
 };
 
 export type CallStatus = 'ringing' | 'ongoing' | 'ended' | 'missed' | 'declined' | 'busy';

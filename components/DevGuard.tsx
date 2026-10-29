@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Platform, View } from 'react-native';
+import { Icon } from '../lib/icons';
 
 /**
  * DEVGUARD — perlindungan anti-inspeksi untuk web:
@@ -82,7 +83,9 @@ export default function DevGuard() {
       backgroundColor: '#0D1117EE',
     } as any}>
       <View style={{ padding: 28, borderRadius: 22, backgroundColor: '#161B22', alignItems: 'center', maxWidth: 360 } as any}>
-        <View style={{ fontSize: 40, marginBottom: 8 } as any}>🛡️</View>
+        <View style={{ marginBottom: 8 } as any}>
+          <Icon name="shield-check" size={44} color="#3FB68B" />
+        </View>
         <View style={{ color: '#E6EDF3', fontWeight: '800', fontSize: 17, marginBottom: 6, textAlign: 'center' } as any}>
           Alat inspeksi terdeteksi
         </View>

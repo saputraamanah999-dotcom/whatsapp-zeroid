@@ -6,9 +6,11 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, Btn } from '../components/ui';
 import { font, STORY_BGS } from '../lib/theme';
-import { postStory, getMe } from '../lib/store';
+import { postStory, getMe, useStore } from '../lib/store';
 import { pickCamera, pickGallery, pickVideo, uploadMedia, compressImage, MediaError, UPLOAD_MAX_MB, mb } from '../lib/media';
 import { pushBanner } from '../lib/bus';
+import MentionSuggestions from '../components/MentionSuggestions';
+import { activeMentionQuery, applyMention, mentionCandidates } from '../lib/mentions';
 
 export default function StoryCreate() {
   const nav = useNavigation<any>();
@@ -19,6 +21,10 @@ export default function StoryCreate() {
   const [text, setText] = useState('');
   const [uri, setUri] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { db } = useStore();
+  // SW mention: ketik @username → saran dari semua pengguna (tanpa @semua)
+  const [mentionQ, setMentionQ] = useState<string | null>(null);
+  const mentionOptions = mentionQ !== null ? mentionCandidates(Object.keys(db.users), db.users, mentionQ, false) : [];
 
   const pick = async (cam: boolean) => {
     const p = cam ? await pickCamera() : await pickGallery('images');
@@ -87,7 +93,7 @@ export default function StoryCreate() {
         {mode === 'text' ? (
           <TextInput
             value={text}
-            onChangeText={setText}
+            onChangeText={(s) => { setText(s); setMentionQ(activeMentionQuery(s)); }}
             placeholder="Ketik status…"
             placeholderTextColor="rgba(255,255,255,0.6)"
             multiline
@@ -111,11 +117,11 @@ export default function StoryCreate() {
       <View style={{ paddingHorizontal: 16, paddingBottom: insets.bottom + 16, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
         {mode === 'text' ? (
           <T v="caption" color="rgba(255,255,255,0.8)" style={{ flex: 1 }}>
-            {text.length}/280
+            {text.length}/280 · pakai @username untuk menyebut teman
           </T>
         ) : (
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', borderRadius: 26, backgroundColor: 'rgba(255,255,255,0.14)', paddingHorizontal: 16 }}>
-            <TextInput value={text} onChangeText={setText} placeholder="Tambahkan keterangan…" placeholderTextColor="rgba(255,255,255,0.6)" maxLength={200} style={[font, { flex: 1, color: '#fff', fontSize: 16, paddingVertical: 14, ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}) }]} />
+            <TextInput value={text} onChangeText={(s) => { setText(s); setMentionQ(activeMentionQuery(s)); }} placeholder="Tambahkan keterangan… (@username untuk menyebut)" placeholderTextColor="rgba(255,255,255,0.6)" maxLength={200} style={[font, { flex: 1, color: '#fff', fontSize: 16, paddingVertical: 14, ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as object) : {}) }]} />
             {uri && (
               <Pressable onPress={() => (mode === 'video' ? pickVid() : pick(false))} hitSlop={8}>
                 <Ionicons name="swap-horizontal" size={20} color="#fff" />
@@ -127,6 +133,19 @@ export default function StoryCreate() {
           {busy ? <ActivityIndicator color="#1E6BFF" /> : <Ionicons name="send" size={24} color="#1E6BFF" style={{ marginLeft: 3 }} />}
         </Pressable>
       </View>
+
+      {/* saran @username untuk SW */}
+      {mentionOptions.length > 0 && (
+        <View style={{ paddingHorizontal: 12, paddingBottom: 4 }}>
+          <MentionSuggestions
+            options={mentionOptions}
+            onPick={(o) => {
+              setText((x) => applyMention(x, o.insert));
+              setMentionQ(null);
+            }}
+          />
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 }

@@ -152,9 +152,9 @@ export default function AdminScreen() {
       const token = await firebase()?.auth.currentUser?.getIdToken();
       if (!token) throw new Error('Belum masuk — login ulang sebagai admin.');
       const r = await proxyPost<{ ok: boolean; message?: string; error?: string }>('/api/supabase-seed', { token }, 60000);
-      setSeedMsg(r.ok ? `✅ ${r.message ?? 'Seed selesai.'}` : `❌ ${r.error ?? 'Seed gagal.'}`);
+      setSeedMsg(r.ok ? `${r.message ?? 'Seed selesai.'}` : `Gagal: ${r.error ?? 'Seed gagal.'}`);
     } catch (e: any) {
-      setSeedMsg(`❌ ${String(e?.message ?? 'Gagal menghubungi server.').slice(0, 160)}`);
+      setSeedMsg(`Gagal: ${String(e?.message ?? 'Gagal menghubungi server.').slice(0, 160)}`);
     } finally {
       setSeedBusy(false);
     }

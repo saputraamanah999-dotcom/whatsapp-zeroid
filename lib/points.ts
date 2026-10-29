@@ -39,7 +39,7 @@ export function referralLink(code: string, meName?: string): string {
 }
 
 export function shareText(code: string, meName?: string): string {
-  return `Yuk gabung di Zeroid WhatsApp! 🚀\nChat, panggilan, story, musik, anime, AI — lengkap.\n` +
+  return `Yuk gabung di Zeroid WhatsApp!\nChat, panggilan, story, musik, anime, AI — lengkap.\n` +
     `Daftar lewat link ini biar kita dua-duanya dapat koin:\n${referralLink(code, meName)}`;
 }
 

@@ -10,6 +10,7 @@ import { adminDecideOrder, votePoll } from '../lib/store';
 import { ProductIcon, VerifiedBadge } from '../lib/icons';
 import VoicePlayer from './VoicePlayer';
 import { Ticks } from './ChatRow';
+import MentionText from './MentionText';
 import { useTheme, R } from '../lib/theme';
 import { Chat, DB, Message, User } from '../lib/types';
 import { messageStatus, messagePreview } from '../lib/store';
@@ -26,6 +27,7 @@ export default function MessageBubble({
   onReplyPress,
   onReply,
   highlighted,
+  onOpenUser,
 }: {
   m: Message;
   chat: Chat;
@@ -37,6 +39,8 @@ export default function MessageBubble({
   onReplyPress: (id: string) => void;
   onReply?: () => void;
   highlighted?: boolean;
+  /** tap @username → buka profil orang yang disebut */
+  onOpenUser?: (uid: string) => void;
 }) {
   const t = useTheme();
   const mine = m.senderId === me.id && !m.assistant;
@@ -48,7 +52,9 @@ export default function MessageBubble({
   if (m.type === 'system') {
     return (
       <View style={{ alignItems: 'center', marginVertical: 8, paddingHorizontal: 30 }}>
-        <View style={{ backgroundColor: t.bg, paddingHorizontal: 14, paddingVertical: 7, borderRadius: R.pill, boxShadow: t.insetSm } as any}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: t.bg, paddingHorizontal: 14, paddingVertical: 7, borderRadius: R.pill, boxShadow: t.insetSm } as any}>
+          {/* verifikasi centang biru = ikon SVG resmi, bukan emoji */}
+          {!!m.verified && <VerifiedBadge size={15} animate={false} />}
           <T v="caption" style={{ textAlign: 'center' }}>
             {m.text}
           </T>
@@ -359,9 +365,19 @@ export default function MessageBubble({
               </Pressable>
             )}
             {!!m.text && (
-              <T v="body" color={fg} style={{ lineHeight: 21, paddingHorizontal: isMedia ? 8 : 0, paddingTop: isMedia ? 6 : 0, userSelect: 'none' } as any}>
-                {m.text}
-              </T>
+              m.mentions?.length ? (
+                <MentionText
+                  text={m.text}
+                  mentions={m.mentions}
+                  color={fg}
+                  onOpenUser={onOpenUser}
+                  style={{ lineHeight: 21, paddingHorizontal: isMedia ? 8 : 0, paddingTop: isMedia ? 6 : 0, fontSize: 15, userSelect: 'none' } as any}
+                />
+              ) : (
+                <T v="body" color={fg} style={{ lineHeight: 21, paddingHorizontal: isMedia ? 8 : 0, paddingTop: isMedia ? 6 : 0, userSelect: 'none' } as any}>
+                  {m.text}
+                </T>
+              )
             )}
           </>
         )}

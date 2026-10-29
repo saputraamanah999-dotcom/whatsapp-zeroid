@@ -124,7 +124,7 @@ export function LeaderboardScreen() {
     <View style={{ flex: 1, backgroundColor: t.bg }}>
       <Header title="Leaderboard" subtitle={tab === 'api' ? 'Api streak tertinggi' : 'Koin terbanyak'} />
       <View style={{ paddingHorizontal: 16, paddingTop: 10 }}>
-        <Segmented value={tab} onChange={setTab} options={[{ value: 'api', label: '🔥 Api' }, { value: 'koin', label: '🪙 Koin' }]} />
+        <Segmented value={tab} onChange={setTab} options={[{ value: 'api', label: 'Api' }, { value: 'koin', label: 'Koin' }]} />
       </View>
       <ScrollView contentContainerStyle={{ padding: 16, gap: 10, paddingBottom: 40 }}>
         {!loading && rows.length === 0 && (
