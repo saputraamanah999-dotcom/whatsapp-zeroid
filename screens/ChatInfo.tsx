@@ -35,6 +35,7 @@ import { placeCall } from './tabs/CallsTab';
 import { pickGallery, uploadMedia } from '../lib/media';
 import { pushBanner } from '../lib/bus';
 import { VerifiedBadge } from '../lib/icons';
+import BannerMedia from '../components/BannerMedia';
 
 export default function ChatInfo() {
   const t = useTheme();
@@ -65,20 +66,23 @@ export default function ChatInfo() {
     );
 
   const peer = chatPeer(chat, me.id, db);
-  const title = chatTitle(chat, me.id, db);
+  // chat AI: nama/bio/avatar/banner ikut profil publik Zeroid AI (config/ai_profile — diubah developer)
+  const aiProf = chat.type === 'ai' ? db.aiProfile : null;
+  const aiName = aiProf?.name?.trim() || 'Zeroid AI';
+  const title = chat.type === 'ai' ? aiName : chatTitle(chat, me.id, db);
   // developer/admin global boleh mengatur SEMUA chat (termasuk global & saluran Zeroid AI)
   const isAdmin = chat.admins.includes(me.id) || isFullAdmin(me);
   const badge = chat.type === 'direct' ? !!(peer && (peer.blueCheck || peer.developer || peer.role === 'admin' || peer.role === 'developer')) : chatBadge(chat, db);
   const autoVerified = !chatVerified(chat) && badge && chat.type !== 'direct' && chat.type !== 'ai'; // ikut dari pemilik
   const muted = chat.mutedBy.includes(me.id);
   const blocked = peer ? me.blocked.includes(peer.id) : false;
-  const avatarUri = chat.type === 'direct' || chat.type === 'ai' ? (canSee(me, peer, peer?.privacy.profilePhoto ?? 'everyone') ? peer?.avatar : null) : chat.avatar;
+  const avatarUri = chat.type === 'ai' ? aiProf?.avatar ?? null : chat.type === 'direct' ? (canSee(me, peer, peer?.privacy.profilePhoto ?? 'everyone') ? peer?.avatar : null) : chat.avatar;
   let sub = '';
-  if (chat.type === 'direct' && peer) sub = canSee(me, peer, peer.privacy.lastSeen) ? (isOnline(peer) ? 'online' : `terakhir dilihat ${ago(peer.lastSeen)}`) : peer.email;
+  if (chat.type === 'ai') sub = aiProf?.bio?.trim() || 'Asisten AI · selalu online';
+  else if (chat.type === 'direct' && peer) sub = canSee(me, peer, peer.privacy.lastSeen) ? (isOnline(peer) ? 'online' : `terakhir dilihat ${ago(peer.lastSeen)}`) : peer.email;
   else if (chat.type === 'group') sub = `Grup · ${chat.members.length} anggota`;
   else if (chat.type === 'channel') sub = `Channel · ${chat.members.length} pengikut`;
-  else if (chat.type === 'global') sub = 'Chat publik untuk semua pengguna';
-  else sub = 'Asisten AI · selalu online';
+  else sub = 'Chat publik untuk semua pengguna';
 
   const changePhoto = async () => {
     const p = await pickGallery('images');
@@ -91,9 +95,19 @@ export default function ChatInfo() {
     <Screen>
       <Header title="Info" right={chat.type === 'group' || chat.type === 'channel' || (chat.type === 'global' && isFullAdmin(me)) ? isAdmin ? <IconBtn icon="pencil" size={40} onPress={() => (setName(chat.name ?? ''), setDesc(chat.description ?? ''), setEditing(true))} /> : undefined : undefined} />
       <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 40, maxWidth: 720, width: '100%', alignSelf: 'center' }}>
+        {/* BANNER Zeroid AI (foto/video, diubah developer) — tampil di atas profil */}
+        {chat.type === 'ai' && !!aiProf?.banner && (
+          <Pressable
+            onPress={() => nav.navigate('MediaViewer', { uri: aiProf!.banner, type: aiProf!.bannerType === 'video' ? 'video' : 'image' })}
+            style={({ pressed }) => ({ alignSelf: 'stretch', height: 150, borderRadius: R.lg, overflow: 'hidden', marginBottom: -64, opacity: pressed ? 0.92 : 1 })}
+            accessibilityLabel="Banner Zeroid AI"
+          >
+            <BannerMedia uri={aiProf!.banner} video={aiProf!.bannerType === 'video'} height={150} />
+          </Pressable>
+        )}
         <View style={{ alignItems: 'center', marginBottom: 22 }}>
           <Pressable disabled={!isAdmin || (chat.type !== 'group' && chat.type !== 'channel' && !(chat.type === 'global' && isFullAdmin(me)))} onPress={changePhoto} accessibilityLabel="Ganti foto chat">
-            <Avatar uri={avatarUri} name={title} color={peer?.color ?? chat.color} size={120} icon={chat.type === 'ai' ? 'sparkles' : chat.type === 'global' ? 'globe' : chat.type === 'channel' && !chat.avatar ? 'megaphone' : chat.type === 'group' && !chat.avatar ? 'people' : undefined} />
+            <Avatar uri={avatarUri} name={title} color={peer?.color ?? chat.color} size={120} icon={chat.type === 'ai' && !aiProf?.avatar ? 'sparkles' : chat.type === 'global' ? 'globe' : chat.type === 'channel' && !chat.avatar ? 'megaphone' : chat.type === 'group' && !chat.avatar ? 'people' : undefined} />
           </Pressable>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 16 }}>
             <T v="h2">{title}</T>
@@ -123,7 +137,7 @@ export default function ChatInfo() {
         {(chat.description || (chat.type === 'direct' && peer) || chat.type === 'ai') && (
           <Card title={chat.type === 'direct' ? 'Info' : 'Deskripsi'}>
             <View style={{ padding: 12, gap: 6 }}>
-              <T v="body">{chat.type === 'direct' && peer ? (canSee(me, peer, peer.privacy.about) ? peer.about : 'Disembunyikan') : chat.type === 'ai' ? 'Asisten AI Zeroid menjawab pertanyaanmu melalui proxy server yang aman. Percakapan dengan AI tidak dibagikan ke pengguna lain.' : chat.description}</T>
+              <T v="body">{chat.type === 'direct' && peer ? (canSee(me, peer, peer.privacy.about) ? peer.about : 'Disembunyikan') : chat.type === 'ai' ? (aiProf?.bio?.trim() || 'Asisten AI Zeroid menjawab pertanyaanmu melalui proxy server yang aman. Percakapan dengan AI tidak dibagikan ke pengguna lain.') : chat.description}</T>
               {chat.type === 'direct' && peer && (
                 <T v="caption" color={t.faint}>
                   {peer.email}

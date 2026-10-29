@@ -45,7 +45,7 @@ export default function MessageBubble({
   const t = useTheme();
   const mine = m.senderId === me.id && !m.assistant;
   const sender = db.users[m.senderId];
-  const senderName = m.assistant ? 'Zeroid AI' : sender?.name;
+  const senderName = m.assistant ? db.aiProfile?.name?.trim() || 'Zeroid AI' : sender?.name;
   const senderColor = m.assistant ? '#7B61FF' : sender?.color ?? t.accent;
   const [showThink, setShowThink] = useState(false);
 

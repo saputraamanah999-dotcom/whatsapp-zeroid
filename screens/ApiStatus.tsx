@@ -55,19 +55,19 @@ export default function ApiStatus() {
       const t0 = Date.now();
       try {
         const fb = await import('../lib/firebase').then((m) => m.firebase());
-        if (!fb) out.push({ name: 'Firestore', ok: false, detail: 'Firebase belum dikonfigurasi' });
+        if (!fb) out.push({ name: 'Basis data', ok: false, detail: 'Firebase belum dikonfigurasi' });
         else {
           const { doc, getDoc } = await import('firebase/firestore');
           await getDoc(doc(fb.db, 'config', 'platform'));
-          out.push({ name: 'Firestore read', ok: true, detail: `project ${firebaseConfig.projectId}`, ms: Date.now() - t0 });
+          out.push({ name: 'Basis data (baca)', ok: true, detail: `project ${firebaseConfig.projectId}`, ms: Date.now() - t0 });
         }
       } catch (e: any) {
-        out.push({ name: 'Firestore read', ok: false, detail: String(e?.code ?? e?.message ?? e) });
+        out.push({ name: 'Basis data (baca)', ok: false, detail: String(e?.code ?? e?.message ?? e) });
       }
     }
     // 3) WebRTC
     out.push({ name: 'WebRTC', ok: webrtcAvailable, detail: webrtcAvailable ? `STUN/TURN: ${ICE_SERVERS.length} server` : 'Tidak tersedia (Expo Go) — gunakan dev build' });
-    out.push({ name: 'Signaling', ok: signalingMode.includes('Firestore'), detail: signalingMode });
+    out.push({ name: 'Sinyal panggilan', ok: signalingMode.includes('basis data'), detail: signalingMode });
     setProbes(out);
     setRunning(false);
   };

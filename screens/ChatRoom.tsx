@@ -140,7 +140,9 @@ export default function ChatRoom() {
   }
 
   const peer = chatPeer(chat, me.id, db);
-  const title = chatTitle(chat, me.id, db);
+  // chat AI: nama/subjudul/avatar ikut profil publik Zeroid AI (config/ai_profile, diubah developer)
+  const aiProf = db.aiProfile;
+  const title = chat.type === 'ai' ? aiProf?.name?.trim() || chat.name || 'Zeroid AI' : chatTitle(chat, me.id, db);
   const typing = typingUsers(chat, me.id);
   let subtitle = '';
   if (typing.length) subtitle = chat.type === 'direct' || chat.type === 'ai' ? 'mengetik…' : `${db.users[typing[0]]?.name.split(' ')[0]} mengetik…`;
@@ -148,7 +150,7 @@ export default function ChatRoom() {
     if (me.blocked.includes(peer.id)) subtitle = 'diblokir';
     else if (canSee(me, peer, peer.privacy.lastSeen) && canSee(peer, me, me.privacy.lastSeen)) subtitle = isOnline(peer) ? 'online' : `terakhir dilihat ${ago(peer.lastSeen)}`;
     else subtitle = 'ketuk untuk info kontak';
-  } else if (chat.type === 'ai') subtitle = 'Asisten AI · selalu online';
+  } else if (chat.type === 'ai') subtitle = aiProf?.bio?.trim() || 'Asisten AI · selalu online';
   else if (chat.type === 'group') subtitle = chat.members.map((u) => (u === me.id ? 'Kamu' : db.users[u]?.name.split(' ')[0])).join(', ');
   else if (chat.type === 'channel') subtitle = `${chat.members.length} pengikut`;
   else if (chat.type === 'global') subtitle = `${Object.values(db.users).length} anggota · terbuka untuk semua`;
@@ -183,12 +185,12 @@ export default function ChatRoom() {
         left={
           <Pressable onPress={() => (chat.type === 'direct' && peer ? nav.navigate('UserProfile', { userId: peer.id }) : nav.navigate('ChatInfo', { chatId }))}>
             <Avatar
-              uri={chat.type === 'direct' || chat.type === 'ai' ? (canSee(me, peer, peer?.privacy.profilePhoto ?? 'everyone') ? peer?.avatar : null) : chat.avatar}
+              uri={chat.type === 'ai' ? aiProf?.avatar ?? null : chat.type === 'direct' ? (canSee(me, peer, peer?.privacy.profilePhoto ?? 'everyone') ? peer?.avatar : null) : chat.avatar}
               name={title}
               color={peer?.color ?? chat.color}
               size={42}
               online={chat.type === 'direct' && isOnline(peer)}
-              icon={chat.type === 'ai' ? 'sparkles' : chat.type === 'global' ? 'globe' : chat.type === 'channel' && !chat.avatar ? 'megaphone' : chat.type === 'group' && !chat.avatar ? 'people' : undefined}
+              icon={chat.type === 'ai' && !aiProf?.avatar ? 'sparkles' : chat.type === 'global' ? 'globe' : chat.type === 'channel' && !chat.avatar ? 'megaphone' : chat.type === 'group' && !chat.avatar ? 'people' : undefined}
             />
           </Pressable>
         }

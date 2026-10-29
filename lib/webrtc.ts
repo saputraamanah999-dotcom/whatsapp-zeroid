@@ -204,4 +204,4 @@ export class CallSession {
 }
 
 export const webrtcAvailable = rtc.available;
-export const signalingMode = firebase() ? 'Firestore (calls/{callId}/signals, dibersihkan saat panggilan berakhir)' : 'BroadcastChannel (antar-tab, fallback)';
+export const signalingMode = firebase() ? 'Sinyal panggilan via basis data (calls/{callId}/signals, dibersihkan saat panggilan berakhir)' : 'BroadcastChannel (antar-tab, fallback)';

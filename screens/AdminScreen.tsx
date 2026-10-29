@@ -1,10 +1,11 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, ScrollView, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import { Header, Screen, Avatar, T, Neu, Card, NeuInput, Btn, Empty, Segmented, Row } from '../components/ui';
 import { Confirm, Sheet } from '../components/Sheet';
+import BannerMedia from '../components/BannerMedia';
 import { UserBadges } from '../components/ui';
 import { ProductIcon } from '../lib/icons';
 import { productOf, productSafe, rupiah } from '../lib/products';
@@ -15,14 +16,16 @@ import {
   isOnline, activeStories, messagePreview, backendMode, adminDecideAppeal, bannedNow, banRemaining, mutedRemaining,
   adminBanChat, adminUnbanChat, adminDecideChatAppeal, adminVerifyChat, adminUnverifyChat,
   adminSetMuteOff, adminMessageAll, adminBotBroadcast, chatBannedNow, chatBanRemaining, chatVerified, chatBadge,
+  updateAiProfile,
 } from '../lib/store';
 import { useBackendHealth, healthLabel, supabaseStatus } from '../lib/health';
 import { firebase, firebaseConfig } from '../lib/firebase';
 import { proxyPost } from '../lib/proxy';
 import { ago } from '../lib/format';
 import { pushBanner } from '../lib/bus';
+import { pickGallery, uploadMedia, uploadMediaDirect } from '../lib/media';
 
-type Tab = 'overview' | 'users' | 'chats' | 'orders' | 'reports' | 'appeals' | 'content' | 'system';
+type Tab = 'overview' | 'users' | 'chats' | 'orders' | 'reports' | 'appeals' | 'content' | 'ai' | 'system';
 
 /** pilihan durasi ban (jam/hari) — 0 = permanen */
 const BAN_DURATIONS: { label: string; ms: number }[] = [
@@ -101,6 +104,24 @@ export default function AdminScreen() {
   const [allBusy, setAllBusy] = useState(false);
   const [botMsg, setBotMsg] = useState('');
   const [botBusy, setBotBusy] = useState(false);
+  // editor profil Zeroid AI (hanya developer/admin) — nama, bio, avatar, banner
+  const [aiName, setAiName] = useState('');
+  const [aiBio, setAiBio] = useState('');
+  const [aiAvatar, setAiAvatar] = useState<string | null>(null);
+  const [aiBanner, setAiBanner] = useState<string | null>(null);
+  const [aiBannerType, setAiBannerType] = useState<'image' | 'video'>('image');
+  const [aiBusy, setAiBusy] = useState(false);
+
+  // form editor AI diisi ulang setiap tab 'ai' dibuka / profil berubah (realtime dari Firestore)
+  useEffect(() => {
+    if (tab !== 'ai') return;
+    const p = db.aiProfile;
+    setAiName(p?.name ?? 'Zeroid AI');
+    setAiBio(p?.bio ?? 'Asisten AI · selalu online');
+    setAiAvatar(p?.avatar ?? null);
+    setAiBanner(p?.banner ?? null);
+    setAiBannerType(p?.bannerType === 'video' ? 'video' : 'image');
+  }, [tab, db.aiProfile?.updatedAt, db.aiProfile?.name, db.aiProfile?.bio, db.aiProfile?.avatar, db.aiProfile?.banner]);
 
   const stats = useMemo(() => {
     const users = Object.values(db.users);
@@ -184,6 +205,7 @@ export default function AdminScreen() {
             ['reports', `Lapor${openReports ? ` ${openReports}` : ''}`],
             ['appeals', `Banding${openAppeals ? ` ${openAppeals}` : ''}`],
             ['content', 'Konten'],
+            ['ai', 'Zeroid AI'],
             ['system', 'Sistem'],
           ] as [Tab, string][]).map(([k, l]) => {
             const on = tab === k;
@@ -529,6 +551,94 @@ export default function AdminScreen() {
                   <Row key={c.id} icon={c.type === 'channel' ? 'megaphone' : c.type === 'global' ? 'globe' : 'people'} title={c.name ?? ''} subtitle={`${c.type} · ${c.type === 'global' ? 'semua' : c.members.length} anggota`} onPress={() => nav.navigate('ChatRoom', { chatId: c.id })} />
                 ))}
               <Row icon="add-circle" title="Buat channel baru" onPress={() => nav.navigate('NewGroup', { type: 'channel' })} />
+            </Card>
+          </>
+        )}
+
+        {tab === 'ai' && (
+          <>
+            <Card title="Profil Zeroid AI">
+              <View style={{ padding: 10, gap: 14 }}>
+                <T v="sub">Profil ini tampil untuk SEMUA pengguna: header chat AI, info chat, Discover, nama balasan AI, dan kepribadian jawaban AI. Hanya developer/admin yang bisa mengubah.</T>
+                {/* pratinjau seperti yang dilihat pengguna */}
+                <View style={{ borderRadius: R.lg, overflow: 'hidden', backgroundColor: t.bg2 }}>
+                  {aiBanner ? (
+                    <View style={{ height: 110 }}>
+                      <BannerMedia uri={aiBanner} video={aiBannerType === 'video'} height={110} />
+                    </View>
+                  ) : (
+                    <View style={{ height: 74, backgroundColor: t.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+                      <T v="caption" color={t.accent} style={{ fontWeight: '700' }}>Belum ada banner — ikon AI dipakai</T>
+                    </View>
+                  )}
+                  <View style={{ alignItems: 'center', marginTop: aiBanner ? -40 : 10, paddingBottom: 12 }}>
+                    <View style={{ borderRadius: 44, borderWidth: 3, borderColor: t.bg, overflow: 'hidden' }}>
+                      {aiAvatar ? (
+                        <Image source={{ uri: aiAvatar }} style={{ width: 84, height: 84 }} contentFit="cover" />
+                      ) : (
+                        <View style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: t.accent, alignItems: 'center', justifyContent: 'center' }}>
+                          <Ionicons name="sparkles" size={34} color="#fff" />
+                        </View>
+                      )}
+                    </View>
+                    <T v="h3" style={{ marginTop: 6 }}>{aiName.trim() || 'Zeroid AI'}</T>
+                    <T v="caption" color={t.faint} numberOfLines={1}>{aiBio.trim() || 'Asisten AI · selalu online'}</T>
+                  </View>
+                </View>
+                <NeuInput icon="text" placeholder="Nama AI (mis. Zeroid AI)" value={aiName} onChangeText={setAiName} maxLength={60} />
+                <NeuInput icon="document-text" placeholder="Bio AI (mis. Asisten AI · selalu online)" value={aiBio} onChangeText={setAiBio} multiline maxLength={300} />
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                  <Btn small variant="neu" icon="image" title={aiBusy ? '…' : 'Ganti foto AI'} onPress={async () => {
+                    const p = await pickGallery('images');
+                    if (!p) return;
+                    setAiBusy(true);
+                    try {
+                      const r = await uploadMedia(p.uri, `ai/avatar_${Date.now()}.jpg`, 'image/jpeg');
+                      setAiAvatar(r.url);
+                      pushBanner({ title: 'Foto siap', body: 'Tekan Simpan untuk menerapkan.', icon: 'checkmark-circle' });
+                    } catch (e: any) {
+                      pushBanner({ title: 'Upload gagal', body: String(e?.message ?? '').slice(0, 120), icon: 'alert' });
+                    } finally { setAiBusy(false); }
+                  }} />
+                  <Btn small variant="neu" icon="images" title={aiBusy ? '…' : 'Ganti banner'} onPress={async () => {
+                    const p = await pickGallery('all');
+                    if (!p) return;
+                    setAiBusy(true);
+                    try {
+                      if (p.mime?.startsWith('video') || /\.mp4$/i.test(p.name ?? '')) {
+                        const size = p.size ?? 0;
+                        const r = size > 3.2 * 1024 * 1024
+                          ? await uploadMediaDirect(p.uri, (p.name ?? 'aibanner').replace(/[^\w.-]/g, '_'), p.mime ?? 'video/mp4')
+                          : await uploadMedia(p.uri, `ai/banner_${Date.now()}.mp4`, p.mime ?? 'video/mp4');
+                        setAiBanner(r.url); setAiBannerType('video');
+                      } else {
+                        const r = await uploadMedia(p.uri, `ai/banner_${Date.now()}.jpg`, 'image/jpeg');
+                        setAiBanner(r.url); setAiBannerType('image');
+                      }
+                      pushBanner({ title: 'Banner siap', body: 'Tekan Simpan untuk menerapkan.', icon: 'checkmark-circle' });
+                    } catch (e: any) {
+                      pushBanner({ title: 'Upload gagal', body: String(e?.message ?? '').slice(0, 120), icon: 'alert' });
+                    } finally { setAiBusy(false); }
+                  }} />
+                  {(aiBanner || aiAvatar) && (
+                    <Btn small variant="ghost" icon="trash" title="Reset visual" onPress={() => { setAiAvatar(null); setAiBanner(null); setAiBannerType('image'); }} />
+                  )}
+                </View>
+                <Btn
+                  title={aiBusy ? 'Menyimpan…' : 'Simpan profil AI'}
+                  icon="checkmark"
+                  loading={aiBusy}
+                  disabled={aiBusy}
+                  onPress={async () => {
+                    setAiBusy(true);
+                    const r = await updateAiProfile({ name: aiName, bio: aiBio, avatar: aiAvatar, banner: aiBanner, bannerType: aiBannerType });
+                    setAiBusy(false);
+                    if (r.ok) pushBanner({ title: 'Profil AI tersimpan', body: 'Semua pengguna melihat profil baru dalam hitungan detik.', icon: 'checkmark-circle' });
+                    else pushBanner({ title: 'Gagal menyimpan', body: r.error ?? 'Coba lagi.', icon: 'alert' });
+                  }}
+                />
+                <T v="caption" color={t.faint}>Nama & bio juga otomatis dipakai AI saat menjawab (persona server-side), banner bisa foto atau video loop.</T>
+              </View>
             </Card>
           </>
         )}

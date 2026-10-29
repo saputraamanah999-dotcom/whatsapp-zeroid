@@ -109,7 +109,7 @@
 
   <div class="card">
     <h2>Log</h2>
-    <div id="log">Siap. (build v9 — rules v9 + ANTI-SPAM check-in + banips anti-akun-baru + koin 1:1 + koleksi LENGKAP + streak api)</div>
+    <div id="log">Siap. (build v10 — rules v10 + hiddenFor riwayat panggilan + config/ai_profile + ANTI-SPAM check-in + koin 1:1 + koleksi LENGKAP)</div>
   </div>
 
   <div class="card">
@@ -252,10 +252,11 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(['members','admins','name','description','avatar','postPolicy','inviteCode','disappearing']);
     }
-    // Message fields any member may touch (receipts, reactions, own stars, poll votes).
+    // Message fields any member may touch (receipts, reactions, own stars, poll votes,
+    // view-once open receipts).
     function memberMsgUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys()
-        .hasOnly(['deliveredAt','reactions','starredBy','votes']);
+        .hasOnly(['deliveredAt','reactions','starredBy','votes','viewedBy']);
     }
     // Message fields the SENDER may additionally touch (edit, delete, media metadata).
     function senderMsgUpdate() {
@@ -380,12 +381,19 @@ service cloud.firestore {
     }
 
     // ---- WebRTC calls & signaling (auto-cleaned client-side + TTL in functions) ----
+    // v10: hiddenFor — riwayat panggilan bisa dihapus PER USER (pilih beberapa / hapus semua)
+    // tanpa menghapus riwayat pihak lain (sama seperti WhatsApp: "hapus untuk saya").
     match /calls/{callId} {
       allow read: if signedIn() && (resource.data.get('callerId', '') == me() || me() in resource.data.get('calleeIds', []));
       allow create: if signedIn() && notBanned() && request.resource.data.get('callerId', '') == me()
                     && !peerBlocked(request.resource.data.get('chatId', ''));
       allow update: if signedIn() && (resource.data.get('callerId', '') == me() || me() in resource.data.get('calleeIds', []))
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','connectedAt','endedAt']);
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','connectedAt','endedAt','hiddenFor'])
+                    // hiddenFor hanya bertambah (union), tidak pernah menyusut / menulis field lain
+                    && (!('hiddenFor' in request.resource.data)
+                        || (request.resource.data.get('hiddenFor', []).hasAll(resource.data.get('hiddenFor', []))
+                            && request.resource.data.get('hiddenFor', []).size() >= resource.data.get('hiddenFor', []).size()
+                            && me() in request.resource.data.get('hiddenFor', [])));
       allow delete: if resource.data.get('callerId', '') == me() || isAdmin();
       match /signals/{sig} {
         allow read: if signedIn() && resource.data.get('to', '') == me();
@@ -734,6 +742,35 @@ async function run(seedMode) {
       mark('config/platform dibuat', true, 'maintenance: off');
     } else mark('config/platform sudah ada', true);
 
+
+    // --- 5b) config/ai_profile — profil publik Zeroid AI (diubah developer lewat Admin panel) ---
+    const aiRef = db.collection('config').doc('ai_profile');
+    const aiSnap = await aiRef.get().catch((e) => { throw new Error(why(e, 'config/ai_profile (read)')); });
+    if (!docExists(aiSnap)) {
+      await aiRef.set({
+        name: 'Zeroid AI',
+        bio: 'Asisten AI · selalu online',
+        avatar: null,
+        banner: null,
+        bannerType: 'image',
+        updatedAt: Date.now(),
+        updatedBy: user.uid,
+      }).catch((e) => { throw new Error(why(e, 'config/ai_profile (create)')); });
+      mark('config/ai_profile dibuat', true, 'profil publik Zeroid AI (nama/bio/avatar/banner)');
+    } else {
+      // pembenahan: pastikan SEMUA field ada (tanpa missing) pada dokumen lama
+      const cur = aiSnap.data() || {};
+      const fix = {};
+      if (typeof cur.name !== 'string' || !cur.name) fix.name = 'Zeroid AI';
+      if (typeof cur.bio !== 'string' || !cur.bio) fix.bio = 'Asisten AI · selalu online';
+      if (!('avatar' in cur)) fix.avatar = null;
+      if (!('banner' in cur)) fix.banner = null;
+      if (!('bannerType' in cur)) fix.bannerType = 'image';
+      if (Object.keys(fix).length) {
+        await aiRef.set(fix, { merge: true }).catch(() => {});
+        mark('config/ai_profile dilengkapi', true, 'field kurang: ' + Object.keys(fix).join(', '));
+      } else mark('config/ai_profile sudah ada', true);
+    }
     // --- 6) CHAT GLOBAL (id c_global — dipakai aplikasi) + pesan sambutan ---
     const gRef = db.collection('chats').doc('c_global');
     const gProbe = await probe(gRef).catch((e) => { throw new Error(why(e, 'chats/c_global (read)')); });
@@ -819,7 +856,7 @@ async function run(seedMode) {
     const now = Date.now();
     const systemDocs = [
       ['stories', '_schema', { schema: true, userId: user.uid, type: 'text', text: 'schema-marker', bg: '#1E6BFF', createdAt: now, expiresAt: now + 86400000, viewers: [], likes: [] }],
-      ['calls', '_schema', { schema: true, chatId: '_schema', callerId: user.uid, calleeIds: [user.uid], video: false, status: 'ended', startedAt: now - 2000, endedAt: now }],
+      ['calls', '_schema', { schema: true, chatId: '_schema', callerId: user.uid, calleeIds: [user.uid], video: false, status: 'ended', startedAt: now - 2000, endedAt: now, hiddenFor: [] }],
       ['reports', '_schema', { schema: true, reporterId: user.uid, targetId: '_schema', kind: 'schema', reason: 'schema-marker', resolved: true, createdAt: now }],
       ['orders', '_schema', { schema: true, userId: user.uid, status: 'pending', product: 'schema-marker', price: 0, days: 0, method: 'seed', chatId: '_schema', createdAt: now }],
       ['stickers', '_schema', { schema: true, ownerId: user.uid, uri: '', global: false, kind: 'schema', createdAt: now }],

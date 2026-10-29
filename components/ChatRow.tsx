@@ -33,21 +33,24 @@ export default function ChatRow({ chat, me, db, onPress, onLongPress }: { chat: 
   const senderName = last && isGroupish && last.type !== 'system' ? (last.senderId === me.id ? 'Kamu' : db.users[last.senderId]?.name.split(' ')[0]) : null;
   const fst = fireState(chat, me); // api streak chat (muncul mulai 3 hari)
   const fcol = fst.lit ? fireColor(fst.count) : null;
+  // chat AI: judul & avatar ikut profil publik Zeroid AI (diubah developer)
+  const aiName = chat.type === 'ai' ? db.aiProfile?.name?.trim() || chat.name || 'Zeroid AI' : title;
+  const aiAvatar = chat.type === 'ai' ? db.aiProfile?.avatar ?? null : undefined;
 
   return (
     <Pressable onPress={onPress} onLongPress={onLongPress} delayLongPress={350} style={({ pressed }) => ({ marginHorizontal: 14, marginVertical: 5, borderRadius: R.lg, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 14, backgroundColor: t.bg, boxShadow: pressed ? t.insetSm : undefined } as any)}>
       <Avatar
-        uri={chat.type === 'direct' ? (showPhoto ? peer?.avatar : null) : chat.avatar}
-        name={title}
+        uri={chat.type === 'ai' ? aiAvatar : chat.type === 'direct' ? (showPhoto ? peer?.avatar : null) : chat.avatar}
+        name={aiName}
         color={peer?.color ?? chat.color}
         online={chat.type === 'direct' && isOnline(peer) && canSee(me, peer, peer?.privacy.lastSeen ?? 'everyone')}
-        icon={chat.type === 'ai' ? 'sparkles' : chat.type === 'global' ? 'globe' : chat.type === 'channel' && !chat.avatar ? 'megaphone' : chat.type === 'group' && !chat.avatar ? 'people' : undefined}
+        icon={chat.type === 'ai' && !aiAvatar ? 'sparkles' : chat.type === 'global' ? 'globe' : chat.type === 'channel' && !chat.avatar ? 'megaphone' : chat.type === 'group' && !chat.avatar ? 'people' : undefined}
         size={54}
       />
       <View style={{ flex: 1, gap: 4 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <T v="h3" numberOfLines={1} style={{ flexShrink: 1, fontSize: 16 }}>
-            {title}
+            {aiName}
           </T>
           {/* centang biru: SVG resmi yang sama di SEMUA tempat (chat, grup, saluran, AI) */}
           {chat.type === 'direct' ? <UserBadges user={peer} /> : chatBadge(chat, db) && <VerifiedBadge size={15} animate={false} />}

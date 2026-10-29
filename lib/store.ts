@@ -36,7 +36,7 @@ import {
 } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { AppNotification, Call, Chat, ChatAppeal, DB, LeaderRow, Message, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav, Ban, Appeal } from './types';
+import { AppNotification, Call, Chat, ChatAppeal, DB, LeaderRow, Message, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav, Ban, Appeal, AiProfile } from './types';
 import { productOf, productSafe, rupiah, PAYMENT_METHODS } from './products';
 import { applyStreak } from './streak';
 import { refCodeFor, applyPendingReferral, captureRefFromUrl } from './points';
@@ -101,7 +101,7 @@ let deviceBan: DeviceBan | null = isWeb ? readDeviceBan() : null;
 
 const EMPTY: DB = {
   version: 2, users: {}, chats: {}, messages: {}, stories: [], calls: [], notifications: [],
-  reports: [], stickers: [], orders: [], announcements: [], audit: [], animeFavs: [], bans: [], appeals: [], config: null,
+  reports: [], stickers: [], orders: [], announcements: [], audit: [], animeFavs: [], bans: [], appeals: [], config: null, aiProfile: null,
 };
 
 let db: DB = EMPTY;
@@ -424,6 +424,12 @@ function attachUserSubs(fbUid: string) {
   }, () => {}));
   miscSubs.push(onSnapshot(doc(fb.db, C.config, 'platform'), (s) => {
     db.config = s.exists() ? (s.data() as PlatformConfig) : null;
+    bump();
+  }, () => {}));
+  // profil publik Zeroid AI (nama/bio/avatar/banner) — diubah developer dari Admin panel;
+  // semua pengguna membaca untuk header chat AI, info chat, dan Discover.
+  miscSubs.push(onSnapshot(doc(fb.db, C.config, 'ai_profile'), (s) => {
+    db.aiProfile = s.exists() ? (rawDoc(s) as unknown as AiProfile) : null;
     bump();
   }, () => {}));
 
@@ -1499,11 +1505,12 @@ export async function askAssistant(chatId: string, prompt: string, opts: AskOpts
     bump();
   };
   try {
+    const persona = { aiName: db.aiProfile?.name?.trim() || 'Zeroid AI', aiBio: db.aiProfile?.bio?.trim() || '' };
     const r = opts.imageUrl
-      ? await analyzeImage(opts.imageUrl, opts.imagePrompt || prompt || 'Jelaskan gambar ini secara detail')
+      ? await analyzeImage(opts.imageUrl, opts.imagePrompt || prompt || 'Jelaskan gambar ini secara detail', persona)
       : opts.thinking
-      ? await thinkAI(prompt, { search: opts.search, sessionId: chatId })
-      : await askAI(prompt, { history, model: opts.model, sessionId: chatId });
+      ? await thinkAI(prompt, { search: opts.search, sessionId: chatId, ...persona })
+      : await askAI(prompt, { history, model: opts.model, sessionId: chatId, ...persona });
     dropTyping();
     await sendMessage(chatId, { text: r.text, assistant: true, reasoning: r.reasoning });
   } catch (e: any) {
@@ -1767,6 +1774,95 @@ function watchCalls() {
 
 export function incomingCallFor(meId: string, d: DB = db) {
   return d.calls.find((c) => c.status === 'ringing' && c.calleeIds.includes(meId) && Date.now() - c.startedAt < 32000);
+}
+
+/**
+ * HAPUS RIWAYAT PANGGILAN (ala WhatsApp "hapus untuk saya"):
+ * dokumen call di-share dengan pihak lain, jadi riwayat tidak dihard-delete —
+ * uid pencoret ditambahkan ke `hiddenFor` sehingga hilang dari daftar PEMILIK
+ * saja. Notifikasi panggilan milikku terkait juga dibersihkan.
+ */
+export function deleteCallHistory(ids: string[]) {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !ids.length) return;
+  try {
+    const targets = db.calls.filter((c) => ids.includes(c.id) && !(c.hiddenFor ?? []).includes(me.id));
+    if (!targets.length) return;
+    // optimis: hilang dari daftar detik ini juga
+    db.calls = db.calls.map((c) => (ids.includes(c.id) ? { ...c, hiddenFor: [...(c.hiddenFor ?? []), me.id] } : c));
+    bump();
+    const batch = writeBatch(fb.db);
+    targets.forEach((c) => batch.update(doc(fb.db, C.calls, c.id), { hiddenFor: arrayUnion(me.id) }));
+    batch.commit().catch(() => {});
+    // bersihkan notifikasi panggilan milikku untuk chat yang dihapus
+    const chatIds = new Set(targets.map((c) => c.chatId));
+    const notifs = db.notifications.filter((n) => n.kind === 'call' && n.userId === me.id && n.id && chatIds.has(n.chatId ?? ''));
+    if (notifs.length) {
+      db.notifications = db.notifications.filter((n) => !notifs.some((x) => x.id === n.id));
+      bump();
+      const nb = writeBatch(fb.db);
+      notifs.slice(0, 300).forEach((n) => nb.delete(doc(fb.db, C.notifications, n.id)));
+      nb.commit().catch(() => {});
+    }
+  } catch (e) {
+    console.warn('deleteCallHistory', e);
+  }
+}
+
+/** Hapus SEMUA riwayat panggilanku (panggilan masuk + keluar) sekali tekan. */
+export function clearCallHistory() {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb) return;
+  try {
+    const visible = db.calls.filter((c) => c.id !== '_schema' && !(c.hiddenFor ?? []).includes(me.id));
+    if (!visible.length) return;
+    deleteCallHistory(visible.map((c) => c.id));
+    // sisa notifikasi panggilan milikku juga dibersihkan (agar pusat notifikasi rapi)
+    const calls = db.notifications.filter((n) => n.kind === 'call' && n.userId === me.id && n.id);
+    if (calls.length) {
+      db.notifications = db.notifications.filter((n) => !(n.kind === 'call' && n.userId === me.id));
+      bump();
+      const batch = writeBatch(fb.db);
+      calls.slice(0, 300).forEach((n) => batch.delete(doc(fb.db, C.notifications, n.id)));
+      batch.commit().catch(() => {});
+    }
+    pushBanner({ title: 'Riwayat dibersihkan', body: 'Semua riwayat panggilan dihapus.', icon: 'trash' });
+  } catch (e) {
+    console.warn('clearCallHistory', e);
+  }
+}
+
+// ============================ profil Zeroid AI ============================
+
+/** Developer mengubah profil publik Zeroid AI (nama, bio, avatar, banner). */
+export async function updateAiProfile(patch: Partial<Pick<AiProfile, 'name' | 'bio' | 'avatar' | 'banner' | 'bannerType'>>): Promise<{ ok: boolean; error?: string }> {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb) return { ok: false, error: 'Belum masuk.' };
+  if (!isFullAdmin(me)) return { ok: false, error: 'Hanya developer/admin yang bisa mengubah profil Zeroid AI.' };
+  const cur = db.aiProfile ?? { name: 'Zeroid AI', bio: 'Asisten AI · selalu online', avatar: null as string | null, banner: null as string | null };
+  const next: AiProfile = {
+    ...cur,
+    ...(patch.name !== undefined ? { name: patch.name.trim().slice(0, 60) || 'Zeroid AI' } : {}),
+    ...(patch.bio !== undefined ? { bio: patch.bio.trim().slice(0, 300) } : {}),
+    ...(patch.avatar !== undefined ? { avatar: patch.avatar } : {}),
+    ...(patch.banner !== undefined ? { banner: patch.banner } : {}),
+    ...(patch.bannerType !== undefined ? { bannerType: patch.bannerType } : {}),
+    updatedAt: Date.now(),
+    updatedBy: me.id,
+  };
+  try {
+    db.aiProfile = next; // optimis
+    bump();
+    await setDoc(doc(fb.db, C.config, 'ai_profile'), clean(next), { merge: true });
+    audit('ai_profile', 'config/ai_profile', `nama: ${next.name}`);
+    return { ok: true };
+  } catch (e: any) {
+    pushBanner({ title: 'Gagal menyimpan profil AI', body: fbError(e), icon: 'alert' });
+    return { ok: false, error: fbError(e) };
+  }
 }
 
 // ============================ notifications ============================

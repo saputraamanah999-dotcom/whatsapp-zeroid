@@ -143,3 +143,43 @@
 ### Verifikasi
 - tsc --noEmit: 0 error; expo export web + pwa-postbuild: OK (mention code ada di
   bundle); seed.html parse OK; smoke headless: app boot tanpa console error.
+
+## Ronde: HAPUS RIWAYAT PANGGILAN (semua/pilih) + PROFIL ZEROID AI BISA DIEDIT DEVELOPER + rules & seed v10 (2026-10-29)
+
+### Fitur BARU — riwayat panggilan bisa dihapus (ala WhatsApp "hapus untuk saya")
+- **Tab Panggilan**: ikon tempah di header → **Hapus SEMUA riwayat** sekali tekan
+  (dengan konfirmasi) — panggilan masuk + keluar + tak terjawab langsung hilang.
+- **Hapus beberapa**: tekan lama baris → mode seleksi (kotak centang ala WhatsApp);
+  tap pilih/lepas satu-satu, tombol pilih-semua, lalu tempah → **hapus terpilih**.
+- **Teknis**: dokumen call di-share dua pihak → riwayat TIDAK dihard-delete; uid
+  pencoret ditulis ke `hiddenFor` (arrayUnion) sehingga hilang dari daftar PEMILIK
+  saja, riwayat pihak lain utuh. Notifikasi panggilan milikku terkait ikut dibersihkan.
+- Optimis UI (hilang detik ini juga) + konfirmasi dialog + hint "tekan lama untuk pilih".
+
+### Fitur BARU — profil Zeroid AI diubah developer (nama, bio, banner, foto)
+- **Admin panel → tab "Zeroid AI"** (BARU): edit **nama**, **bio**, **foto AI**
+  (pilih gambar → upload), **banner** (foto ATAU video loop) + pratinjau live
+  seperti yang dilihat pengguna + tombol Simpan.
+- **Firestore `config/ai_profile`** (BARU, realtime ke semua client): `{name, bio,
+  avatar, banner, bannerType, updatedAt, updatedBy}` — read semua user, write
+  developer/admin (rules config sudah menutup ini).
+- **Tampil di SEMUA tempat**: header ChatRoom (nama + bio + avatar), ChatInfo
+  (banner foto/video + avatar + nama + deskripsi), baris daftar chat (ChatRow),
+  kartu Discover, nama pengirim balasan AI (MessageBubble).
+- **Persona server-side ikut berubah**: klien mengirim `aiName`/`aiBio` ke
+  `/api/ai`; server menyusun system prompt dinamis + jawaban identitas
+  deterministik + sanitizeIdentity memakai nama baru. DISANITASI KETAT (tanpa
+  baris baru/backtick, dibatasi 60/220 karakter) — anti prompt-injection; tanpa
+  custom → persona bawaan "Zeroid AI".
+
+### FIREBASE rules v10 + seed v10 (anti missing-field)
+- **firestore.rules v10**: `calls.update` menerima field `hiddenFor` dengan rem
+  satu-arah (hanya bertambah, wajib memuat uid sendiri) — sisanya tetap tertutup.
+- **pwa/seed.html v10**: rules embedded di-sync ulang dari firestore.rules (terverifikasi identik),
+  step BARU `config/ai_profile` (buat + PEMBENAHAN field kurang pada dokumen lama),
+  marker `calls` kini menyertakan `hiddenFor: []`, baris tabel koleksi ditambah.
+
+### Verifikasi
+- tsc --noEmit: 0 error; expo export web + pwa-postbuild: OK; fitur baru ada di
+  bundle (hapus riwayat + ai_profile); seed.html parse OK (node Function check);
+  label "Firestore" di layanan user (ApiStatus/WebRTC) diganti "Basis data"/"Sinyal panggilan".

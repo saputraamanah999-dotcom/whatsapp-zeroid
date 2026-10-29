@@ -72,10 +72,10 @@ export default function DiscoverTab() {
                   <Ionicons name="sparkles" size={22} color="#fff" />
                 </View>
                 <T v="h3" color="#fff" style={{ marginTop: 14 }}>
-                  Zeroid AI
+                  {db.aiProfile?.name?.trim() || 'Zeroid AI'}
                 </T>
-                <T v="caption" color="rgba(255,255,255,0.85)">
-                  {bot && unreadCount(bot, me.id) ? `${unreadCount(bot, me.id)} pesan baru` : 'Tanya apa saja · Saputra Developer'}
+                <T v="caption" color="rgba(255,255,255,0.85)" numberOfLines={1}>
+                  {bot && unreadCount(bot, me.id) ? `${unreadCount(bot, me.id)} pesan baru` : db.aiProfile?.bio?.trim() || 'Tanya apa saja · Saputra Developer'}
                 </T>
               </Pressable>
               {global && (

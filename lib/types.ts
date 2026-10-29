@@ -264,6 +264,19 @@ export type Call = {
   startedAt: number;
   connectedAt?: number;
   endedAt?: number;
+  /** uid yang SUDAH menghapus panggilan ini dari riwayatnya (hapus per pemilih / hapus semua) */
+  hiddenFor?: string[];
+};
+
+/** Profil publik Zeroid AI — hanya diubah developer lewat Admin panel. */
+export type AiProfile = {
+  name: string;
+  bio: string;
+  avatar: string | null;
+  banner: string | null;
+  bannerType?: 'image' | 'video';
+  updatedAt?: number;
+  updatedBy?: string;
 };
 
 export type NotifKind = 'message' | 'story' | 'call' | 'group' | 'system' | 'admin';
@@ -382,4 +395,5 @@ export type DB = {
   bans: Ban[];
   appeals: Appeal[];
   config: PlatformConfig | null;
+  aiProfile: AiProfile | null;
 };

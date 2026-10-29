@@ -240,12 +240,19 @@ service cloud.firestore {
     }
 
     // ---- WebRTC calls & signaling (auto-cleaned client-side + TTL in functions) ----
+    // v10: hiddenFor — riwayat panggilan bisa dihapus PER USER (pilih beberapa / hapus semua)
+    // tanpa menghapus riwayat pihak lain (sama seperti WhatsApp: "hapus untuk saya").
     match /calls/{callId} {
       allow read: if signedIn() && (resource.data.get('callerId', '') == me() || me() in resource.data.get('calleeIds', []));
       allow create: if signedIn() && notBanned() && request.resource.data.get('callerId', '') == me()
                     && !peerBlocked(request.resource.data.get('chatId', ''));
       allow update: if signedIn() && (resource.data.get('callerId', '') == me() || me() in resource.data.get('calleeIds', []))
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','connectedAt','endedAt']);
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','connectedAt','endedAt','hiddenFor'])
+                    // hiddenFor hanya bertambah (union), tidak pernah menyusut / menulis field lain
+                    && (!('hiddenFor' in request.resource.data)
+                        || (request.resource.data.get('hiddenFor', []).hasAll(resource.data.get('hiddenFor', []))
+                            && request.resource.data.get('hiddenFor', []).size() >= resource.data.get('hiddenFor', []).size()
+                            && me() in request.resource.data.get('hiddenFor', [])));
       allow delete: if resource.data.get('callerId', '') == me() || isAdmin();
       match /signals/{sig} {
         allow read: if signedIn() && resource.data.get('to', '') == me();

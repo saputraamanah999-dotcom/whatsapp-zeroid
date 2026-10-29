@@ -38,16 +38,19 @@ async function post(body: any, ms = 45000): Promise<any> {
  * Only the explicitly provided prompt + short history is sent — never the
  * whole private conversation (the caller passes only what the user approved).
  */
+/** Persona opsional dari config/ai_profile (diubah developer) — dipakai server menyusun system prompt. */
+export type Persona = { aiName?: string; aiBio?: string };
+
 export async function askAI(
   prompt: string,
-  opts: { history?: { role: 'user' | 'assistant'; content: string }[]; model?: string; sessionId?: string } = {}
+  opts: { history?: { role: 'user' | 'assistant'; content: string }[]; model?: string; sessionId?: string } & Persona = {}
 ): Promise<AiResult> {
   const messages: AiMessage[] = [
     { role: 'system', content: 'Kamu adalah Zeroid AI, asisten resmi ZEROID WhatsApp milik SAPUTRA || DEV WEBSITE. Jawab singkat, jelas, dan membantu dalam bahasa pengguna.' },
     ...(opts.history ?? []).slice(-10),
     { role: 'user', content: prompt },
   ];
-  const body = { action: 'chat', messages, model: opts.model, sessionId: opts.sessionId };
+  const body = { action: 'chat', messages, model: opts.model, sessionId: opts.sessionId, aiName: opts.aiName, aiBio: opts.aiBio };
   // upstream AI kadang lambat > 45 dtk (penyebab AbortError spam) — beri waktu lebih
   // dan sekali auto-retry ketika timeout, sebelum menyerah ke pengguna.
   let lastErr: any;
@@ -70,17 +73,17 @@ export async function askAI(
 /** DeepSeek R1 deep reasoning with optional web search. */
 export async function thinkAI(
   prompt: string,
-  opts: { search?: boolean; sessionId?: string } = {}
+  opts: { search?: boolean; sessionId?: string } & Persona = {}
 ): Promise<AiResult> {
-  const data = await post({ action: 'thinking', prompt, search: !!opts.search, sessionId: opts.sessionId }, 90000);
+  const data = await post({ action: 'thinking', prompt, search: !!opts.search, sessionId: opts.sessionId, aiName: opts.aiName, aiBio: opts.aiBio }, 90000);
   const text = String(data?.text ?? '').trim();
   if (!text) throw new Error('Respons AI kosong.');
   return { text, reasoning: data?.reasoning ? String(data.reasoning) : undefined };
 }
 
 /** Analyse an image (URL must be https — e.g. a Firebase Storage download URL). */
-export async function analyzeImage(url: string, prompt = 'Jelaskan gambar ini secara detail'): Promise<AiResult> {
-  const data = await post({ action: 'vision', url, prompt }, 75000);
+export async function analyzeImage(url: string, prompt = 'Jelaskan gambar ini secara detail', persona?: Persona): Promise<AiResult> {
+  const data = await post({ action: 'vision', url, prompt, ...(persona ?? {}) }, 75000);
   const text = String(data?.text ?? '').trim();
   if (!text) throw new Error('Respons AI kosong.');
   return { text };
