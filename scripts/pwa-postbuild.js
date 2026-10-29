@@ -112,6 +112,46 @@ if (!html.includes('zeroid-devguard')) {
   console.log('Anti-devtools guard injected into dist/index.html');
 }
 
+// 2a) VIEWPORT PAS LAYAR + ANTI-ZOOM ala APK — jalan SEBELUM bundle JS dimuat:
+//     - meta viewport: device-width, skala terkunci 1 (tidak bisa di-zoom/kegeser kekecilan)
+//     - CSS: html/body penuh, overscroll-behavior none (tidak memantul/tertarik),
+//       touch-action pan saja (pinch diblokir), #root setinggi layar nyata (100dvh)
+if (!html.includes('zeroid-viewport-lock')) {
+  // ganti meta viewport bawaan expo → versi terkunci
+  html = html.replace(/<meta name="viewport" content="[^"]*"\s*\/?>/, '<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />');
+  if (!html.includes('user-scalable=no')) {
+    html = html.replace('</head>', '<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />\n  </head>');
+  }
+  const vpStyle = `<style id="zeroid-viewport-lock">
+  html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; overscroll-behavior:none; touch-action:pan-x pan-y; -webkit-tap-highlight-color:transparent; -webkit-text-size-adjust:100%; }
+  #root { width:100%; height:100%; height:100dvh; }
+  html { -webkit-user-zoom: fixed; }
+  </style>
+  <script id="zeroid-antizoom">
+  /* Anti-zoom awal: pinch, double-tap, Ctrl+scroll — jalan sebelum React. */
+  (function () {
+    try {
+      var prevent = function (e) { e.preventDefault(); };
+      document.addEventListener('gesturestart', prevent, { passive: false });
+      document.addEventListener('gesturechange', prevent, { passive: false });
+      var lastTouch = 0;
+      document.addEventListener('touchend', function (e) {
+        var now = Date.now();
+        if (now - lastTouch < 320) e.preventDefault();
+        lastTouch = now;
+      }, { passive: false });
+      document.addEventListener('wheel', function (e) { if (e.ctrlKey || e.metaKey) e.preventDefault(); }, { passive: false });
+      document.addEventListener('keydown', function (e) {
+        if ((e.ctrlKey || e.metaKey) && ['+', '-', '=', '0'].indexOf(e.key) >= 0) e.preventDefault();
+      });
+    } catch (e) {}
+  })();
+  </script>`;
+  html = html.replace('</head>', `${vpStyle}\n  </head>`);
+  fs.writeFileSync(index, html);
+  console.log('Viewport lock + anti-zoom injected into dist/index.html');
+}
+
 if (!html.includes('manifest.webmanifest')) {
   const meta = `
     <link rel="manifest" href="/manifest.webmanifest" />

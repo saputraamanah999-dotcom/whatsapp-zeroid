@@ -82,6 +82,16 @@ function startTicker() {
       dur = nativePlayer.duration ?? 0;
     }
     if (dur > 0 || pos > 0) set({ position: pos, duration: dur || state.duration });
+    // posisi utk notifikasi media OS (spesifikasi MediaSession)
+    if (Platform.OS === 'web' && typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      try {
+        (navigator as any).mediaSession.setPositionState?.({
+          duration: dur || state.duration || 0,
+          playbackRate: 1,
+          position: Math.min(pos, dur || state.duration || pos),
+        });
+      } catch { /* optional */ }
+    }
   }, 500);
 }
 
@@ -102,6 +112,7 @@ function mediaSession(song: MusicSong) {
     (navigator as any).mediaSession.setActionHandler('pause', () => pause());
     (navigator as any).mediaSession.setActionHandler('nexttrack', () => next());
     (navigator as any).mediaSession.setActionHandler('previoustrack', () => prev());
+    (navigator as any).mediaSession.playbackState = 'playing';
   } catch { /* optional */ }
 }
 
@@ -118,12 +129,42 @@ const webBackend: Backend = {
       set({ playing: false, error: 'Putaran terputus — beralih ke pemutar cadangan…' });
       retryResolve();
     });
+    attachWebAudio(audio);
   },
   play() { try { void audio?.play(); } catch {} },
   pause() { try { audio?.pause(); } catch {} },
   seek(sec) { try { if (audio) audio.currentTime = sec; } catch {} },
   stop() { try { if (audio) { audio.pause(); audio.src = ''; } } catch {} },
 };
+
+/** Pertahankan <audio> di DOM + MediaSession penuh → Chrome/Android memperlakukan
+ *  Zeroid seperti aplikasi musik: NOTIFIKASI MEDIA muncul, lagu TETAP BUNYI saat
+ *  pindah app / layar mati / tab ditinggal (tidak lagi mati saat keluar). */
+function attachWebAudio(a: HTMLAudioElement) {
+  try {
+    if (a.dataset.zeroidMusic !== '1') {
+      a.dataset.zeroidMusic = '1';
+      a.setAttribute('playsinline', 'true');
+      a.style.position = 'fixed';
+      a.style.width = '1px';
+      a.style.height = '1px';
+      a.style.opacity = '0.01';
+      a.style.pointerEvents = 'none';
+      a.style.bottom = '-2px';
+      a.style.right = '-2px';
+      document.body?.appendChild(a);
+    }
+  } catch { /* ignore */ }
+  if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+    try {
+      const ms = (navigator as any).mediaSession;
+      ms.setActionHandler('seekbackward', () => seek(Math.max(0, state.position - 10)));
+      ms.setActionHandler('seekforward', () => seek(state.position + 10));
+      ms.setActionHandler('seekto', (d: any) => { if (typeof d?.seekTime === 'number') seek(d.seekTime); });
+      ms.setActionHandler('stop', () => close());
+    } catch { /* optional */ }
+  }
+}
 
 async function getNative(): Promise<Backend | null> {
   if (Platform.OS === 'web') return webBackend;
@@ -226,17 +267,27 @@ export async function play(song: MusicSong, queue?: MusicSong[]) {
 }
 
 export function resume() {
-  if (state.embed) { ytCommand('playVideo'); set({ playing: true }); return; }
-  if (Platform.OS === 'web') webBackend.play();
-  else nativePlayer?.play?.();
-  set({ playing: true });
+  if (state.embed) { ytCommand('playVideo'); set({ playing: true }); }
+  else {
+    if (Platform.OS === 'web') webBackend.play();
+    else nativePlayer?.play?.();
+    set({ playing: true });
+  }
+  if (Platform.OS === 'web' && typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+    try { (navigator as any).mediaSession.playbackState = 'playing'; } catch {}
+  }
 }
 
 export function pause() {
-  if (state.embed) { ytCommand('pauseVideo'); set({ playing: false }); return; }
-  if (Platform.OS === 'web') webBackend.pause();
-  else nativePlayer?.pause?.();
-  set({ playing: false });
+  if (state.embed) { ytCommand('pauseVideo'); set({ playing: false }); }
+  else {
+    if (Platform.OS === 'web') webBackend.pause();
+    else nativePlayer?.pause?.();
+    set({ playing: false });
+  }
+  if (Platform.OS === 'web' && typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+    try { (navigator as any).mediaSession.playbackState = 'paused'; } catch {}
+  }
 }
 
 export function toggle() { state.playing ? pause() : resume(); }
@@ -272,6 +323,12 @@ export function close() {
   else if (Platform.OS === 'web') webBackend.stop();
   else { try { nativePlayer?.pause?.(); } catch {} }
   stopTicker();
+  if (Platform.OS === 'web' && typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+    try {
+      (navigator as any).mediaSession.metadata = null;
+      (navigator as any).mediaSession.playbackState = 'none';
+    } catch {}
+  }
   set({ current: null, playing: false, position: 0, duration: 0, queue: [], fullOpen: false, embed: false, error: '' });
 }
 

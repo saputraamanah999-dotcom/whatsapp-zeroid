@@ -427,9 +427,9 @@ function attachUserSubs(fbUid: string) {
   // my orders — skip penanda seed '_schema' (penyebab crash PremiumScreen)
   miscSubs.push(onSnapshot(query(collection(fb.db, C.orders), where('userId', '==', fbUid), orderBy('createdAt', 'desc'), fsLimit(30)), (s) => {
     const byId = new Map(db.orders.map((o) => [o.id, o]));
-    s.docs.forEach((d) => { if (d.id !== '_schema') byId.set(d.id, rawDoc(d)); });
+    s.docs.forEach((d) => { if (d.id !== '_schema') byId.set(d.id, normOrder(rawDoc(d))); });
     byId.delete('_schema');
-    db.orders = [...byId.values()].filter((o: any) => o.id !== '_schema').sort((a: any, b: any) => b.createdAt - a.createdAt);
+    db.orders = [...byId.values()].filter((o: any) => o.id !== '_schema').sort((a: any, b: any) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
     bump();
   }, (e) => console.warn('orders sub', e)));
 
@@ -461,9 +461,9 @@ function attachUserSubs(fbUid: string) {
     }, () => {}));
     adminSubs.push(onSnapshot(query(collection(fb.db, C.orders), orderBy('createdAt', 'desc'), fsLimit(60)), (s) => {
       const byId = new Map(db.orders.map((o) => [o.id, o]));
-      s.docs.forEach((d) => { if (d.id !== '_schema') byId.set(d.id, rawDoc(d)); });
+      s.docs.forEach((d) => { if (d.id !== '_schema') byId.set(d.id, normOrder(rawDoc(d))); });
       byId.delete('_schema');
-      db.orders = [...byId.values()].filter((o: any) => o.id !== '_schema').sort((a: any, b: any) => b.createdAt - a.createdAt); bump();
+      db.orders = [...byId.values()].filter((o: any) => o.id !== '_schema').sort((a: any, b: any) => (b.createdAt ?? 0) - (a.createdAt ?? 0)); bump();
     }, () => {}));
     adminSubs.push(onSnapshot(query(collection(fb.db, C.audit), orderBy('createdAt', 'desc'), fsLimit(80)), (s) => {
       db.audit = s.docs.filter((d) => d.id !== '_schema').map(rawDoc) as any; bump();
@@ -2777,6 +2777,26 @@ export function stickersFor(userId: string, d: DB = db) {
 }
 
 // ============================ premium orders ============================
+
+/** Normalisasi dokumen order (data lama bisa kehilangan field → angka undefined
+ *  membuat layar Premium/Invoice/Admin crash "reading 'toLocaleString'"). */
+function normOrder(o: any): any {
+  if (!o || typeof o !== 'object') return o;
+  return {
+    ...o,
+    price: Number(o.price ?? 0),
+    days: Number(o.days ?? 0),
+    status: o.status ?? 'pending',
+    product: o.product ?? 'vip',
+    plan: o.plan ?? '-',
+    method: o.method ?? '-',
+    userId: o.userId ?? '',
+    chatId: o.chatId ?? '',
+    forChatId: o.forChatId ?? '',
+    createdAt: typeof o.createdAt === 'number' ? o.createdAt : 0,
+  };
+}
+
 
 // LIMIT PEMBELIAN (anti-spam): maks 5x pencet dalam 1 jam + jeda antar order.
 const ORDER_WINDOW = 60 * 60_000; // 1 jam

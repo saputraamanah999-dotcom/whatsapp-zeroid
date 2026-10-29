@@ -5,7 +5,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { T, Btn } from './ui';
 import SwipeReply from './SwipeReply';
-import { productOf, rupiah } from '../lib/products';
+import { productSafe, rupiah } from '../lib/products';
 import { adminDecideOrder, votePoll, markViewOnce } from '../lib/store';
 import { voLocalOpened } from '../lib/viewonce';
 import { ProductIcon, VerifiedBadge } from '../lib/icons';
@@ -128,7 +128,7 @@ export default function MessageBubble({
 
   if (m.type === 'order') {
     const order = db.orders?.find((o) => o.id === m.orderId);
-    const p = order ? productOf(order.product) : null;
+    const p = order ? productSafe(order.product) : null;
     const isAdmin = me.role === 'admin' || me.role === 'developer';
     return (
       <View style={{ paddingHorizontal: 12, marginVertical: 6, alignItems: mine ? 'flex-end' : 'flex-start' }}>
@@ -324,7 +324,7 @@ export default function MessageBubble({
                 {!voOpened && <T v="caption" color="rgba(255,255,255,0.65)">Ketuk untuk melihat 1×</T>}
               </View>
             )}
-            {m.type === 'audio' && m.uri && <VoicePlayer uri={m.uri} seed={m.id} dur={m.duration} mine={mine} accent={t.accent} />}
+            {m.type === 'audio' && m.uri && <VoicePlayer uri={m.uri} seed={m.id} dur={m.duration} mine={mine} accent={t.accent} msgId={m.id} chatTitle={chat.name} />}
             {m.type === 'location' && (
               <Pressable
                 onPress={() => Linking.openURL(`https://www.google.com/maps?q=${m.lat},${m.lng}`).catch(() => {})}

@@ -67,7 +67,8 @@ export function hubAttachCall(o: HubStartOpts): CallSession | null {
       hub.remote = s;
       emit();
       // WEB: jaga suara remote di elemen audio tersembunyi — tetap bunyi walau
-      // pengguna keluar dari layar panggilan.
+      // pengguna keluar dari layar panggilan. + MediaSession: OS memperlakukan
+      // panggilan sebagai media aktif (notifikasi media, tab di belakang tetap hidup).
       if (Platform.OS === 'web') {
         try {
           if (!hiddenAudio) { hiddenAudio = new Audio(); hiddenAudio.autoplay = true; }
@@ -77,6 +78,16 @@ export function hubAttachCall(o: HubStartOpts): CallSession | null {
             void hiddenAudio.play().catch(() => {});
           }
         } catch { /* ignore */ }
+        try {
+          if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+            (navigator as any).mediaSession.metadata = new (window as any).MediaMetadata({
+              title: hub.video ? 'Panggilan video aktif' : 'Panggilan suara aktif',
+              artist: 'Zeroid WhatsApp',
+              album: 'Panggilan',
+            });
+            (navigator as any).mediaSession.playbackState = 'playing';
+          }
+        } catch { /* optional */ }
       }
     },
     onState: (st) => {
@@ -111,6 +122,9 @@ export function hubHangup(_reason = 'user') {
   session = null;
   if (Platform.OS === 'web' && hiddenAudio) {
     try { hiddenAudio.pause(); hiddenAudio.srcObject = null; } catch { }
+  }
+  if (Platform.OS === 'web' && typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+    try { (navigator as any).mediaSession.metadata = null; (navigator as any).mediaSession.playbackState = 'none'; } catch { }
   }
   hub = null;
   emit();

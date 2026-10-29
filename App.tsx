@@ -21,6 +21,7 @@ import { ZeroidLogo, Icon } from './lib/icons';
 import { T, Btn } from './components/ui';
 import { BannerHost, PermissionHost, IncomingCallHost, AnnouncementBanner, InstallBanner } from './components/Hosts';
 import MusicBar from './components/MusicBar';
+import VoiceBar from './components/VoiceBar';
 import CallBar from './components/CallBar';
 import ErrorBoundary from './components/ErrorBoundary';
 import BannedScreen from './screens/BannedScreen';
@@ -138,6 +139,72 @@ function useAntiCopy() {
       document.removeEventListener('dragstart', noDrag);
       style.remove();
     };
+  }, []);
+}
+
+/**
+ * UKURAN PAS LAYAR (web) + ANTI-ZOOM ala APK:
+ *  - paksa meta viewport device-width, skala 1, TIDAK BISA di-zoom/pinch/geser —
+ *    layar selalu penuh 1:1 sesuai perangkat (tidak lagi "kekecilan");
+ *  - blokir pinch (gesturestart), double-tap zoom, dan Ctrl/Cmd + scroll zoom;
+ *  - overscroll-behavior:none → halaman tidak ikut "tertarik"/memantul;
+ *  - #root setinggi layar nyata (100dvh) → Story/Call/Media menempel penuh HP.
+ */
+function useViewportLock() {
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    try {
+      let meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.name = 'viewport';
+        document.head.appendChild(meta);
+      }
+      meta.content = 'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+
+      const style = document.createElement('style');
+      style.id = 'zeroid-viewport-lock';
+      style.textContent = `
+        html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden;
+          overscroll-behavior:none; touch-action:pan-x pan-y;
+          -webkit-tap-highlight-color:transparent; -webkit-text-size-adjust:100%; }
+        #root { width:100%; height:100%; height:100dvh; }
+        /* gandakan blokir pinch di level CSS (Safari/iOS) */
+        html { -webkit-user-zoom: fixed; }
+      `;
+      document.head.appendChild(style);
+
+      const prevent = (e: Event) => e.preventDefault();
+      // pinch zoom (iOS Safari & Chrome Android)
+      document.addEventListener('gesturestart', prevent as EventListener, { passive: false });
+      document.addEventListener('gesturechange', prevent as EventListener, { passive: false });
+      // double-tap zoom
+      let lastTouch = 0;
+      const onTouchEnd = (e: TouchEvent) => {
+        const now = Date.now();
+        if (now - lastTouch < 320) e.preventDefault();
+        lastTouch = now;
+      };
+      document.addEventListener('touchend', onTouchEnd, { passive: false });
+      // Ctrl/Cmd + wheel zoom (desktop)
+      const onWheel = (e: WheelEvent) => {
+        if (e.ctrlKey || e.metaKey) e.preventDefault();
+      };
+      document.addEventListener('wheel', onWheel, { passive: false });
+      // keyboard zoom (desktop): +, -, Ctrl+0
+      const onKey = (e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && ['+', '-', '=', '0'].includes(e.key)) e.preventDefault();
+      };
+      document.addEventListener('keydown', onKey);
+      return () => {
+        document.removeEventListener('gesturestart', prevent as EventListener);
+        document.removeEventListener('gesturechange', prevent as EventListener);
+        document.removeEventListener('touchend', onTouchEnd);
+        document.removeEventListener('wheel', onWheel);
+        document.removeEventListener('keydown', onKey);
+        style.remove();
+      };
+    } catch { /* lama: biarkan default */ }
   }, []);
 }
 
@@ -278,6 +345,7 @@ export default function App() {
   const [dismissedNotices, setDismissedNotices] = useState<string[]>([]);
   const onNavStateChange = useWebHistorySync();
   useAntiCopy();
+  useViewportLock();
 
   /** dipanggil setiap navigasi: sinkronkan history web + publikasikan route aktif */
   const handleNavStateChange = useCallback(() => {
@@ -404,6 +472,7 @@ export default function App() {
                 </Stack.Navigator>
                 <AnnouncementBanner dismissed={dismissedNotices} onDismiss={(id) => setDismissedNotices((x) => [...x, id])} />
                 <MusicBar />
+                <VoiceBar />
                 <CallBar />
               </>
             )}

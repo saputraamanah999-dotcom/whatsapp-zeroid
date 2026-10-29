@@ -81,4 +81,7 @@ const UNKNOWN_PRODUCT: Product = {
 };
 export const productSafe = (k?: string): Product => (k && PRODUCTS.find((p) => p.key === k)) || UNKNOWN_PRODUCT;
 
-export const rupiah = (n: number) => 'Rp' + n.toLocaleString('id-ID');
+/** AMAN terhadap data lama: order lama bisa punya price undefined/null →
+ *  krash "Cannot read properties of undefined (reading 'toLocaleString')"
+ *  yang mematikan seluruh layar (ErrorBoundary "Terjadi kesalahan tampilan"). */
+export const rupiah = (n?: number | null) => 'Rp' + Number(n ?? 0).toLocaleString('id-ID');
