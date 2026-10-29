@@ -395,10 +395,10 @@ service cloud.firestore {
 
     // ---- LEDGER KOIN (v9) — bukti setiap perubahan koin (referral, check-in, belanja) ----
     match /ledger/{lid} {
-      // FIX v14: default uid = me() — get pada doc yang BELUM ADA tidak lagi ditolak
-      // (resource.data kosong → get('uid', me()) == me() → lolos) supaya getDoc pra-
-      // transaksi check-in tidak melempar permission-denied palsu.
-      allow read: if signedIn() && (resource.data.get('uid', me()) == me() || isMod());
+      // FIX v14: get pada doc yang BELUM ADA tidak lagi ditolak (resource null saat
+      // get doc kosong → pakai !exists() sebagai jalur) supaya getDoc pra-transaksi
+      // check-in tidak melempar permission-denied palsu.
+      allow read: if signedIn() && (!exists() || resource.data.get('uid', me()) == me() || isMod());
       allow create: if signedIn() && notBanned()
                     && request.resource.data.get('uid', '') == me()
                     && request.resource.data.get('delta', 0) <= 6000
