@@ -1,13 +1,13 @@
 /**
  * STIKER BRAT — dibuat LOKAL di perangkat (tanpa endpoint/server).
- * Gaya sampul Brat: latar hijau asam, teks lowercase tebal warna hitam.
+ * Gaya Brat PUTIH (sesuai permintaan): latar putih bersih, teks lowercase tebal warna hitam.
  *  - Web   : HTML5 Canvas → PNG data URL (paling kompatibel untuk dikirim).
  *  - Native: SVG data URL (expo-image menampilkan SVG; kualitas tajam di ukuran apa pun).
  * Selalu berhasil — tidak ada lagi stiker kosong karena endpoint mati.
  */
 import { Platform } from 'react-native';
 
-const BG = '#8ACE00'; // hijau asam khas brat
+const BG = '#FFFFFF'; // PUTIH polos — gaya brat putih (bukan hijau asam lagi)
 const FG = '#111111';
 
 function wrapWords(text: string, maxChars: number): string[] {

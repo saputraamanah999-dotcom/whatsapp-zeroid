@@ -113,7 +113,7 @@
 
   <div class="card">
     <h2>Log</h2>
-    <div id="log">Siap. (build v11 — rules v11 + AI GUARD penangguhan grup otomatis + ban IP/SUBNET/DEVICE tertutup semua + usermeta + koleksi LENGKAP)</div>
+    <div id="log">Siap. (build v13 — rules v13 + fix usermeta create + AI GUARD penangguhan grup otomatis + ban IP/SUBNET/DEVICE tertutup semua + koleksi LENGKAP)</div>
   </div>
 
   <div class="card">
@@ -473,10 +473,13 @@ service cloud.firestore {
     }
 
     // ---- usermeta (v11: IP/perangkat terakhir per akun, untuk adminBan) ----
+    // FIX v13: create tidak boleh pakai resource.data (null saat create → selalu ditolak)
     match /usermeta/{uid} {
       allow get: if signedIn() && (uid == me() || isAdmin());
       allow list: if isAdmin();
-      allow create, update: if request.auth.uid == uid
+      allow create: if request.auth.uid == uid
+        && request.resource.data.diff({}).affectedKeys().hasOnly(['lastIpHash','lastDeviceHash','at']);
+      allow update: if request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastIpHash','lastDeviceHash','at']);
       allow delete: if isAdmin();
     }
