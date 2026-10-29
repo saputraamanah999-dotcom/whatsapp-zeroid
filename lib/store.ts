@@ -105,6 +105,7 @@ let deviceBan: DeviceBan | null = isWeb ? readDeviceBan() : null;
 const EMPTY: DB = {
   version: 2, users: {}, chats: {}, messages: {}, stories: [], calls: [], notifications: [],
   reports: [], stickers: [], orders: [], announcements: [], audit: [], animeFavs: [], bans: [], appeals: [], config: null, aiProfile: null,
+  aiTyping: {},
 };
 
 let db: DB = EMPTY;
@@ -186,6 +187,12 @@ function mapUser(id: string, d: DocumentData): User {
     banner: d.banner ?? null, bannerType: d.bannerType === 'video' ? 'video' : 'image', color: d.color ?? AVATAR_COLORS[0], phone: d.phone, role: d.role ?? 'user',
     username: d.username, developer: !!d.developer, blueCheck: !!d.blueCheck, vipUntil: ts(d.vipUntil),
     memberUntil: ts(d.memberUntil), security: !!d.security, otpVerified: !!d.otpVerified, pin: d.pin, otpCode: d.otpCode, otpExpires: ts(d.otpExpires),
+    // EKONOMI & LEADERBOARD — TANPA INI KOIN SELALU 0 DI LAYAR: server sudah
+    // mengkredit check-in (leaderboard tampil benar), tapi snapshot user di aplikasi
+    // membuang points/checkinStreak/lastCheckinAt/referral → UI menampilkan 0 terus.
+    points: d.points ?? 0, bestStreak: d.bestStreak ?? 0, checkinStreak: d.checkinStreak ?? 0,
+    lastCheckinAt: ts(d.lastCheckinAt), referralCode: d.referralCode, referredBy: d.referredBy,
+    refCount: d.refCount ?? 0, fireRevives: d.fireRevives ?? {}, lastCallsSeenAt: ts(d.lastCallsSeenAt),
     spotify: d.spotify ?? null, verified: !!d.verified, banned: !!d.banned, suspendedUntil: ts(d.suspendedUntil),
     mutedUntil: ts(d.mutedUntil), orderAttempts: Array.isArray(d.orderAttempts) ? d.orderAttempts : [],
     banReason: d.banReason, banUntil: ts(d.banUntil), lastSeen: ts(d.lastSeen), createdAt: ts(d.createdAt),
@@ -1767,13 +1774,16 @@ export async function askAssistant(chatId: string, prompt: string, opts: AskOpts
   } finally {
     routingKe = false;
   }
-  const typingId = uid('a_');
-  db.messages = { ...db.messages, [chatId]: [...(db.messages[chatId] ?? []), { id: typingId, chatId, senderId: 'ai', type: 'text', text: '…', createdAt: Date.now(), deletedFor: [], reactions: {}, starredBy: [], status: 'sending' }] };
-  bump();
-  const dropTyping = () => {
-    db.messages = { ...db.messages, [chatId]: (db.messages[chatId] ?? []).filter((m) => m.id !== typingId) };
+  // TYPING AI — animasi "Zeroid sedang mengetik…" muncul SEKETIKA di header,
+  // gelembung chat & daftar chat (dulu: cuma gelembung '…' statis tanpa animasi).
+  const setAiTyping = (on: boolean) => {
+    const next = { ...(db.aiTyping ?? {}) };
+    if (on) next[chatId] = Date.now(); else delete next[chatId];
+    db.aiTyping = next;
     bump();
   };
+  setAiTyping(true);
+  const dropTyping = () => setAiTyping(false);
   try {
     const persona = { aiName: db.aiProfile?.name?.trim() || 'Zeroid AI', aiBio: db.aiProfile?.bio?.trim() || '' };
     const r = opts.imageUrl
@@ -1787,6 +1797,13 @@ export async function askAssistant(chatId: string, prompt: string, opts: AskOpts
     dropTyping();
     await sendMessage(chatId, { text: `AI belum bisa menjawab sekarang. ${String(e?.message ?? 'Coba lagi beberapa saat lagi.').slice(0, 160)}` });
   }
+}
+
+/** Apakah AI sedang mengetik di chat ini? (auto-kedaluwarsa 2 menit — jaga-jaga
+ *  kalau promise AI menggantung karena aplikasi dibunuh / jaringan mati) */
+export function aiTypingIn(chatId: string, d: DB = db): boolean {
+  const t = d.aiTyping?.[chatId] ?? 0;
+  return t > 0 && Date.now() - t < 120000;
 }
 
 // ============================ anime favourites ============================

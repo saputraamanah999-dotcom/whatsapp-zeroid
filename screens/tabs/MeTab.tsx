@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, ScrollView, Pressable } from 'react-native';
+import { View, ScrollView, Pressable, Platform } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -111,6 +111,16 @@ export default function MeTab() {
       <Card title="Aplikasi">
         <Row icon="notifications" title="Notifikasi" subtitle="Pesan, grup, Story, panggilan" onPress={() => nav.navigate('NotifSettings')} />
         <Row icon="key" title="Izin aplikasi" subtitle="Kamera, mikrofon, notifikasi, media" onPress={() => nav.navigate('Permissions')} />
+        {/* APK ANDROID — di web tampilkan pintasan unduh (APK native = notifikasi FCM penuh) */}
+        {Platform.OS === 'web' && (
+          <Row
+            icon="phone-portrait"
+            iconColor="#3DDC84"
+            title="Unduh APK Android"
+            subtitle="Aplikasi asli — notifikasi masuk walau ditutup"
+            onPress={() => { try { window.location.assign('/apk.html'); } catch { } }}
+          />
+        )}
         <View style={{ padding: 12, gap: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginLeft: 4 }}>
             <Ionicons name="color-palette" size={18} color={t.accent} />

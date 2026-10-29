@@ -14,6 +14,9 @@ on:
     paths:
       - 'app.json'
       - 'google-services.json'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'plugins/**'
       - '.github/workflows/build-apk.yml'
 
 jobs:
@@ -41,6 +44,16 @@ jobs:
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+
+      # ENV PUBLIK APLIKASI (EXPO_PUBLIC_*) — dibutuhkan saat bundling JS: tanpa ini
+      # APK tampil "configuration required". Nilainya PUBLIC (identik dengan bundle
+      # web Vercel) — disimpan base64 di secret ZEROID_WEB_ENV. Kunci SERVER
+      # (Jerexd/ImgBB/Sylvatica/service account) TIDAK PERNAH masuk APK.
+      - name: Tulis .env (EXPO_PUBLIC_* publik)
+        env:
+          ZEROID_WEB_ENV: ${{ secrets.ZEROID_WEB_ENV }}
+        run: |
+          if [ -z "$ZEROID_WEB_ENV" ]; then echo "⚠️ secret ZEROID_WEB_ENV kosong"; else echo "$ZEROID_WEB_ENV" | base64 -d > .env; echo "env ditulis: $(wc -l < .env) baris"; fi
 
       - name: Expo prebuild (android)
         run: npx expo prebuild --platform android --no-install
@@ -80,6 +93,7 @@ jobs:
           ls -la apk-out/
           VERSION=$(node -p "require('./app.json').expo.version")
           for f in apk-out/*.apk; do mv "$f" "apk-out/zeroid-${VERSION}.apk"; done
+          cp apk-out/zeroid-${VERSION}.apk apk-out/zeroid-apk-latest.apk
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
@@ -87,3 +101,17 @@ jobs:
           name: zeroid-apk
           path: apk-out/*.apk
           retention-days: 30
+
+      # TERBITKAN ke GitHub Releases → tautan unduh PUBLIK tanpa login:
+      # https://github.com/saputraamanah999-dotcom/whatsapp-zeroid/releases/download/apk-latest/zeroid-apk-latest.apk
+      # Halaman /apk.html di website memakai tautan tetap ini.
+      - name: Terbitkan ke GitHub Releases (unduh publik)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(node -p "require('./app.json').expo.version")
+          gh release view apk-latest >/dev/null 2>&1 \
+            || gh release create apk-latest --title "Zeroid APK $VERSION" --notes "APK resmi Zeroid WhatsApp v$VERSION — unduh via https://whatsapp-zeroid.vercel.app/apk.html" --latest
+          gh release upload apk-latest apk-out/zeroid-apk-latest.apk --clobber
+          gh release edit apk-latest --title "Zeroid APK $VERSION" --latest
+          echo "Release apk-latest diperbarui: zeroid-apk-latest.apk (v$VERSION)"

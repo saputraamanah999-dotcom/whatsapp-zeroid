@@ -5,7 +5,7 @@ import { T, Avatar, Badge, UserBadges } from './ui';
 import { TypingDots } from './TypingDots';
 import { useTheme, R } from '../lib/theme';
 import { Chat, DB, User } from '../lib/types';
-import { chatTitle, chatPeer, lastMessage, chatLastMsg, messagePreview, unreadCount, isOnline, canSee, typingUsers, messageStatus, chatBadge } from '../lib/store';
+import { chatTitle, chatPeer, lastMessage, chatLastMsg, messagePreview, unreadCount, isOnline, canSee, typingUsers, messageStatus, chatBadge, aiTypingIn } from '../lib/store';
 import { VerifiedBadge } from '../lib/icons';
 import { chatTime } from '../lib/format';
 import { FireDot } from './FirePet';
@@ -25,6 +25,8 @@ export default function ChatRow({ chat, me, db, onPress, onLongPress }: { chat: 
   const last = chatLastMsg(chat, me.id);
   const unread = unreadCount(chat, me.id);
   const typing = typingUsers(chat, me.id);
+  // AI mengetik: Zeroid AI tak bisa menulis chat.typing — pakai flag lokal
+  const aiTyping = chat.type === 'ai' && aiTypingIn(chat.id);
   const title = chatTitle(chat, me.id, db);
   const showPhoto = chat.type === 'direct' ? canSee(me, peer, peer?.privacy.profilePhoto ?? 'everyone') : true;
   const muted = chat.mutedBy.includes(me.id);
@@ -67,8 +69,8 @@ export default function ChatRow({ chat, me, db, onPress, onLongPress }: { chat: 
           </T>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          {typing.length ? (
-            <TypingDots size={5} showText text={isGroupish ? `${db.users[typing[0]]?.name.split(' ')[0]} sedang mengetik…` : 'sedang mengetik…'} />
+          {typing.length || aiTyping ? (
+            <TypingDots size={5} showText text={isGroupish ? `${db.users[typing[0]]?.name.split(' ')[0]} sedang mengetik…` : chat.type === 'ai' ? `${aiName} sedang mengetik…` : 'sedang mengetik…'} />
           ) : (
             <>
               {last && last.senderId === me.id && last.type !== 'system' && last.type !== 'call' && !last.deletedForAll && <Ticks status={messageStatus(last, chat, me.id)} />}

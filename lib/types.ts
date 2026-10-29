@@ -417,4 +417,8 @@ export type DB = {
   appeals: Appeal[];
   config: PlatformConfig | null;
   aiProfile: AiProfile | null;
+  /** AI sedang menyusun jawaban per chat (chatId → epoch ms mulai mengetik).
+   *  Dipakai ChatRoom/ChatRow menampilkan animasi "sedang mengetik…" Zeroid AI
+   *  SECARA LOKAL — AI bukan pengguna Firestore, tidak bisa menulis chat.typing. */
+  aiTyping: Record<string, number>;
 };

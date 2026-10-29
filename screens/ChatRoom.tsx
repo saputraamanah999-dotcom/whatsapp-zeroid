@@ -40,6 +40,7 @@ import {
   loadOlder,
   markDelivered,
   askAssistant,
+  aiTypingIn,
 } from '../lib/store';
 import type { AskOpts } from '../lib/store';
 import { setActiveChat, pushBanner } from '../lib/bus';
@@ -141,12 +142,17 @@ export default function ChatRoom() {
   }
 
   const peer = chatPeer(chat, me.id, db);
+  const typing = typingUsers(chat, me.id);
+  // TYPING AI — Zeroid AI bukan pengguna Firestore (tak bisa menulis chat.typing),
+  // jadi saat AI menyusun jawaban kita pakai flag lokal (aiTypingIn) — animasi
+  // titik-titik mengetik kini MUNCUL di header, gelembung & daftar chat.
+  const aiWaiting = chat.type === 'ai' && aiTypingIn(chatId);
+  const anyoneTyping = typing.length > 0 || aiWaiting;
   // chat AI: nama/subjudul/avatar ikut profil publik Zeroid AI (config/ai_profile, diubah developer)
   const aiProf = db.aiProfile;
   const title = chat.type === 'ai' ? aiProf?.name?.trim() || chat.name || 'Zeroid AI' : chatTitle(chat, me.id, db);
-  const typing = typingUsers(chat, me.id);
   let subtitle = '';
-  if (typing.length) subtitle = chat.type === 'direct' || chat.type === 'ai' ? 'mengetik…' : `${db.users[typing[0]]?.name.split(' ')[0]} mengetik…`;
+  if (anyoneTyping) subtitle = chat.type === 'direct' || chat.type === 'ai' ? 'mengetik…' : `${db.users[typing[0]]?.name.split(' ')[0]} mengetik…`;
   else if (chat.type === 'direct' && peer) {
     if (me.blocked.includes(peer.id)) subtitle = 'diblokir';
     else if (canSee(me, peer, peer.privacy.lastSeen) && canSee(peer, me, me.privacy.lastSeen)) subtitle = isOnline(peer) ? 'online' : `terakhir dilihat ${ago(peer.lastSeen)}`;
@@ -181,7 +187,7 @@ export default function ChatRoom() {
       <Header
         title={title}
         subtitle={subtitle}
-        subtitleNode={typing.length ? <TypingSubtitle name={chat.type === 'direct' || chat.type === 'ai' ? undefined : db.users[typing[0]]?.name.split(' ')[0]} /> : undefined}
+        subtitleNode={anyoneTyping ? <TypingSubtitle name={chat.type === 'direct' || chat.type === 'ai' ? undefined : db.users[typing[0]]?.name.split(' ')[0]} /> : undefined}
         onTitlePress={() => nav.navigate('ChatInfo', { chatId })}
         left={
           <Pressable onPress={() => (chat.type === 'direct' && peer ? nav.navigate('UserProfile', { userId: peer.id }) : nav.navigate('ChatInfo', { chatId }))}>
@@ -250,12 +256,16 @@ export default function ChatRoom() {
             contentContainerStyle={{ paddingVertical: 14 }}
             onScrollToIndexFailed={() => {}}
             ListHeaderComponent={
-              typing.length ? (
+              anyoneTyping ? (
                 <View style={{ paddingHorizontal: 14, paddingVertical: 4, alignItems: 'flex-start' }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 18, backgroundColor: t.bubbleOther, boxShadow: t.raisedSm } as any}>
                     <TypingDots size={7} />
                     <T v="caption" color={t.sub} style={{ fontStyle: 'italic' }}>
-                      {chat.type === 'direct' || chat.type === 'ai' ? 'sedang mengetik…' : `${db.users[typing[0]]?.name.split(' ')[0]} sedang mengetik…`}
+                      {chat.type === 'ai'
+                        ? `${aiProf?.name?.trim() || 'Zeroid AI'} sedang mengetik…`
+                        : chat.type === 'direct'
+                        ? 'sedang mengetik…'
+                        : `${db.users[typing[0]]?.name.split(' ')[0]} sedang mengetik…`}
                     </T>
                   </View>
                 </View>
