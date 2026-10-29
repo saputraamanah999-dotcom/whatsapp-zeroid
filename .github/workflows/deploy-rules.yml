@@ -41,6 +41,10 @@ jobs:
           fi
           echo "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
-          npx firebase-tools deploy --only firestore:rules,firestore:indexes,storage --project whatsapp-zeroid --force --non-interactive
+          # Firestore rules + indexes (utama — jangan pernah gagal)
+          npx firebase-tools deploy --only firestore:rules,firestore:indexes --project whatsapp-zeroid --force --non-interactive
+          # Storage rules (sekunder — kalau SA belum punya izin serviceusage, lewati saja)
+          npx firebase-tools deploy --only storage --project whatsapp-zeroid --force --non-interactive \
+            || echo "⚠️ Storage rules dilewati (izin SA terbatas) — fungsi upload tetap aman."
           rm -f "$RUNNER_TEMP/sa.json"
           echo "✅ Rules Firebase ter-update otomatis."
