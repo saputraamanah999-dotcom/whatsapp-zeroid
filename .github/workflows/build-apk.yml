@@ -45,6 +45,14 @@ jobs:
       - name: Expo prebuild (android)
         run: npx expo prebuild --platform android --no-install
 
+      - name: Sinkronkan minify & shrink (Expo SDK 57 template mismatch)
+        run: |
+          sed -i 's/^android.enableShrinkResourcesInReleaseBuilds=.*/android.enableShrinkResourcesInReleaseBuilds=true/' android/gradle.properties
+          grep -q '^android.enableMinifyInReleaseBuilds=' android/gradle.properties \
+            || echo 'android.enableMinifyInReleaseBuilds=true' >> android/gradle.properties
+          sed -i 's/^android.enableMinifyInReleaseBuilds=.*/android.enableMinifyInReleaseBuilds=true/' android/gradle.properties
+          grep -E 'enable(Minify|ShrinkResources)InReleaseBuilds' android/gradle.properties
+
       - name: Copy keystore + inject signing
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
