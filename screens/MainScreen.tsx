@@ -31,7 +31,7 @@ export default function MainScreen() {
   const chatUnread = Object.values(db.chats).filter((c) => (c.type === 'direct' || c.type === 'group' || c.type === 'ai') && isMember(c, me.id) && !c.archivedBy.includes(me.id) && unreadCount(c, me.id) > 0).length;
   const channelUnread = Object.values(db.chats).filter((c) => c.type === 'channel' && c.members.includes(me.id) && unreadCount(c, me.id) > 0).length;
   const storyNew = activeStories(db).some((s) => s.userId !== me.id && !s.viewers.includes(me.id) && me.contacts.includes(s.userId));
-  const missed = db.calls.filter((c) => c.status === 'missed' && c.calleeIds.includes(me.id) && c.startedAt > (me.lastCallsSeenAt ?? 0) && c.id !== '_schema').length;
+  const missed = db.calls.filter((c) => c.status === 'missed' && c.calleeIds.includes(me.id) && c.startedAt > (me.lastCallsSeenAt ?? 0) && c.id !== '_schema' && !(c.hiddenFor ?? []).includes(me.id)).length;
   const badges: Partial<Record<Tab, number | 'dot'>> = { chats: chatUnread, discover: channelUnread, stories: storyNew ? 'dot' : 0, calls: missed };
 
   return (

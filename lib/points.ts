@@ -191,8 +191,15 @@ export async function dailyCheckIn(me: User): Promise<{ ok: boolean; reward?: nu
     }
   } catch (e: any) {
     if (e === ALREADY || e?.already) return ALREADY;
-    // permission-denied di sini = server menolak karena ALASAN LAIN (bukan "sudah")
-    return { ok: false, error: 'Server menolak (izin Firestore). Jalankan update Rules Firebase lalu coba lagi.' };
+    // Pesan sesuai PENYEBAB NYATA — jangan semua dituduh "izin":
+    const code = String(e?.code ?? '');
+    if (code.includes('permission-denied')) {
+      return { ok: false, error: 'Server menolak (izin Firestore). Perbarui Rules Firebase lalu coba lagi.' };
+    }
+    if (code.includes('unavailable') || code.includes('network') || code.includes('deadline') || code.includes('aborted') || code.includes('cancelled')) {
+      return { ok: false, error: 'Koneksi kurang stabil — coba lagi sebentar lagi.' };
+    }
+    return { ok: false, error: 'Check-in gagal (' + (code || 'galat') + '). Coba lagi.' };
   }
 }
 

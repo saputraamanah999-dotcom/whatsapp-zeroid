@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "199234471979",
+    "project_id": "whatsapp-zeroid",
+    "storage_bucket": "whatsapp-zeroid.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:199234471979:web:eb0c2d8477adae3fc4826e",
+        "android_client_info": {
+          "package_name": "com.zeroid.whatsapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBiiwHAEY8nExO09bWkc5DAB-5lhUMWsMA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

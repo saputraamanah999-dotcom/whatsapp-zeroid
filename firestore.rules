@@ -1,5 +1,5 @@
 rules_version = '2';
-// ZEROID WHATSAPP — FIRESTORE RULES v13 (fix usermeta create: resource.data=null saat create)
+// ZEROID WHATSAPP — FIRESTORE RULES v14 (lastCallsSeenAt whitelisted + ledger read toleran doc kosong + usermeta create fix v13)
 // WAJIB terpasang di Firebase Console (atau otomatis via GitHub Actions).
 // Cek status izin live: /seed.html (tes izin server) atau /rules.html (panduan pasang).
 service cloud.firestore {
@@ -53,7 +53,7 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(['name','about','avatar','banner','bannerType','color','phone','username','pin','spotify',
                   'privacy','notif','blocked','contacts','lastSeen','otpCode','otpExpires',
-                  'otpVerified','verified','fcmToken','mutedUntil','orderAttempts']);
+                  'otpVerified','verified','fcmToken','mutedUntil','orderAttempts','lastCallsSeenAt']);
     }
 
     // EKONOMI KOIN (v9) — self-write dengan rem:
@@ -395,7 +395,10 @@ service cloud.firestore {
 
     // ---- LEDGER KOIN (v9) — bukti setiap perubahan koin (referral, check-in, belanja) ----
     match /ledger/{lid} {
-      allow read: if signedIn() && (resource.data.get('uid', '') == me() || isMod());
+      // FIX v14: default uid = me() — get pada doc yang BELUM ADA tidak lagi ditolak
+      // (resource.data kosong → get('uid', me()) == me() → lolos) supaya getDoc pra-
+      // transaksi check-in tidak melempar permission-denied palsu.
+      allow read: if signedIn() && (resource.data.get('uid', me()) == me() || isMod());
       allow create: if signedIn() && notBanned()
                     && request.resource.data.get('uid', '') == me()
                     && request.resource.data.get('delta', 0) <= 6000

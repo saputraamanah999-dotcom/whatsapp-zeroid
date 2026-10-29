@@ -1427,7 +1427,10 @@ export function markRead(chatId: string) {
   if (!c) return;
   const last = c.lastMsg?.createdAt ?? (db.messages[chatId] ?? []).at(-1)?.createdAt ?? 0;
   if ((c.lastRead[me.id] ?? 0) >= last) return;
-  updateDoc(doc(fb.db, C.chats, chatId), { [`lastRead.${me.id}`]: Date.now() }).catch(() => {});
+  // FIX REALTIME: tulis map UTUH (bukan path titik 'lastRead.<uid>') —
+  // rules memberChatUpdate hanya mengizinkan key 'lastRead', path titik DITOLAK
+  // server → unread tidak pernah terbaca server → badge nyangkut & tidak realtime.
+  updateDoc(doc(fb.db, C.chats, chatId), { lastRead: { ...(c.lastRead ?? {}), [me.id]: Date.now() } }).catch(() => {});
 }
 
 let lastTypingWrite = 0;
@@ -1437,14 +1440,19 @@ export function setTyping(chatId: string) {
   const fb = firebase();
   if (!me || !fb || Date.now() - lastTypingWrite < 2000) return;
   lastTypingWrite = Date.now();
-  updateDoc(doc(fb.db, C.chats, chatId), { [`typing.${me.id}`]: Date.now() }).catch(() => {});
+  // FIX TYPING: map utuh — path titik 'typing.<uid>' ditolak rules → animasi 'mengetik…' tak pernah muncul
+  const c = db.chats[chatId];
+  if (!c) return;
+  updateDoc(doc(fb.db, C.chats, chatId), { typing: { ...(c.typing ?? {}), [me.id]: Date.now() } }).catch(() => {});
 }
 
 export function clearTyping(chatId: string) {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb) return;
-  updateDoc(doc(fb.db, C.chats, chatId), { [`typing.${me.id}`]: 0 }).catch(() => {});
+  const c = db.chats[chatId];
+  if (!c) return;
+  updateDoc(doc(fb.db, C.chats, chatId), { typing: { ...(c.typing ?? {}), [me.id]: 0 } }).catch(() => {});
 }
 
 export function typingUsers(chat: Chat, meId: string) {
@@ -1584,9 +1592,10 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
   };
   try {
     await setDoc(ref, clean(persist));
-    // denormalised preview + clear my typing
+    // denormalised preview + clear my typing (map utuh — path titik ditolak rules)
     const pv = messagePreview({ ...local, status: undefined } as Message);
-    updateDoc(doc(fb.db, C.chats, chatId), { lastMsg: { text: pv.slice(0, 120), type: local.type, senderId: sender, createdAt: local.createdAt }, [`typing.${sender}`]: 0 }).catch(() => {});
+    const cur = db.chats[chatId] ?? chat;
+    updateDoc(doc(fb.db, C.chats, chatId), { lastMsg: { text: pv.slice(0, 120), type: local.type, senderId: sender, createdAt: local.createdAt }, typing: { ...(cur.typing ?? {}), [sender]: 0 } }).catch(() => {});
     // STREAK API: rawat api + kucing chat (hanya pesan sungguhan, bukan sistem/AI)
     if (!payload.assistant && payload.type !== 'system') void applyStreak(db.chats[chatId] ?? chat, getMe()!);
     // mention notifications: @username / @semua di grup & global (realtime ke yang disebut)
@@ -2053,9 +2062,22 @@ export function deleteCallHistory(ids: string[]) {
     // optimis: hilang dari daftar detik ini juga
     db.calls = db.calls.map((c) => (ids.includes(c.id) ? { ...c, hiddenFor: [...(c.hiddenFor ?? []), me.id] } : c));
     bump();
-    const batch = writeBatch(fb.db);
-    targets.forEach((c) => batch.update(doc(fb.db, C.calls, c.id), { hiddenFor: arrayUnion(me.id) }));
-    batch.commit().catch(() => {});
+    // FIX NYANGKUT: batch dengan RETRY (jaringan lambat sering membuat commit gagal
+    // diam-diam → listener server mengembalikan item yang sudah "dihapus").
+    (async () => {
+      for (let i = 0; i < 3; i++) {
+        try {
+          const b = writeBatch(fb.db);
+          targets.forEach((c) => b.update(doc(fb.db, C.calls, c.id), { hiddenFor: arrayUnion(me.id) }));
+          await b.commit();
+          return;
+        } catch (err: any) {
+          const code = String(err?.code ?? '');
+          if (code.includes('permission-denied')) return; // jangan retry kesalahan izin
+          if (i < 2) await new Promise((r) => setTimeout(r, 1200));
+        }
+      }
+    })();
     // bersihkan notifikasi panggilan milikku untuk chat yang dihapus
     const chatIds = new Set(targets.map((c) => c.chatId));
     const notifs = db.notifications.filter((n) => n.kind === 'call' && n.userId === me.id && n.id && chatIds.has(n.chatId ?? ''));
