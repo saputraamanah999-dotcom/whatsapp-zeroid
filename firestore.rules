@@ -1,5 +1,5 @@
 rules_version = '2';
-// ZEROID WHATSAPP — FIRESTORE RULES v14 (lastCallsSeenAt whitelisted + ledger read toleran doc kosong + usermeta create fix v13)
+// ZEROID WHATSAPP — FIRESTORE RULES v15 (FIX CHECK-IN SEMUA USER: syarat ekonomi berbasis affectedKeys — 'in request.resource.data' ternyata selalu kena dokumen gabungan fieldMask → referralCode/lastCheckinAt menolak semua tulisan ekonomi user biasa; pola sama dibersihkan di streakChatUpdate & hiddenFor)
 // WAJIB terpasang di Firebase Console (atau otomatis via GitHub Actions).
 // Cek status izin live: /seed.html (tes izin server) atau /rules.html (panduan pasang).
 service cloud.firestore {
@@ -56,7 +56,17 @@ service cloud.firestore {
                   'otpVerified','verified','fcmToken','mutedUntil','orderAttempts','lastCallsSeenAt']);
     }
 
-    // EKONOMI KOIN (v9) — self-write dengan rem:
+    // EKONOMI KOIN (v15 — FIX CHECK-IN DITOLAK UNTUK SEMUA USER BIASA):
+    //   BUG LAMA (v9-v14): 'referralCode' in request.resource.data — pada update
+    //   ber-fieldMask, request.resource.data = DOKUMEN GABUNGAN (hasil akhir), jadi
+    //   field yang TIDAK diubah tetap "ada" di dalamnya. Akibatnya syarat
+    //   "referralCode == ''" dievaluasi untuk SEMUA tulisan ekonomi → user yang
+    //   sudah punya kode referral (semua user!) PERMANEN ditolak saat check-in
+    //   (kecuali developer yang lewat jalur isAdmin). Pola sama merusak
+    //   lastCheckinAt untuk tulisan ekonomi lain.
+    //   FIX: semua syarat kini berbasis affectedKeys (k) — hanya field yang
+    //   BENAR-BENAR berubah yang dihitung.
+    // Rem ekonomi (tetap sama):
     //  - koin naik maks +6.000 per tulisan (check-in 1.500, referral 5.000) — 1 koin = Rp1
     //  - bestStreak / checkinStreak naik maks +1 per tulisan
     //  - ANTI-SPAM CHECK-IN: kalau lastCheckinAt berubah, WAJIB maju ≥19 jam
@@ -65,18 +75,18 @@ service cloud.firestore {
     function selfEconomyUpdate() {
       let k = request.resource.data.diff(resource.data).affectedKeys();
       return k.hasOnly(['points','bestStreak','checkinStreak','lastCheckinAt','referralCode','referredBy','fireRevives'])
-        && (!('points' in request.resource.data)
+        && (!k.hasAny(['points'])
             || request.resource.data.get('points', 0) <= resource.data.get('points', 0) + 6000)
-        && (!('bestStreak' in request.resource.data)
+        && (!k.hasAny(['bestStreak'])
             || request.resource.data.get('bestStreak', 0) <= resource.data.get('bestStreak', 0) + 1)
-        && (!('checkinStreak' in request.resource.data)
+        && (!k.hasAny(['checkinStreak'])
             || request.resource.data.get('checkinStreak', 0) <= resource.data.get('checkinStreak', 0) + 1)
-        && (!('lastCheckinAt' in request.resource.data)
+        && (!k.hasAny(['lastCheckinAt'])
             || (request.resource.data.get('lastCheckinAt', 0) > resource.data.get('lastCheckinAt', 0)
                 && request.resource.data.get('lastCheckinAt', 0) >= resource.data.get('lastCheckinAt', 0) + 68400000))
-        && (!('referralCode' in request.resource.data)
+        && (!k.hasAny(['referralCode'])
             || resource.data.get('referralCode', '') == '')
-        && (!('referredBy' in request.resource.data)
+        && (!k.hasAny(['referredBy'])
             || resource.data.get('referredBy', '') == '');
     }
 
@@ -96,16 +106,16 @@ service cloud.firestore {
         .hasOnly(['lastRead','typing','pinnedBy','mutedBy','archivedBy','lastMsg','blueCheckPot','streakDeadNotifiedAt']);
     }
 
-    // STREAK API (v8): anggota mana pun boleh memutakhirkan api chat —
-    // streakCount maks +1 per tulisan, streakDay/streakUpdatedAt wajib maju (monoton).
+    // STREAK API (v8, pola affectedKeys sejak v15): anggota mana pun boleh
+    // memutakhirkan api chat — streakCount maks +1 per tulisan, day/time monoton.
     function streakChatUpdate() {
       let k = request.resource.data.diff(resource.data).affectedKeys();
       return k.hasOnly(['streakCount','streakDay','streakUpdatedAt'])
-        && (!('streakCount' in request.resource.data)
+        && (!k.hasAny(['streakCount'])
             || request.resource.data.get('streakCount', 1) <= resource.data.get('streakCount', 0) + 1)
-        && (!('streakDay' in request.resource.data)
+        && (!k.hasAny(['streakDay'])
             || request.resource.data.get('streakDay', 0) >= resource.data.get('streakDay', 0))
-        && (!('streakUpdatedAt' in request.resource.data)
+        && (!k.hasAny(['streakUpdatedAt'])
             || request.resource.data.get('streakUpdatedAt', 0) >= resource.data.get('streakUpdatedAt', 0));
     }
 
@@ -262,7 +272,9 @@ service cloud.firestore {
       allow update: if signedIn() && (resource.data.get('callerId', '') == me() || me() in resource.data.get('calleeIds', []))
                     && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','connectedAt','endedAt','hiddenFor'])
                     // hiddenFor hanya bertambah (union), tidak pernah menyusut / menulis field lain
-                    && (!('hiddenFor' in request.resource.data)
+                    // (v15: cek berbasis affectedKeys — jangan evaluasi hiddenFor saat field ini
+                    //  tidak berubah; request.resource.data = dokumen gabungan pada fieldMask)
+                    && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['hiddenFor'])
                         || (request.resource.data.get('hiddenFor', []).hasAll(resource.data.get('hiddenFor', []))
                             && request.resource.data.get('hiddenFor', []).size() >= resource.data.get('hiddenFor', []).size()
                             && me() in request.resource.data.get('hiddenFor', [])));

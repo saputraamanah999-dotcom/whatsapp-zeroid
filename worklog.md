@@ -1,5 +1,55 @@
 # WORKLOG — ZEROID WHATSAPP
 
+## Ronde: CHECK-IN 0 KOIN (2 lapis) + TYPING AI + APK v1.1.0 fix crash (2026-10-30)
+
+### 1. CHECK-IN "berhasil tapi koin tetap 0" — DUA akar masalah, keduanya dibuktikan end-to-end
+- **Lapis 1 (client):** `mapUser()` di `lib/store.ts` MEMBUANG field
+  `points/checkinStreak/lastCheckinAt/bestStreak/referralCode/referredBy/refCount/fireRevives/lastCallsSeenAt`
+  dari snapshot Firestore → server sudah mengkredit (leaderboard tampil 6.000 koin,
+  dibuktikan langsung via service account: akun SAPUTRA WEB = zregfe1e punya points 6000,
+  streak 1 di server) tapi layar Koin selalu 0. **FIX:** semua field ekonomi kini dimapping.
+- **Lapis 2 (server, rules v14 → v15):** ditelusuri dengan probe user sungguhan
+  (login password → Firestore REST). Commit transaksi check-in DITOLAK 403 untuk SEMUA
+  user biasa. Akar: di rules, `request.resource.data` pada update ber-fieldMask =
+  **dokumen gabungan** (hasil akhir), sehingga `'referralCode' in request.resource.data`
+  selalu TRUE bagi user yang sudah punya kode referral → syarat "referralCode == ''"
+  gagal → DENY. Yang lolos hanya developer (jalur isAdmin). **FIX v15:** semua syarat
+  ekonomi berbasis `affectedKeys()` (hanya field yang benar-benar berubah), pola sama
+  dibersihkan di `streakChatUpdate` + `hiddenFor` (calls). **v15 diterbitkan LIVE via
+  Rules API** (ruleset e029dc15) sebelum commit.
+- **Verifikasi penuh (bukti nyata, bukan asumsi):** probe user login via UI → tekan
+  check-in → saldo 0 → **"1.000 koin ≈ Rp1.000"** + tombol terkunci + ledger terekam.
+  Anti-spam tetap jalan: re-check-in <19j DITOLAK, +8.000 koin sekali tulis DITOLAK,
+  ganti referralCode DITOLAK, fireRevives-only kini LOLOS (dulu ikut nyangkut).
+
+### 2. TYPING ZEROID AI — animasi "sedang mengetik…" kini muncul
+- Akar: AI bukan pengguna Firestore (tak bisa menulis `chat.typing`); indikator lama
+  cuma gelembung `'…'` statis tanpa animasi. **FIX:** flag lokal `db.aiTyping[chatId]`
+  (`aiTypingIn()`, auto-expire 2 menit) di-set `askAssistant` → ChatRoom (header
+  TypingSubtitle + gelembung TypingDots "Zeroid sedang mengetik…") + ChatRow.
+- Diverifikasi di browser: indikator MUNCUL saat AI menyusun jawaban dan HILANG saat
+  jawaban datang (uji dengan hook delay inert `__AI_TEST_DELAY__` di lib/ai.ts).
+
+### 3. APK v1.1.0 (versionCode 2) — crash AnyTypeProvider + "configuration required"
+- **Crash `NoClassDefFoundError: expo.modules.kotlin.types.AnyTypeProvider`** (4 laporan
+  "Kirim masukan" dari HP user): 15 modul native tidak selaras — `expo-location@19.0.8`
+  tertinggal 3 major dari SDK 57. **FIX:** `npx expo install --fix` — semua modul
+  dipaskan ke versi resmi SDK 57 (expo-location→57.0.22, async-storage 2.2.0,
+  gesture-handler 2.32, reanimated 4.5.1, dst).
+- **CI kini menulis .env** dari secret `ZEROID_WEB_ENV` (base64, dipasang via API) —
+  tanpa ini APK tampil "configuration required" (terbukti di build lokal tanpa env).
+  Hanya nilai PUBLIK (identik bundle web); kunci server tidak pernah masuk APK.
+- **Terbit otomatis ke GitHub Releases** (tautan unduh publik tanpa login) + `permissions:
+  contents: write` (dulu 403). Halaman **/apk.html** (cara pasang, update tanpa kehilangan
+  data, riwayat fix) + pintasan "Unduh APK Android" di tab Saya (web saja).
+- `app.json` → 1.1.0 / versionCode 2.
+
+### File utama
+- lib/store.ts (mapUser + aiTyping + askAssistant), lib/types.ts (DB.aiTyping),
+  lib/ai.ts (hook uji inert), screens/ChatRoom.tsx, components/ChatRow.tsx,
+  screens/tabs/MeTab.tsx, firestore.rules (v15), pwa/apk.html (BARU),
+  .github/workflows/build-apk.yml, package.json/lock (deps selaras), app.json (1.1.0)
+
 ## Ronde: Fix WHITE SCREEN + Vercel build gagal + Seed v5 + Index sekali-klik (2026-10-28)
 
 ### Akar masalah ditemukan & dibuktikan langsung di browser (headless)

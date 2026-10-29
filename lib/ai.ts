@@ -30,6 +30,11 @@ export type AiResult = { text: string; reasoning?: string };
 let modelCache: { at: number; models: string[] } | null = null;
 
 async function post(body: any, ms = 45000): Promise<any> {
+  // Hook uji (inert di produksi — selalu 0): memungkinkan menguji indikator
+  // "sedang mengetik" dengan memperlambat panggilan AI lewat console
+  // (__AI_TEST_DELAY__ = ms). Tidak mengubah perilaku normal sama sekali.
+  const testDelay = (globalThis as any).__AI_TEST_DELAY__ ?? 0;
+  if (testDelay > 0) await new Promise((r) => setTimeout(r, testDelay));
   return proxyPost('/api/ai', body, ms);
 }
 
