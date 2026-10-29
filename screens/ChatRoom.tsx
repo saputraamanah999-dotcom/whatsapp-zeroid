@@ -83,6 +83,15 @@ export default function ChatRoom() {
     return () => unsubscribeMessages(chatId);
   }, [chatId]);
 
+  // re-render periodik saat seseorang mengetik — bubble typing muncul/hilang real-time
+  const typingNow = Object.entries(chat?.typing ?? {}).some(([u, ts]) => u !== me?.id && (ts as number) > 0 && Date.now() - (ts as number) < 6000);
+  const [, tickTick] = useState(0);
+  useEffect(() => {
+    if (!typingNow) return;
+    const iv = setInterval(() => tickTick((x) => x + 1), 1500);
+    return () => clearInterval(iv);
+  }, [typingNow]);
+
   useFocusEffect(
     useCallback(() => {
       setActiveChat(chatId);

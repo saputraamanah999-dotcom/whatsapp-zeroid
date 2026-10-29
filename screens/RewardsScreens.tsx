@@ -16,17 +16,23 @@ export function RewardsScreen() {
   const t = useTheme() as Theme;
   const nav = useNavigation<any>();
   const [claiming, setClaiming] = useState(false);
+  const [claimed, setClaimed] = useState(false); // disable instan setelah check-in (anti tap-tap)
   if (!me) return null;
   const code = me.referralCode ?? refCodeFor(me.id);
   const link = `https://whatsapp-zeroid.vercel.app/?ref=${code}`;
-  const canCheckIn = Date.now() - (me.lastCheckinAt ?? 0) >= 20 * 3600000;
+  const canCheckIn = !claimed && Date.now() - (me.lastCheckinAt ?? 0) >= 20 * 3600000;
+  const nextIn = Math.max(0, 20 * 3600000 - (Date.now() - (me.lastCheckinAt ?? 0)));
+  const nextH = Math.floor(nextIn / 3600000), nextM = Math.ceil((nextIn % 3600000) / 60000);
 
   const doCheckIn = async () => {
+    if (!canCheckIn || claiming) return;
     setClaiming(true);
     const r = await dailyCheckIn(me);
     setClaiming(false);
-    if (r.ok) pushBanner({ title: 'Check-in berhasil', body: `+${r.reward} koin masuk ke saldomu!`, icon: 'gift' });
-    else pushBanner({ title: 'Check-in', body: r.error ?? 'Coba lagi nanti.', icon: 'alert' });
+    if (r.ok) {
+      setClaimed(true);
+      pushBanner({ title: 'Check-in berhasil', body: `+${(r.reward ?? 0).toLocaleString('id-ID')} koin masuk! Kembali lagi besok untuk +${CHECKIN_BASE} koin lagi.`, icon: 'gift' });
+    } else pushBanner({ title: 'Check-in', body: r.error ?? 'Coba lagi nanti.', icon: 'alert' });
   };
 
   const copyLink = async () => {
@@ -47,12 +53,21 @@ export function RewardsScreen() {
             </View>
             <View style={{ flex: 1, gap: 4 }}>
               <T v="body">Beruntun {me.checkinStreak ?? 0} hari</T>
-              <T v="caption" color={t.sub}>+{CHECKIN_BASE} koin per hari · bonus +{CHECKIN_STREAK_BONUS} tiap 7 hari beruntun. 1 koin = Rp10.</T>
+              <T v="caption" color={t.sub}>+{CHECKIN_BASE.toLocaleString('id-ID')} koin per hari · bonus +{CHECKIN_STREAK_BONUS.toLocaleString('id-ID')} tiap 7 hari beruntun. 1 koin = Rp1.</T>
             </View>
           </View>
           <View style={{ marginTop: 10 }}>
-            <Btn title={canCheckIn ? 'Check-in sekarang · +koin' : 'Sudah check-in hari ini'} icon={canCheckIn ? 'gift' : 'checkmark-circle'}
-              disabled={!canCheckIn || claiming} onPress={doCheckIn} />
+            <Btn
+              title={canCheckIn ? `Check-in sekarang · +${CHECKIN_BASE.toLocaleString('id-ID')} koin` : claiming ? 'Memproses…' : `Sudah check-in — kembali dalam ${nextH}j ${nextM}m`}
+              icon={canCheckIn ? 'gift' : 'checkmark-circle'}
+              disabled={!canCheckIn}
+              onPress={doCheckIn}
+            />
+            {!canCheckIn && (
+              <T v="caption" color={t.faint} style={{ marginTop: 6, textAlign: 'center' }}>
+                Tombol terkunci sampai besok — check-in hanya 1x per hari (dilindungi server).
+              </T>
+            )}
           </View>
         </Card>
 

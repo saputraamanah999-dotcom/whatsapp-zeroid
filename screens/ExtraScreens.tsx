@@ -35,7 +35,7 @@ import {
   orderLimitRemaining,
 } from '../lib/store';
 import { spendKoin } from '../lib/points';
-import { PRODUCTS, PAYMENT_METHODS, rupiah, productOf } from '../lib/products';
+import { PRODUCTS, PAYMENT_METHODS, rupiah, productOf, productSafe } from '../lib/products';
 import { resolveMedia } from '../lib/spotify';
 import { pickGallery, uploadMedia, pickVideo, uploadMediaDirect } from '../lib/media';
 import { pushBanner } from '../lib/bus';
@@ -242,16 +242,19 @@ export function PremiumScreen() {
         ))}
         {myOrders.length > 0 && (
           <Card title="Riwayat pesanan">
-            {myOrders.map((o) => (
+            {myOrders.filter((o) => o.id !== '_schema').map((o) => {
+            const po = productSafe(o.product);
+            return (
               <Row
                 key={o.id}
-                icon={productOf(o.product).icon as any}
-                iconColor={productOf(o.product).color}
-                title={`${productOf(o.product).title} · ${o.plan}`}
+                icon={po.icon as any}
+                iconColor={po.color}
+                title={`${po.title} · ${o.plan ?? '-'}`}
                 subtitle={`${rupiah(o.price)} · ${o.method} · ${chatTime(o.createdAt)} · ${o.status === 'pending' ? 'menunggu konfirmasi' : o.status === 'paid' ? 'lunas' : 'ditolak'}`}
-                onPress={() => nav.navigate('ChatRoom', { chatId: o.chatId })}
+                onPress={() => o.chatId && o.chatId !== '_schema' ? nav.navigate('ChatRoom', { chatId: o.chatId }) : undefined}
               />
-            ))}
+            );
+            })}
           </Card>
         )}
       </ScrollView>
@@ -273,14 +276,14 @@ export function PremiumScreen() {
               if (r && 'chatId' in r) nav.navigate('ChatRoom', { chatId: r.chatId });
             },
           })),
-          // BAYAR DENGAN KOIN: potong saldo koin langsung (1 koin = Rp10)
+          // BAYAR DENGAN KOIN: potong saldo koin langsung (1 koin = Rp1 → harga = jumlah koin)
           {
             icon: 'sparkles' as const,
-            label: `Koin Zeroid (${(me.points ?? 0).toLocaleString('id-ID')} koin · butuh ${Math.ceil(productOf(buy?.product ?? 'vip').plans[buy?.plan ?? 0].price / 10).toLocaleString('id-ID')})`,
+            label: `Koin Zeroid (${(me.points ?? 0).toLocaleString('id-ID')} koin · butuh ${Math.ceil(productOf(buy?.product ?? 'vip').plans[buy?.plan ?? 0].price).toLocaleString('id-ID')})`,
             onPress: async () => {
               if (!buy) return;
               const price = productOf(buy.product).plans[buy.plan].price;
-              const need = Math.ceil(price / 10);
+              const need = Math.ceil(price);
               const spent = await spendKoin(me, need, `beli ${productOf(buy.product).title}`);
               if (!spent.ok) {
                 pushBanner({ title: 'Koin belum cukup', body: spent.error ?? `Butuh ${need.toLocaleString('id-ID')} koin — ajak teman / check-in harian untuk nambah.`, icon: 'alert' });

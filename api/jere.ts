@@ -3,20 +3,19 @@
  * JEREXD_APIKEY stays server-side; the client only sends an action + params.
  * One endpoint, action-based routing, defensive response unwrapping.
  *
- * Actions (paths verified against the Jerexd endpoint docs):
- *  song_search   → GET /api/search/spotify        (query)
- *  song_play     → GET /api/downloader/play       (q)      direct audio by query
- *  song_download → GET /api/downloader/ytmp3      (url)    mp3 by youtube url
- *  lyrics        → GET /api/search/lirik          (q)
- *  yt_search     → GET /api/search/youtube        (q)
- *  yt_dl         → GET /api/downloader/youtube    (url, format)
- *  anime_latest  → GET /api/anime/latest
- *  anime_hot     → GET /api/anime/hot
- *  anime_search  → GET /api/anime/otakudesu-search (query)
- *  anime_detail  → GET /api/anime/otakudesu-detail-download (slug)
- *  anime_schedule→ GET /api/anime/jadwalrilis
- *  anime_quotes  → GET /api/random/animequotes
- *  anime_news    → GET /api/anime/berita
+ * Actions:
+ *  song_search   → GET jerexd /api/search/spotify        (query)
+ *  song_play     → GET jerexd /api/downloader/play       (q)      direct audio by query
+ *  song_download → GET jerexd /api/downloader/ytmp3      (url)    mp3 by youtube url
+ *  lyrics        → GET jerexd /api/search/lirik          (q)
+ *  yt_search     → GET jerexd /api/search/youtube        (q)
+ *  yt_dl         → GET jerexd /api/downloader/youtube    (url, format)
+ *
+ * ANIME (v9 — tanpa API key): SEMUA 27 endpoint kategori ANIME siputzx.my.id
+ * dipakai sebagai sumber utama dengan failover senyap antar endpoint, lalu
+ * fallback Jikan/ANN. Lihat blok "SIPUTZX (keyless) — 27 ENDPOINT ANIME".
+ *  anime_latest / anime_hot / anime_search / anime_detail / anime_schedule /
+ *  anime_quotes / anime_news
  */
 export const config = { runtime: 'nodejs' };
 // yt_dl / ytmp3 upstream can take ~60s — without this Vercel's short default
@@ -150,7 +149,9 @@ function normYt(data: any): any[] {
   });
 }
 
-const slugify = (v: string) => v.replace(/^https?:\/\/[^/]+\/anime\//, '').replace(/\/+$/, '');
+/** URL absolut (anichin/samehadaku/komikindo) tetap utuh sebagai slug supaya
+ *  detail-chain bisa memilih scraper yang TEPAT; slug pendek dianggap otakudesu. */
+const slugify = (v: string) => (/^https?:\/\//.test(v) ? v : v.replace(/^https?:\/\/[^/]+\/anime\//, '').replace(/\/+$/, ''));
 
 function normAnimeList(data: any): any[] {
   const p = unwrap(data);
@@ -170,20 +171,21 @@ function normAnimeList(data: any): any[] {
     ? data.result.items
     : [];
   return list.slice(0, 60).map((a: any) => ({
-    slug: slugify(txt(a, ['slug', 'id', 'endpoint', 'link', 'url'])),
+    slug: slugify(txt(a, ['slug', 'id', 'endpoint', 'link', 'url', 'href'])),
     title: txt(a, ['title', 'name', 'judul']) || 'Anime',
-    poster: txt(a, ['poster', 'thumb', 'image', 'img', 'cover']) || undefined,
-    rating: txt(a, ['rating', 'score', 'nilai']) || undefined,
+    poster: txt(a, ['poster', 'thumb', 'thumbnail', 'image', 'img', 'cover', 'gambar']) || undefined,
+    rating: txt(a, ['rating', 'score', 'skor', 'nilai']) || undefined,
     status: txt(a, ['status', 'type']) || undefined,
-    synopsis: txt(a, ['synopsis', 'desc', 'description']) || undefined,
-    releaseDay: txt(a, ['day', 'release_day', 'hari', 'jadwal']) || undefined,
+    episode: txt(a, ['episode', 'eps', 'episode_num', 'terbaru']) || undefined,
+    synopsis: txt(a, ['synopsis', 'desc', 'description', 'sinopsis']) || undefined,
+    releaseDay: txt(a, ['day', 'release_day', 'hari', 'jadwal', 'schedule']) || undefined,
   }));
 }
 
 function normAnimeDetail(data: any): any {
   const p = unwrap(data);
   const d = Array.isArray(p) ? p[0] ?? {} : p ?? {};
-  const episodesSrc = d.episodes ?? d.episodeList ?? d.episode_list ?? d.eps ?? [];
+  const episodesSrc = d.episodes ?? d.episodeList ?? d.episode_list ?? d.eps ?? d.anime_episode ?? [];
   const episodes = (Array.isArray(episodesSrc) ? episodesSrc : []).slice(0, 200).map((e: any) => {
     if (typeof e === 'string') {
       return { slug: slugify(e), title: e.replace(/[-_]/g, ' '), poster: undefined };
@@ -195,7 +197,7 @@ function normAnimeDetail(data: any): any {
       date: txt(e, ['date', 'released', 'uploaded_on', 'rilis']) || undefined,
     };
   });
-  const dlSrc = d.download ?? d.downloadLinks ?? d.download_links ?? d.downloads ?? [];
+  const dlSrc = d.download ?? d.downloadLinks ?? d.download_links ?? d.downloads ?? d.download_url ?? [];
   const downloads = (Array.isArray(dlSrc) ? dlSrc : []).slice(0, 60).map((x: any) => {
     if (typeof x === 'string') return { label: 'Unduh', urls: [{ label: 'Unduh', url: x }] };
     const urls: { label: string; url: string }[] = [];
@@ -217,11 +219,11 @@ function normAnimeDetail(data: any): any {
     .filter(Boolean)
     .slice(0, 12);
   return {
-    slug: slugify(txt(d, ['slug', 'id', 'endpoint'])),
+    slug: slugify(txt(d, ['slug', 'id', 'endpoint', 'url', 'link'])),
     title: txt(d, ['title', 'name', 'judul']) || 'Anime',
-    poster: txt(d, ['poster', 'thumb', 'image', 'img', 'cover']) || undefined,
+    poster: txt(d, ['poster', 'thumb', 'thumbnail', 'image', 'img', 'cover', 'gambar']) || undefined,
     banner: txt(d, ['banner', 'background']) || undefined,
-    rating: txt(d, ['rating', 'score']) || undefined,
+    rating: txt(d, ['rating', 'score', 'skor']) || undefined,
     status: txt(d, ['status']) || undefined,
     studio: txt(d, ['studio']) || undefined,
     released: txt(d, ['released', 'release_date', 'rilis']) || undefined,
@@ -353,6 +355,104 @@ async function annNews(): Promise<any[]> {
   }
 }
 
+// ============================ SIPUTZX (keyless) — 27 ENDPOINT ANIME ============================
+// Semua endpoint kategori ANIME docs.siputzx (27 buah) dipakai di sini sebagai
+// SUMBER UTAMA (tanpa API key), berantai dengan FAILOVER SENYAP: kalau satu
+// endpoint kosong/limit/gagal → otomatis coba berikutnya → terakhir Jikan/ANN.
+//
+//   anime_latest  : otakudesu/ongoing → oploverz-ongoing → anichin-latest → samehadaku/latest → auratail-latest
+//   anime_hot     : anichin-popular
+//   anime_search  : otakudesu/search → anichin-search → oploverz-search → samehadaku/search → komikindo-search → auratail-search
+//   anime_detail  : otakudesu/detail → anichin-detail → anichin-episode → oploverz-episode → samehadaku/detail → komikindo-detail → auratail-detail
+//   (unduhan)     : otakudesu/download → anichin-download → oploverz-download → samehadaku/download → komikindo-download
+//   anime_schedule: auratail-schedule → samehadaku/release
+//   anime_quotes  : /api/s/animequotes
+//   anime_news    : samehadaku/release
+
+const SIPUTZX_BASE = 'https://api.siputzx.my.id';
+
+async function sipGet(path: string, params: Record<string, string> = {}, timeoutMs = 32000): Promise<any | null> {
+  try {
+    const qs = new URLSearchParams(params).toString();
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    const r = await fetch(`${SIPUTZX_BASE}${path}${qs ? `?${qs}` : ''}`, {
+      headers: { accept: 'application/json', 'user-agent': 'zeroid-anime/1.0' },
+      signal: ctl.signal,
+    });
+    clearTimeout(timer);
+    if (!r.ok) return null;
+    const j = await r.json().catch(() => null);
+    if (!j || j.status === false) return null;
+    return j.data ?? j.result ?? j;
+  } catch { return null; }
+}
+
+/** coba pembuat-pembuat secara berurutan; hasil PERTAMA yang tidak kosong menang. */
+async function firstNonEmpty<T>(makers: Array<() => Promise<T | null>>): Promise<T | null> {
+  for (const mk of makers) {
+    try {
+      const v = await mk();
+      if (v) return v;
+    } catch { /* lanjut berikutnya — tanpa pemberitahuan */ }
+  }
+  return null;
+}
+
+const sipList = async (path: string, params: Record<string, string> = {}): Promise<any[] | null> => {
+  const d = await sipGet(path, params);
+  const list = normAnimeList(d);
+  return listHasItems(list) ? list : null;
+};
+
+const sipDetail = async (path: string, param: string, url: string): Promise<any | null> => {
+  const d = await sipGet(path, { [param]: url }, 40000);
+  const a = normAnimeDetail(d);
+  return a.slug || a.episodes.length || a.synopsis || a.downloads.length ? a : null;
+};
+
+/** URL episode/detail bisa berupa slug pendek → utus sebagai URL penuh bila sudah http(s). */
+const asUrl = (v: string) => (/^https?:\/\//.test(v) ? v : `https://otakudesu.cloud/anime/${v}/`);
+
+async function sipAnimeDetail(url: string): Promise<any | null> {
+  // pilih scraper utama sesuai domain URL (slug bisa dari sumber mana pun)
+  const u = url.toLowerCase();
+  const chain = u.includes('anichin')
+    ? ['/api/anime/anichin-detail', 'url', '/api/anime/otakudesu/detail', 'url', '/api/anime/samehadaku/detail', 'link', '/api/anime/komikindo-detail', 'url', '/api/anime/auratail-detail', 'url']
+    : u.includes('samehadaku')
+    ? ['/api/anime/samehadaku/detail', 'link', '/api/anime/otakudesu/detail', 'url', '/api/anime/anichin-detail', 'url', '/api/anime/komikindo-detail', 'url', '/api/anime/auratail-detail', 'url']
+    : u.includes('komikindo')
+    ? ['/api/anime/komikindo-detail', 'url', '/api/anime/otakudesu/detail', 'url', '/api/anime/anichin-detail', 'url', '/api/anime/samehadaku/detail', 'link', '/api/anime/auratail-detail', 'url']
+    : ['/api/anime/otakudesu/detail', 'url', '/api/anime/anichin-detail', 'url', '/api/anime/samehadaku/detail', 'link', '/api/anime/komikindo-detail', 'url', '/api/anime/auratail-detail', 'url'];
+  const detail = await firstNonEmpty<any>([
+    () => sipDetail(chain[0], chain[1], url),
+    () => sipDetail(chain[2], chain[3], url),
+    () => sipDetail(chain[4], chain[5], url),
+    () => sipDetail(chain[6], chain[7], url),
+    () => sipDetail(chain[8], chain[9], url),
+  ]);
+  // episode list & unduhan dilengkapi dari endpoint khusus bila detail kurang
+  if (detail && !detail.episodes.length) {
+    const eps = await firstNonEmpty<any[]>([
+      () => sipList('/api/anime/anichin-episode', { url }),
+      () => sipList('/api/anime/oploverz-episode', { url }),
+    ]);
+    if (eps) detail.episodes = eps.map((e: any) => ({ slug: e.slug || e.url, title: e.title, poster: e.poster }));
+  }
+  if (detail && !detail.downloads.length) {
+    const raw = await firstNonEmpty<any>([
+      () => sipGet('/api/anime/otakudesu/download', { url }, 40000),
+      () => sipGet('/api/anime/anichin-download', { url }, 40000),
+      () => sipGet('/api/anime/oploverz-download', { url }, 40000),
+      () => sipGet('/api/anime/samehadaku/download', { url }, 40000),
+      () => sipGet('/api/anime/komikindo-download', { url }, 40000),
+    ]);
+    const nd = raw ? normAnimeDetail({ download: raw }) : null;
+    if (nd?.downloads?.length) detail.downloads = nd.downloads;
+  }
+  return detail;
+}
+
 const listHasItems = (v: any) => Array.isArray(v) && v.length > 0;
 
 export default async function handler(req: any, res: any) {
@@ -369,7 +469,6 @@ export default async function handler(req: any, res: any) {
   let body: any;
   try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body; } catch { return fail(res, 400, 'Body tidak valid.'); }
 
-  const action = String(body?.action ?? '');
   const s = (v: any, max = 300) => String(v ?? '').slice(0, max).trim();
 
   const routes: Record<string, () => Promise<{ ok: boolean; status: number; data: any }>> = {
@@ -379,62 +478,99 @@ export default async function handler(req: any, res: any) {
     lyrics: () => jereGet('/api/search/lirik', { q: s(body.q, 160) }),
     yt_search: () => jereGet('/api/search/youtube', { q: s(body.q, 120) }),
     yt_dl: () => jereGet('/api/downloader/youtube', { url: s(body.url, 400), format: s(body.format, 10) || 'mp3' }, 60000),
-    anime_latest: () => jereGet('/api/anime/latest', {}),
-    anime_hot: () => jereGet('/api/anime/hot', {}),
-    anime_search: () => jereGet('/api/anime/otakudesu-search', { query: s(body.query, 120) }),
-    anime_detail: () => jereGet('/api/anime/otakudesu-detail-download', { slug: s(body.slug, 200) }, 45000),
-    anime_schedule: () => jereGet('/api/anime/jadwalrilis', {}),
-    anime_quotes: () => jereGet('/api/random/animequotes', {}),
-    anime_news: () => jereGet('/api/anime/berita', {}),
   };
 
-  const run = routes[action];
-  if (!run) return fail(res, 400, 'Aksi tidak dikenal.');
+  const action = String(body?.action ?? '');
   const isAnime = action.startsWith('anime_');
-  // anime tetap BISA jalan tanpa JEREXD_APIKEY lewat fallback Jikan/ANN
+  const run = routes[action];
+  if (!run && !isAnime) return fail(res, 400, 'Aksi tidak dikenal.');
+  // musik masih butuh key Jerexd; ANIME TIDAK LAGI (jalan penuh via siputzx keyless + fallback)
   if (!process.env.JEREXD_APIKEY && !isAnime) return fail(res, 503, 'Layanan konten belum dikonfigurasi (JEREXD_APIKEY tidak ada di server).');
 
-  try {
-    const r = await run().catch(() => ({ ok: false, status: 0, data: null }));
-    const upstreamEmpty =
-      ['anime_latest', 'anime_hot', 'anime_search', 'anime_schedule'].includes(action) && !listHasItems(normAnimeList(r.data));
-    if (isAnime && (!r.ok || !r.data || upstreamEmpty)) {
-      // ---- FALLBACK keyless: Jikan / ANN ----
-      try {
-        if (action === 'anime_latest') {
-          const d = await jikan('/top/anime?filter=airing&limit=24');
-          const list = (d?.data ?? []).map(jikanCard);
-          if (listHasItems(list)) return res.status(200).json({ ok: true, list, source: 'jikan' });
-        } else if (action === 'anime_hot') {
-          const d = await jikan('/seasons/now?limit=24');
-          const list = (d?.data ?? []).map(jikanCard);
-          if (listHasItems(list)) return res.status(200).json({ ok: true, list, source: 'jikan' });
-        } else if (action === 'anime_schedule') {
-          const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-          const day = days[new Date().getDay()];
-          const d = await jikan(`/schedules?filter=${day}&limit=24&sfw=true`);
-          const list = (d?.data ?? []).map(jikanCard);
-          if (listHasItems(list)) return res.status(200).json({ ok: true, list, source: 'jikan' });
-        } else if (action === 'anime_search') {
-          const q = s(body.query, 120);
-          const d = await jikan(`/anime?q=${encodeURIComponent(q)}&limit=24&sfw=true`);
-          const list = (d?.data ?? []).map(jikanCard);
-          if (listHasItems(list)) return res.status(200).json({ ok: true, list, source: 'jikan' });
-        } else if (action === 'anime_detail') {
-          const slug = s(body.slug, 200);
-          if (slug.startsWith('jikan:')) {
-            const d = await jikanDetail(slug);
-            return res.status(200).json({ ok: true, anime: d, source: 'jikan' });
-          }
-        } else if (action === 'anime_quotes') {
-          const quotes = await jikanQuotes();
-          if (quotes.length) return res.status(200).json({ ok: true, quotes, source: 'jikan' });
-        } else if (action === 'anime_news') {
-          const news = await annNews();
-          if (news.length) return res.status(200).json({ ok: true, news, source: 'ann' });
+  // ---------------- ANIME: SIPUTZX 27 endpoint → Jikan/ANN → gagal ----------------
+  if (isAnime) {
+    try {
+      if (action === 'anime_latest' || action === 'anime_hot') {
+        const list = await firstNonEmpty<any[]>([
+          () => sipList('/api/anime/otakudesu/ongoing'),
+          () => sipList('/api/anime/oploverz-ongoing'),
+          action === 'anime_latest' ? () => sipList('/api/anime/anichin-latest') : () => sipList('/api/anime/anichin-popular'),
+          () => sipList('/api/anime/samehadaku/latest'),
+          () => sipList('/api/anime/auratail-latest'),
+        ]);
+        if (list) return res.status(200).json({ ok: true, list, source: 'siputzx' });
+        const jk = action === 'anime_latest' ? await jikan('/top/anime?filter=airing&limit=24') : await jikan('/seasons/now?limit=24');
+        const jl = (jk?.data ?? []).map(jikanCard);
+        if (listHasItems(jl)) return res.status(200).json({ ok: true, list: jl, source: 'jikan' });
+        return fail(res, 502, 'Sumber anime sedang gangguan — coba lagi sebentar.');
+      }
+      if (action === 'anime_search') {
+        const q = s(body.query, 120);
+        if (!q) return fail(res, 400, 'Kata kunci pencarian kosong.');
+        const list = await firstNonEmpty<any[]>([
+          () => sipList('/api/anime/otakudesu/search', { s: q }),
+          () => sipList('/api/anime/anichin-search', { query: q }),
+          () => sipList('/api/anime/oploverz-search', { query: q }),
+          () => sipList('/api/anime/samehadaku/search', { query: q }),
+          () => sipList('/api/anime/komikindo-search', { query: q }),
+          () => sipList('/api/anime/auratail-search', { query: q }),
+        ]);
+        if (list) return res.status(200).json({ ok: true, list, source: 'siputzx' });
+        const d = await jikan(`/anime?q=${encodeURIComponent(q)}&limit=24&sfw=true`);
+        const jl = (d?.data ?? []).map(jikanCard);
+        if (listHasItems(jl)) return res.status(200).json({ ok: true, list: jl, source: 'jikan' });
+        return fail(res, 502, 'Pencarian gagal — sumber anime sedang gangguan.');
+      }
+      if (action === 'anime_detail') {
+        const slug = s(body.slug, 300);
+        if (slug.startsWith('jikan:')) {
+          const d = await jikanDetail(slug);
+          return res.status(200).json({ ok: true, anime: d, source: 'jikan' });
         }
-      } catch { /* fallback failed — jatuh ke pesan error utama */ }
+        const anime = await sipAnimeDetail(asUrl(slug));
+        if (anime) return res.status(200).json({ ok: true, anime, source: 'siputzx' });
+        return fail(res, 502, 'Detail anime tidak dapat dibaca — coba judul lain.');
+      }
+      if (action === 'anime_schedule') {
+        const list = await firstNonEmpty<any[]>([
+          () => sipList('/api/anime/auratail-schedule'),
+          () => sipList('/api/anime/samehadaku/release'),
+        ]);
+        if (list) return res.status(200).json({ ok: true, list, source: 'siputzx' });
+        const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const day = days[new Date().getDay()];
+        const d = await jikan(`/schedules?filter=${day}&limit=24&sfw=true`);
+        const jl = (d?.data ?? []).map(jikanCard);
+        if (listHasItems(jl)) return res.status(200).json({ ok: true, list: jl, source: 'jikan' });
+        return fail(res, 502, 'Jadwal rilis sedang tidak tersedia.');
+      }
+      if (action === 'anime_quotes') {
+        const seeds = ['naruto', 'one piece', 'jujutsu kaisen', 'aot', 'demonslayer', 'bleach', 'spy x family'];
+        const q = s(body.query, 80) || seeds[Math.floor(Math.random() * seeds.length)];
+        const d = await sipGet('/api/s/animequotes', { query: q });
+        const quotes = normQuotes(d);
+        if (quotes.length) return res.status(200).json({ ok: true, quotes, source: 'siputzx' });
+        const jq = await jikanQuotes();
+        if (jq.length) return res.status(200).json({ ok: true, quotes: jq, source: 'jikan' });
+        return fail(res, 502, 'Kutipan tidak dapat dibaca dari layanan.');
+      }
+      if (action === 'anime_news') {
+        const d = await sipGet('/api/anime/samehadaku/release');
+        const news = normNews(d);
+        if (news.length) return res.status(200).json({ ok: true, news, source: 'siputzx' });
+        const an = await annNews();
+        if (an.length) return res.status(200).json({ ok: true, news: an, source: 'ann' });
+        return fail(res, 502, 'Berita anime sedang tidak tersedia.');
+      }
+      return fail(res, 400, 'Aksi anime tidak dikenal.');
+    } catch (e: any) {
+      const msg = e?.name === 'AbortError' ? 'Waktu tunggu layanan anime habis.' : 'Gagal menghubungi layanan anime.';
+      return fail(res, 504, msg);
     }
+  }
+
+  try {
+    const r = await run!().catch(() => ({ ok: false, status: 0, data: null }));
     if (!r.ok || !r.data) {
       const msg = String(r.data?.error ?? r.data?.message ?? `HTTP ${r.status}`);
       return fail(res, 502, `Layanan gagal: ${msg.slice(0, 160)}`);

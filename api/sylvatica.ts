@@ -70,24 +70,54 @@ export default async function handler(req: any, res: any) {
   try {
     // ---------- BRAT sticker ----------
     if (action === 'brat') {
-      const text = String(q.text ?? '').trim().slice(0, 90);
+      const text = String(q.text ?? req.body?.text ?? '').trim().slice(0, 90);
       if (!text) return bad(res, 400, 'Teks stiker kosong.');
-      const r = await sylvGet(`/maker/brat?text=${encodeURIComponent(text)}`, 35000);
-      if (!r.ok || !r.buf || r.buf.length < 100) {
-        const msg = String(r.data?.message ?? r.data?.error ?? `HTTP ${r.status}`);
-        return bad(res, 502, `Gagal membuat stiker: ${msg.slice(0, 140)}`);
-      }
+      const delay = String(q.delay ?? '500').replace(/\D/g, '') || '500';
+
+      // GAMBAR PNG dari berbagai penyedia — kalau satu kena limit/gagal,
+      // otomatis lanjut ke berikutnya TANPA pemberitahuan (failover senyap).
+      const png = async (url: string, init?: any, timeoutMs = 30000): Promise<Buffer | null> => {
+        try {
+          const r = await fetch(url, { headers: { accept: 'image/png, image/jpeg, image/*, */*' }, signal: AbortSignal.timeout(timeoutMs), ...init });
+          if (!r.ok) return null;
+          const ct = r.headers.get('content-type') ?? '';
+          if (!ct.includes('image/')) return null;
+          const buf = Buffer.from(await r.arrayBuffer());
+          return buf.length > 100 ? buf : null;
+        } catch { return null; }
+      };
+
+      // 1) SIPUTZX GET — https://api.siputzx.my.id/api/m/brat?text=...&delay=500 (tanpa key)
+      // 2) SIPUTZX POST — body JSON { text, isAnimated: false, delay: 500 } (tanpa key)
+      // 3) SYLVATICA — /api/maker/brat?text=&apikey= (cadangan bila siputzx limit)
+      let buf: Buffer | null =
+        (await png(`https://api.siputzx.my.id/api/m/brat?text=${encodeURIComponent(text)}&delay=${delay}`))
+        ?? (await png('https://api.siputzx.my.id/api/m/brat', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ text, isAnimated: false, delay: Number(delay) || 500 }),
+        }))
+        ?? (await (async () => {
+          if (!key()) return null;
+          const r = await sylvGet(`/maker/brat?text=${encodeURIComponent(text)}`, 35000);
+          return r.ok && r.buf && r.buf.length > 100 ? r.buf : null;
+        })());
+
+      if (!buf) return bad(res, 502, 'Gagal membuat stiker: semua penyedia sedang tidak tersedia. Coba lagi nanti.');
+
       // 1) host permanen di Supabase bila tersedia
       const env = supabaseEnv();
       if (env) {
-        const up = await upStorage(env, r.buf, 'image/png', `brat_${text.replace(/\s+/g, '_').slice(0, 24)}.png`, 'sticker');
+        const up = await upStorage(env, buf, 'image/png', `brat_${text.replace(/\s+/g, '_').slice(0, 24)}.png`, 'sticker');
         if (up) {
-          void logMedia(env, { kind: 'sticker_brat', url: up.url, path: up.path, mime: 'image/png', size: r.buf.length, created_at: new Date().toISOString() });
+          void logMedia(env, { kind: 'sticker_brat', url: up.url, path: up.path, mime: 'image/png', size: buf.length, created_at: new Date().toISOString() });
+          res.setHeader('Cache-Control', 'public, max-age=86400');
           return res.status(200).json({ ok: true, url: up.url, provider: 'supabase' });
         }
       }
       // 2) fallback: data URL (masih jadi stiker valid, hanya tidak permanen)
-      return res.status(200).json({ ok: true, dataUrl: `data:image/png;base64,${r.buf.toString('base64')}`, provider: 'inline' });
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.status(200).json({ ok: true, dataUrl: `data:image/png;base64,${buf.toString('base64')}`, provider: 'inline' });
     }
 
     // ---------- TikTok download ----------

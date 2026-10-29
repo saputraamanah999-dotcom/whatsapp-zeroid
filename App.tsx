@@ -220,6 +220,44 @@ function MaintenanceGate({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * Kunci perangkat saat ban aktif — TAMPIL SEBELUM login: membuat akun baru /
+ * ganti akun / login Google TIDAK membantu sampai masa blokir selesai.
+ * (Ban evasion guard — sesuai aturan moderasi Zeroid.)
+ */
+function DeviceBanGate({ children }: { children: React.ReactNode }) {
+  const { deviceBan, ready } = useStore();
+  const t = useTheme();
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    if (!deviceBan) return;
+    const iv = setInterval(() => force((x) => x + 1), 1000); // hitung mundur hidup
+    return () => clearInterval(iv);
+  }, [deviceBan?.until]);
+  if (!deviceBan || !ready) return <>{children}</>;
+  const left = deviceBan.until > 0 ? Math.max(0, deviceBan.until - Date.now()) : 0;
+  const d = Math.floor(left / 86400000), h = Math.floor((left % 86400000) / 3600000), m = Math.floor((left % 3600000) / 60000), s = Math.floor((left % 60000) / 1000);
+  const cd = deviceBan.until > 0 ? (d > 0 ? `${d} hari ${h} jam` : h > 0 ? `${h} jam ${m} menit` : `${m} menit ${s} detik`) : 'permanen';
+  return (
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.bg, padding: 30, gap: 14 }}>
+      <View style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: 'rgba(255,59,92,0.14)', alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name="ban" size={44} color={t.danger} />
+      </View>
+      <T v="h1" style={{ textAlign: 'center' }}>Perangkat ini diblokir</T>
+      <T v="sub" style={{ textAlign: 'center', maxWidth: 400 }}>
+        {deviceBan.reason ?? 'Tercatat pada akun yang diblokir admin.'} Membuat akun baru atau ganti akun TIDAK akan membantu — tunggu masa blokir selesai.
+      </T>
+      <View style={{ paddingHorizontal: 18, paddingVertical: 10, borderRadius: 14, backgroundColor: t.bg, boxShadow: t.raisedSm } as any}>
+        <T v="h2" color={t.danger} style={{ fontVariant: ['tabular-nums'] }}>{cd}</T>
+        <T v="caption" color={t.faint} style={{ textAlign: 'center' }}>sisa waktu blokir</T>
+      </View>
+      <T v="caption" color={t.faint} style={{ textAlign: 'center', maxWidth: 380 }}>
+        Setelah blokir terbuka, kamu bebas masuk kembali dengan akun mana pun. Jika merasa ada kekeliruan, hubungi admin melalui WhatsApp resmi Zeroid.
+      </T>
+    </View>
+  );
+}
+
 export default function App() {
   const [fontsLoaded] = useFonts({ ...Ionicons.font });
   const { ready, me, locked, config } = useStore();
@@ -283,6 +321,7 @@ export default function App() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <NavigationContainer ref={nav} theme={navTheme} onStateChange={handleNavStateChange} documentTitle={{ formatter: () => 'Zeroid WhatsApp' }}>
+          <DeviceBanGate>
           <MaintenanceGate>
             {!isFirebaseConfigured ? (
               <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -348,6 +387,7 @@ export default function App() {
               </>
             )}
           </MaintenanceGate>
+          </DeviceBanGate>
           {me && !locked && isFirebaseConfigured && <IncomingCallHost />}
           <PermissionHost />
           <BannerHost />

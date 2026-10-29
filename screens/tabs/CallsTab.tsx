@@ -1,14 +1,15 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, FlatList, RefreshControl, Pressable } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { T, IconBtn, Avatar, Empty, Neu, Btn } from '../../components/ui';
+import { T, IconBtn, Avatar, Empty, Neu, Btn, UserBadges } from '../../components/ui';
 import { useTheme, R } from '../../lib/theme';
-import { useStore, startCall, chatTitle, chatPeer } from '../../lib/store';
+import { useStore, startCall, chatTitle, chatPeer, markCallsSeen, chatBadge } from '../../lib/store';
 import { chatTime, duration } from '../../lib/format';
 import { ensureAll } from '../../lib/permissions';
 import { Call } from '../../lib/types';
+import { VerifiedBadge } from '../../lib/icons';
 
 export async function placeCall(nav: any, chatId: string, video: boolean) {
   const ok = await ensureAll(video ? ['microphone', 'camera'] : ['microphone']);
@@ -25,9 +26,12 @@ export default function CallsTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<'all' | 'missed'>('all');
 
+  // REAL-TIME: begitu tab dibuka, badge panggilan hilang (missed call dianggap terbaca)
+  useEffect(() => { markCallsSeen(); }, []);
+
   const calls = useMemo(() => {
     if (!me) return [];
-    let l = db.calls.filter((c) => c.callerId === me.id || c.calleeIds.includes(me.id));
+    let l = db.calls.filter((c) => c.id !== '_schema' && (c.callerId === me.id || c.calleeIds.includes(me.id)));
     if (filter === 'missed') l = l.filter((c) => (c.status === 'missed' || c.status === 'declined') && c.callerId !== me.id);
     return l.sort((a, b) => b.startedAt - a.startedAt);
   }, [db, me, filter]);
@@ -45,9 +49,13 @@ export default function CallsTab() {
       <Pressable onPress={() => nav.navigate('ChatInfo', { chatId: chat.id })} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 14, padding: 12, marginHorizontal: 14, marginVertical: 4, borderRadius: R.lg, boxShadow: pressed ? t.insetSm : undefined } as any)}>
         <Avatar uri={peer?.avatar ?? chat.avatar} name={title} color={peer?.color ?? chat.color} size={50} icon={chat.type === 'group' && !chat.avatar ? 'people' : undefined} />
         <View style={{ flex: 1 }}>
-          <T v="h3" color={bad && !outgoing ? t.danger : t.text} numberOfLines={1}>
-            {title}
-          </T>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <T v="h3" color={bad && !outgoing ? t.danger : t.text} numberOfLines={1} style={{ flexShrink: 1 }}>
+              {title}
+            </T>
+            {/* centang biru tampil SEBELUM membuka info (chat pribadi, grup, saluran) */}
+            {chat.type === 'direct' ? <UserBadges user={peer} size={14} /> : chatBadge(chat, db) ? <VerifiedBadge size={14} animate={false} /> : null}
+          </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 }}>
             <Ionicons name={outgoing ? 'arrow-up-outline' : 'arrow-down-outline'} size={14} color={bad ? t.danger : t.success} style={{ transform: [{ rotate: '45deg' }] }} />
             <T v="sub">

@@ -53,22 +53,24 @@ service cloud.firestore {
                   'otpVerified','verified','fcmToken','mutedUntil','orderAttempts']);
     }
 
-    // EKONOMI KOIN (v8) — self-write dengan rem:
-    //  - koin naik maks +600 per tulisan (check-in 150, referral newbie 100)
+    // EKONOMI KOIN (v9) — self-write dengan rem:
+    //  - koin naik maks +6.000 per tulisan (check-in 1.500, referral 5.000) — 1 koin = Rp1
     //  - bestStreak / checkinStreak naik maks +1 per tulisan
-    //  - lastCheckinAt wajib maju (tidak mundur)
+    //  - ANTI-SPAM CHECK-IN: kalau lastCheckinAt berubah, WAJIB maju ≥19 jam
+    //    (client pakai 20 jam; 19 jam toleransi jam perangkat) — tap-tap-tap DITOLAK SERVER
     //  - referralCode / referredBy hanya bisa diisi SEKALI (tidak bisa diganti)
     function selfEconomyUpdate() {
       let k = request.resource.data.diff(resource.data).affectedKeys();
       return k.hasOnly(['points','bestStreak','checkinStreak','lastCheckinAt','referralCode','referredBy','fireRevives'])
         && (!('points' in request.resource.data)
-            || request.resource.data.get('points', 0) <= resource.data.get('points', 0) + 600)
+            || request.resource.data.get('points', 0) <= resource.data.get('points', 0) + 6000)
         && (!('bestStreak' in request.resource.data)
             || request.resource.data.get('bestStreak', 0) <= resource.data.get('bestStreak', 0) + 1)
         && (!('checkinStreak' in request.resource.data)
             || request.resource.data.get('checkinStreak', 0) <= resource.data.get('checkinStreak', 0) + 1)
         && (!('lastCheckinAt' in request.resource.data)
-            || request.resource.data.get('lastCheckinAt', 0) > resource.data.get('lastCheckinAt', 0))
+            || (request.resource.data.get('lastCheckinAt', 0) > resource.data.get('lastCheckinAt', 0)
+                && request.resource.data.get('lastCheckinAt', 0) >= resource.data.get('lastCheckinAt', 0) + 68400000))
         && (!('referralCode' in request.resource.data)
             || resource.data.get('referralCode', '') == '')
         && (!('referredBy' in request.resource.data)
@@ -80,7 +82,7 @@ service cloud.firestore {
     // dan ledger/{me}_ref (bukti unik per pendatang) menunjuk ke pengundang ini.
     function referralCreditUpdate(targetUid) {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['points','refCount'])
-        && request.resource.data.get('points', 0) - resource.data.get('points', 0) <= 600
+        && request.resource.data.get('points', 0) - resource.data.get('points', 0) <= 6000
         && request.resource.data.get('refCount', 0) == resource.data.get('refCount', 0) + 1
         && getAfter(/databases/$(db)/documents/ledger/$(me() + '_ref')).data.get('to', '') == targetUid;
     }
@@ -88,7 +90,7 @@ service cloud.firestore {
     // Which chat fields ANY member may touch (personal bookkeeping + send preview + patungan pot).
     function memberChatUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys()
-        .hasOnly(['lastRead','typing','pinnedBy','mutedBy','archivedBy','lastMsg','blueCheckPot']);
+        .hasOnly(['lastRead','typing','pinnedBy','mutedBy','archivedBy','lastMsg','blueCheckPot','streakDeadNotifiedAt']);
     }
 
     // STREAK API (v8): anggota mana pun boleh memutakhirkan api chat —
@@ -273,11 +275,27 @@ service cloud.firestore {
     }
 
     // ---- bans (admin moderation bookkeeping; mirror of user ban fields) ----
+    // v9: pengguna yang SEDANG dibanned boleh melengkapi IP-nya sendiri
+    // (lastIp/ips) — bahan anti evasion; tidak bisa mengubah alasan/durasi.
     match /bans/{uid} {
       allow get: if signedIn() && (uid == me() || isMod());
       allow list: if isMod();
-      allow create, update: if isMod();
+      allow create, update: if isMod()
+        || (request.auth.uid == uid && banBlocked()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ips','lastIp']));
       allow delete: if isMod();
+    }
+
+    // ---- banips (anti buat akun baru saat diblokir) ----
+    // dokumen id = sha256(ip). Hanya user yang SEDANG DIBANNED boleh menulis IP-nya
+    // sendiri; semua user ter-auth bisa MEMBACA (dipakai saat daftar / login Google).
+    match /banips/{ipHash} {
+      allow get: if signedIn();
+      allow list: if isAdmin();
+      allow create, update: if banBlocked()
+        && request.resource.data.get('uid', '') == me()
+        && request.resource.data.get('at', 0) <= request.time.toMillis() + 3600000;
+      allow delete: if isAdmin();
     }
 
     // ---- appeals (user kirim keterangan saat dibanned — seperti WhatsApp) ----
@@ -323,13 +341,13 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.get('uid', '') == me();
     }
 
-    // ---- LEDGER KOIN (v8) — bukti setiap perubahan koin (referral, check-in, belanja) ----
+    // ---- LEDGER KOIN (v9) — bukti setiap perubahan koin (referral, check-in, belanja) ----
     match /ledger/{lid} {
       allow read: if signedIn() && (resource.data.get('uid', '') == me() || isMod());
       allow create: if signedIn() && notBanned()
                     && request.resource.data.get('uid', '') == me()
-                    && request.resource.data.get('delta', 0) <= 600
-                    && request.resource.data.get('delta', 0) >= -100000;
+                    && request.resource.data.get('delta', 0) <= 6000
+                    && request.resource.data.get('delta', 0) >= -1000000;
       allow update, delete: if false; // append-only
     }
 

@@ -8,7 +8,7 @@ import { T, Avatar } from '../components/ui';
 import RTCVideo from '../components/RTCVideo';
 import { useTheme } from '../lib/theme';
 import { useStore, endCall, chatTitle, getDB } from '../lib/store';
-import { CallSession, RtcState, signalingMode } from '../lib/webrtc';
+import { CallSession, RtcState } from '../lib/webrtc';
 import { duration } from '../lib/format';
 
 function Ripple({ delay, color }: { delay: number; color: string }) {
@@ -152,7 +152,7 @@ export default function CallScreen() {
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
           <Ionicons name="lock-closed" size={12} color={sub} />
           <T v="caption" color={sub}>
-            {video ? 'Video call' : 'Voice call'} · WebRTC · {realPeer ? signalingMode : 'panggilan grup belum didukung'}
+            {video ? 'Panggilan video terenkripsi' : 'Panggilan suara terenkripsi'}
           </T>
         </View>
       </View>

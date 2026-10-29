@@ -219,7 +219,14 @@ export default async function handler(req: any, res: any) {
 
   if (!ALLOWED_MIME.has(mime)) return bad(res, 415, `Jenis file tidak didukung (${mime || 'tidak dikenal'}).`);
   const sniffed = sniff(buf);
-  if (!sniffed || (sniffed !== mime && !(sniffed === 'video/mp4' && mime === 'audio/mp4') && !(sniffed === 'video/mp4' && mime === 'audio/m4a'))) {
+  // Pengecualian container yang memang identik secara format:
+  //  - webm audio (VN Chrome/Firefox) terdeteksi sebagai 'video/webm' (magic byte Matroska sama)
+  //  - audio/mp4 & audio/m4a terdeteksi sebagai 'video/mp4' (box ftyp sama)
+  const containerAlias =
+    (sniffed === 'video/webm' && (mime === 'audio/webm' || mime === 'video/webm')) ||
+    (sniffed === 'video/mp4' && (mime === 'audio/mp4' || mime === 'audio/m4a')) ||
+    (sniffed === 'audio/wav' && mime === 'video/webm'); // opus di RIFF jarang, guard lembut
+  if (!sniffed || (sniffed !== mime && !containerAlias)) {
     return bad(res, 415, 'Isi file tidak cocok dengan jenis yang diklaim.');
   }
 

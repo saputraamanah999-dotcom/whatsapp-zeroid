@@ -25,6 +25,8 @@ import {
   onAuthStateChanged,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signInWithCredential,
   type User as FBUser,
 } from 'firebase/auth';
@@ -35,7 +37,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { AppNotification, Call, Chat, ChatAppeal, DB, LeaderRow, Message, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav, Ban, Appeal } from './types';
-import { productOf, rupiah, PAYMENT_METHODS } from './products';
+import { productOf, productSafe, rupiah, PAYMENT_METHODS } from './products';
 import { applyStreak } from './streak';
 import { refCodeFor, applyPendingReferral, captureRefFromUrl } from './points';
 import { sendMail, otpEmailHtml } from './mail';
@@ -71,7 +73,30 @@ function clean<T>(v: T): T {
   return v;
 }
 
-type Snapshot = { ready: boolean; db: DB; me: User | null; locked: boolean; config: PlatformConfig | null };
+type Snapshot = { ready: boolean; db: DB; me: User | null; locked: boolean; config: PlatformConfig | null; deviceBan: DeviceBan | null };
+
+/** Kunci perangkat untuk pelanggaran ban: selama ban aktif, ganti akun TIDAK membantu. */
+export type DeviceBan = { uid: string; name?: string; reason?: string; until: number };
+const DEV_BAN_KEY = 'zeroid-device-ban';
+export function readDeviceBan(): DeviceBan | null {
+  try {
+    const raw = isWeb ? window.localStorage.getItem(DEV_BAN_KEY) : null;
+    if (!raw) return null;
+    const d = JSON.parse(raw) as DeviceBan;
+    if (!d?.uid) return null;
+    if (d.until > 0 && d.until <= Date.now()) { try { window.localStorage.removeItem(DEV_BAN_KEY); } catch {} return null; }
+    return d;
+  } catch { return null; }
+}
+function setDeviceBan(d: DeviceBan | null) {
+  try {
+    if (!d) window.localStorage.removeItem(DEV_BAN_KEY);
+    else window.localStorage.setItem(DEV_BAN_KEY, JSON.stringify(d));
+  } catch {}
+  deviceBan = d;
+  bump();
+}
+let deviceBan: DeviceBan | null = isWeb ? readDeviceBan() : null;
 
 const EMPTY: DB = {
   version: 2, users: {}, chats: {}, messages: {}, stories: [], calls: [], notifications: [],
@@ -87,7 +112,7 @@ const listeners = new Set<() => void>();
 
 function rebuild() {
   me = uid0 ? db.users[uid0] ?? null : null;
-  const snap: Snapshot = { ready, db, me, locked, config: db.config };
+  const snap: Snapshot = { ready, db, me, locked, config: db.config, deviceBan };
   listeners.forEach((l) => l());
 }
 let version = 0;
@@ -99,7 +124,7 @@ export function useStore(): Snapshot {
     () => version,
     () => version
   );
-  return { ready, db, me, locked, config: db.config };
+  return { ready, db, me, locked, config: db.config, deviceBan };
 }
 export const getDB = () => db;
 export const getMe = () => me;
@@ -167,6 +192,9 @@ function mapChat(id: string, d: DocumentData): Chat {
     postPolicy: d.postPolicy ?? 'everyone', lastMsg: d.lastMsg, inviteCode: d.inviteCode,
     blueCheckPot: d.blueCheckPot ?? undefined,
     disappearing: d.disappearing ?? 'off',
+    // STREAK API — TANPA INI API TIDAK PERNAH MUNCUL (selalu terbaca 0)
+    streakCount: d.streakCount ?? 0, streakDay: d.streakDay ?? 0, streakUpdatedAt: d.streakUpdatedAt ?? 0,
+    streakDeadNotifiedAt: d.streakDeadNotifiedAt ?? 0,
   };
 }
 
@@ -286,6 +314,7 @@ function attachUserSubs(fbUid: string) {
       else chats[c.doc.id] = mapChat(c.doc.id, c.doc.data());
     });
     db.chats = chats; bump();
+    checkFireDead();
   }, (e) => console.warn('chats sub', e)));
 
   // public discovery: global chat + channels
@@ -296,9 +325,10 @@ function attachUserSubs(fbUid: string) {
   }, (e) => console.warn('public chats sub', e)));
 
   // stories (24h)
+  // stories (24h) — penanda seed '_schema' tidak boleh bocor ke feed
   storySub = onSnapshot(query(collection(fb.db, C.stories), orderBy('createdAt', 'desc'), fsLimit(200)), (s) => {
     const now = Date.now();
-    db.stories = s.docs.map((d) => mapStory(d.id, d.data())).filter((x) => x.expiresAt > now);
+    db.stories = s.docs.filter((d) => d.id !== '_schema').map((d) => mapStory(d.id, d.data())).filter((x) => x.expiresAt > now);
     bump();
   }, (e) => console.warn('stories sub', e));
 
@@ -332,35 +362,35 @@ function attachUserSubs(fbUid: string) {
     }
   }, (e) => console.warn('notif sub', e));
 
-  // incoming calls (ringing) + my recent call history
+  // incoming calls (ringing) + my recent call history — DOKUMEN PENANDA '_schema' DISENYAPKAN
   callSubs.push(onSnapshot(query(collection(fb.db, C.calls), where('calleeIds', 'array-contains', fbUid), orderBy('startedAt', 'desc'), fsLimit(20)), (s) => {
     const byId = new Map(db.calls.map((c) => [c.id, c]));
-    s.docs.forEach((d) => byId.set(d.id, mapCall(d.id, d.data())));
-    db.calls = [...byId.values()].sort((a, b) => b.startedAt - a.startedAt).slice(0, 60);
+    s.docs.forEach((d) => { if (d.id !== '_schema') byId.set(d.id, mapCall(d.id, d.data())); });
+    db.calls = [...byId.values()].filter((c) => c.id !== '_schema').sort((a, b) => b.startedAt - a.startedAt).slice(0, 60);
     bump();
   }, (e) => console.warn('calls-in sub', e)));
   callSubs.push(onSnapshot(query(collection(fb.db, C.calls), where('callerId', '==', fbUid), orderBy('startedAt', 'desc'), fsLimit(20)), (s) => {
     const byId = new Map(db.calls.map((c) => [c.id, c]));
-    s.docs.forEach((d) => byId.set(d.id, mapCall(d.id, d.data())));
-    db.calls = [...byId.values()].sort((a, b) => b.startedAt - a.startedAt).slice(0, 60);
+    s.docs.forEach((d) => { if (d.id !== '_schema') byId.set(d.id, mapCall(d.id, d.data())); });
+    db.calls = [...byId.values()].filter((c) => c.id !== '_schema').sort((a, b) => b.startedAt - a.startedAt).slice(0, 60);
     bump();
   }, (e) => console.warn('calls-out sub', e)));
 
-  // my stickers + global stickers
+  // my stickers + global stickers (skip penanda '_schema')
   miscSubs.push(onSnapshot(query(collection(fb.db, C.stickers), where('ownerId', '==', fbUid)), (s) => {
-    const mine = s.docs.map(rawDoc) as Sticker[];
+    const mine = s.docs.filter((d) => d.id !== '_schema').map(rawDoc) as Sticker[];
     db.stickers = [...mine, ...db.stickers.filter((x) => x.global)];
     bump();
   }, () => {}));
   miscSubs.push(onSnapshot(query(collection(fb.db, C.stickers), where('global', '==', true), fsLimit(100)), (s) => {
-    const globals = s.docs.map(rawDoc) as Sticker[];
+    const globals = s.docs.filter((d) => d.id !== '_schema').map(rawDoc) as Sticker[];
     db.stickers = [...db.stickers.filter((x) => x.ownerId !== fbUid), ...globals];
     bump();
   }, () => {}));
 
-  // my anime favourites (private, per-user)
+  // my anime favourites (private, per-user) — skip penanda seed
   miscSubs.push(onSnapshot(query(collection(fb.db, C.animeFavs), where('uid', '==', fbUid), fsLimit(300)), (s) => {
-    db.animeFavs = s.docs.map(rawDoc) as AnimeFav[];
+    db.animeFavs = s.docs.filter((d) => d.id !== '_schema').map(rawDoc) as AnimeFav[];
     bump();
   }, () => {}));
 
@@ -373,11 +403,12 @@ function attachUserSubs(fbUid: string) {
     bump();
   }, () => {}));
 
-  // my orders
+  // my orders — skip penanda seed '_schema' (penyebab crash PremiumScreen)
   miscSubs.push(onSnapshot(query(collection(fb.db, C.orders), where('userId', '==', fbUid), orderBy('createdAt', 'desc'), fsLimit(30)), (s) => {
     const byId = new Map(db.orders.map((o) => [o.id, o]));
-    s.docs.forEach((d) => byId.set(d.id, rawDoc(d)));
-    db.orders = [...byId.values()].sort((a: any, b: any) => b.createdAt - a.createdAt);
+    s.docs.forEach((d) => { if (d.id !== '_schema') byId.set(d.id, rawDoc(d)); });
+    byId.delete('_schema');
+    db.orders = [...byId.values()].filter((o: any) => o.id !== '_schema').sort((a: any, b: any) => b.createdAt - a.createdAt);
     bump();
   }, (e) => console.warn('orders sub', e)));
 
@@ -399,21 +430,22 @@ function attachUserSubs(fbUid: string) {
   setTimeout(() => {
     if (!isAdminish()) return;
     adminSubs.push(onSnapshot(query(collection(fb.db, C.reports), orderBy('createdAt', 'desc'), fsLimit(100)), (s) => {
-      db.reports = s.docs.map(rawDoc) as any; bump();
+      db.reports = s.docs.filter((d) => d.id !== '_schema').map(rawDoc) as any; bump();
     }, () => {}));
     adminSubs.push(onSnapshot(query(collection(fb.db, C.orders), orderBy('createdAt', 'desc'), fsLimit(60)), (s) => {
       const byId = new Map(db.orders.map((o) => [o.id, o]));
-      s.docs.forEach((d) => byId.set(d.id, rawDoc(d)));
-      db.orders = [...byId.values()].sort((a: any, b: any) => b.createdAt - a.createdAt); bump();
+      s.docs.forEach((d) => { if (d.id !== '_schema') byId.set(d.id, rawDoc(d)); });
+      byId.delete('_schema');
+      db.orders = [...byId.values()].filter((o: any) => o.id !== '_schema').sort((a: any, b: any) => b.createdAt - a.createdAt); bump();
     }, () => {}));
     adminSubs.push(onSnapshot(query(collection(fb.db, C.audit), orderBy('createdAt', 'desc'), fsLimit(80)), (s) => {
-      db.audit = s.docs.map(rawDoc) as any; bump();
+      db.audit = s.docs.filter((d) => d.id !== '_schema').map(rawDoc) as any; bump();
     }, () => {}));
     adminSubs.push(onSnapshot(query(collection(fb.db, C.appeals), orderBy('createdAt', 'desc'), fsLimit(100)), (s) => {
-      db.appeals = s.docs.map(rawDoc) as any; bump();
+      db.appeals = s.docs.filter((d) => d.id !== '_schema').map(rawDoc) as any; bump();
     }, (e) => console.warn('appeals sub', e)));
     adminSubs.push(onSnapshot(query(collection(fb.db, C.bans), orderBy('bannedAt', 'desc'), fsLimit(100)), (s) => {
-      db.bans = s.docs.map(rawDoc) as any; bump();
+      db.bans = s.docs.filter((d) => d.id !== '_schema').map(rawDoc) as any; bump();
     }, (e) => console.warn('bans sub', e)));
   }, 1500);
 }
@@ -469,6 +501,38 @@ export async function initStore() {
   }
   const fb = firebase()!;
 
+  // Google redirect flow: tangkap error hasil redirect (domain belum diizinkan, dll.)
+  if (Platform.OS === 'web') {
+    getRedirectResult(fb.auth).catch((e: any) => {
+      const code = String(e?.code ?? '');
+      if (code && !code.includes('null-user')) pushBanner({ title: 'Masuk Google gagal', body: fbError(e), icon: 'alert' });
+    });
+  }
+
+  /**
+   * ANTI-AKUN-BARU-SAAT-DIBANNED: akun baru (email & Google) pada IP yang
+   * tercatat di `banips/{sha256(ip)}` DITOLAK — dipaksa keluar + perangkat
+   * dikunci sampai masa ban selesai. Akun lama yang dibanned tetap boleh masuk
+   * (mereka melihat BannedScreen); ganti akun lain TIDAK membantu (device lock).
+   */
+  const assertNotIpBanned = async (uid: string): Promise<boolean> => {
+    try {
+      if (Platform.OS !== 'web') return true;
+      const r = await fetch('/api/ip-ban', { cache: 'no-store' });
+      if (!r.ok) return true;
+      const { hash } = await r.json();
+      if (!hash) return true;
+      const bd = await getDoc(doc(fb.db, 'banips', String(hash))).catch(() => null);
+      if (!bd || !bd.exists()) return true;
+      const until = Number(bd.data().until ?? 0);
+      if (until > 0 && until <= Date.now()) return true; // sudah lewat
+      setDeviceBan({ uid, until, reason: bd.data().reason ?? 'Akun pada perangkat/IP ini sedang diblokir' });
+      await signOut(fb.auth).catch(() => {});
+      pushBanner({ title: 'Dilarang membuat akun baru', body: 'Perangkat/IP kamu tercatat pada akun yang diblokir. Tunggu masa blokir selesai — membuat akun baru tidak akan membantu.', icon: 'ban' });
+      return false;
+    } catch { return true; }
+  };
+
   // restore theme-persisted session is handled by Firebase persistence; just observe.
   onAuthStateChanged(fb.auth, async (u: FBUser | null) => {
     clearAllSubs();
@@ -482,6 +546,8 @@ export async function initStore() {
     const ref = doc(fb.db, C.users, u.uid);
     const snap = await getDoc(ref).catch(() => null);
     if (snap && !snap.exists()) {
+      // akun BARU: cek ban IP/perangkat SEBELUM profil dibuat (blokir pendaftaran baru)
+      if (!(await assertNotIpBanned(u.uid))) { ready = true; bump(); return; }
       await setDoc(ref, {
         name: u.displayName ?? u.email?.split('@')[0] ?? 'Pengguna', email: u.email ?? '',
         about: 'Hai! Aku pakai Zeroid-whatsapp.', avatar: u.photoURL ?? null, color: AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)],
@@ -508,9 +574,17 @@ export async function initStore() {
     if (snap && snap.exists() && (snap.data() as any).banned) {
       // JANGAN sign-out: pengguna dibanned tetap masuk supaya bisa melihat
       // BannedScreen (alasan + sisa durasi + form banding ala WhatsApp).
+      // ANTI EVASION: kunci perangkat + catat IP ke banips (client best-effort).
+      const bd = snap.data() as any;
+      const until = Number(bd.banUntil ?? bd.suspendedUntil ?? 0);
+      setDeviceBan({ uid: u.uid, name: bd.name, reason: bd.banReason, until });
+      registerBannedIp(u.uid, until, bd.banReason);
       ready = true; bump();
       return;
     }
+    // ban sudah dibuka → lepaskan kunci perangkat milik akun ini
+    const dev = readDeviceBan();
+    if (dev && dev.uid === u.uid) setDeviceBan(null);
     attachUserSubs(u.uid);
     startPresence();
     ready = true; bump();
@@ -644,9 +718,32 @@ function notifyFor(userId: string, kind: NotifKind, title: string, body: string,
 
 // ============================ auth ============================
 
+/**
+ * Catat IP akun yang dibanned ke `banips/{sha256(ip)}` + `bans/{uid}.ips`
+ * (client best-effort; rules v9 hanya mengizinkan USER YANG SEDANG DIBANNED
+ * menulis dokumen ini). Saat ban dibuka, dokumen kedaluwarsa sendiri.
+ */
+async function registerBannedIp(uid: string, until: number, reason?: string) {
+  try {
+    if (Platform.OS !== 'web') return;
+    const fb = firebase();
+    if (!fb) return;
+    const r = await fetch('/api/ip-ban', { cache: 'no-store' });
+    if (!r.ok) return;
+    const { ip, hash } = await r.json();
+    if (!hash) return;
+    const { setDoc: sd, doc: dc } = await import('firebase/firestore');
+    await sd(dc(fb.db, 'banips', String(hash)), { uid, until: until ?? 0, reason: reason ?? '', ip: String(ip ?? '').slice(0, 45), at: Date.now() });
+    await updateDoc(doc(fb.db, C.bans, uid), { lastIp: String(ip ?? '').slice(0, 45), ips: arrayUnion(String(ip ?? '').slice(0, 45)) }).catch(() => {});
+  } catch { /* banned user mungkin tidak punya izin — abaikan */ }
+}
+
 function fbError(e: any): string {
   const c = String(e?.code ?? '');
   if (c.includes('email-already-in-use')) return 'Email sudah terdaftar.';
+  if (c.includes('unauthorized-domain')) return 'Domain belum diizinkan: buka Firebase Console → Authentication → Settings → Authorized domains → tambahkan whatsapp-zeroid.vercel.app, lalu coba lagi.';
+  if (c.includes('popup-blocked')) return 'Popup Google diblokir browser. Coba lagi — aplikasi otomatis pindah ke metode halaman penuh.';
+  if (c.includes('popup-closed') || c.includes('cancelled-popup-request')) return 'Jendela Google tertutup sebelum selesai. Coba lagi.';
   if (c.includes('invalid-credential') || c.includes('wrong-password') || c.includes('user-not-found')) return 'Email atau password salah.';
   if (c.includes('weak-password')) return 'Password terlalu lemah (minimal 6 karakter).';
   if (c.includes('too-many-requests')) return 'Terlalu banyak percobaan. Coba lagi nanti.';
@@ -673,6 +770,22 @@ export async function register(name: string, email: string, password: string, us
   if (!fb) return { ok: false, error: 'Firebase belum dikonfigurasi.' };
   try {
     const cred = await createUserWithEmailAndPassword(fb.auth, email, password);
+    // ANTI-BAN-EVASION: akun baru pada IP yang sedang diblokir langsung DIHAPUS
+    try {
+      const r = await fetch('/api/ip-ban', { cache: 'no-store' });
+      const { hash } = r.ok ? await r.json() : {} as any;
+      if (hash) {
+        const bd = await getDoc(doc(fb.db, 'banips', String(hash))).catch(() => null);
+        const until = Number(bd?.data()?.until ?? 0);
+        if (bd && bd.exists() && (until === 0 || until > Date.now())) {
+          setDeviceBan({ uid: cred.user.uid, until, reason: 'Perangkat/IP tercatat pada akun yang diblokir' });
+          if (uname) deleteDoc(doc(fb.db, 'usernames', uname)).catch(() => {});
+          await signOut(fb.auth).catch(() => {});
+          await fbDeleteUser(cred.user).catch(() => {});
+          return { ok: false, error: 'Dilarang membuat akun baru: perangkat/IP ini tercatat pada akun yang diblokir. Tunggu masa blokir selesai.' };
+        }
+      }
+    } catch { /* pemeriksaan best-effort — jangan blokir pendaftaran normal */ }
     await fbUpdateProfile(cred.user, { displayName: name });
     await sendEmailVerification(cred.user).catch(() => {});
     const newUid = cred.user.uid;
@@ -714,8 +827,20 @@ export async function loginGoogle(): Promise<{ ok: boolean; error?: string }> {
   if (!fb) return { ok: false, error: 'Firebase belum dikonfigurasi.' };
   try {
     const provider = new GoogleAuthProvider();
-    if (Platform.OS === 'web') await signInWithPopup(fb.auth, provider);
-    else {
+    provider.setCustomParameters({ prompt: 'select_account' });
+    if (Platform.OS === 'web') {
+      try {
+        await signInWithPopup(fb.auth, provider);
+      } catch (e: any) {
+        const code = String(e?.code ?? '');
+        // popup diblokir browser (terutama Chrome HP) → lanjut redirect penuh halaman
+        if (code.includes('popup-blocked') || code.includes('operation-not-supported-in-this-environment') || code.includes('cancelled-popup-request')) {
+          await signInWithRedirect(fb.auth, provider);
+          return { ok: true };
+        }
+        throw e;
+      }
+    } else {
       // native: requires expo-auth-session/google config; surfaced as guidance on failure
       const { GoogleSignin } = require('@react-native-google-signin/google-signin');
       await GoogleSignin.signIn();
@@ -946,7 +1071,17 @@ export function toggleChatFlag(chatId: string, flag: 'pinnedBy' | 'mutedBy' | 'a
   if (!me || !fb) return;
   const c = db.chats[chatId];
   const arr = c?.[flag] ?? [];
-  updateDoc(doc(fb.db, C.chats, chatId), { [flag]: arr.includes(me.id) ? arrayRemove(me.id) : arrayUnion(me.id) }).catch(() => {});
+  const has = arr.includes(me.id);
+  // OPTIMISTIC: pindah INSTAN di layar (arsip/semat/bisukan) tanpa reload.
+  // Dulu menunggu snapshot server → terasa "harus reload dulu".
+  const next = has ? arr.filter((x) => x !== me.id) : [...arr, me.id];
+  db.chats = { ...db.chats, [chatId]: { ...c, [flag]: next } };
+  bump();
+  updateDoc(doc(fb.db, C.chats, chatId), { [flag]: has ? arrayRemove(me.id) : arrayUnion(me.id) }).catch(() => {
+    // gagal server → kembalikan biar tidak bohong
+    db.chats = { ...db.chats, [chatId]: { ...c, [flag]: arr } };
+    bump();
+  });
 }
 
 export function toggleFollow(chatId: string) {
@@ -1011,7 +1146,7 @@ let routingKe = false; // guards the "ke + nama" AI summon against re-entry
 export function setTyping(chatId: string) {
   const me = getMe();
   const fb = firebase();
-  if (!me || !fb || Date.now() - lastTypingWrite < 2500) return;
+  if (!me || !fb || Date.now() - lastTypingWrite < 2000) return;
   lastTypingWrite = Date.now();
   updateDoc(doc(fb.db, C.chats, chatId), { [`typing.${me.id}`]: Date.now() }).catch(() => {});
 }
@@ -1024,7 +1159,7 @@ export function clearTyping(chatId: string) {
 }
 
 export function typingUsers(chat: Chat, meId: string) {
-  return Object.entries(chat.typing ?? {}).filter(([u, t]) => u !== meId && (t as number) > 0 && Date.now() - (t as number) < 4000).map(([u]) => u);
+  return Object.entries(chat.typing ?? {}).filter(([u, t]) => u !== meId && (t as number) > 0 && Date.now() - (t as number) < 6000).map(([u]) => u);
 }
 
 // ============================ messages ============================
@@ -1439,6 +1574,30 @@ export function replyStory(story: Story, text: string) {
 
 // ============================ calls ============================
 
+/**
+ * NOTIF API PADAM (real-time): hari kosong → api di chat padam → pengguna
+ * menerima notifikasi sekali per kejadian (streakDeadNotifiedAt anti dobel).
+ * Ditangkap dari snapshot chats supaya tanpa membuka chat pun notif muncul.
+ */
+function checkFireDead() {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb) return;
+  for (const c of Object.values(db.chats)) {
+    const count = c.streakCount ?? 0;
+    const lastDay = c.streakDay ?? 0;
+    if (count < 3 || !lastDay) continue;
+    const dead = Date.now() - lastDay >= 2 * 86400000;
+    const notified = (c.streakDeadNotifiedAt ?? 0) >= lastDay;
+    if (dead && !notified) {
+      const other = c.members.find((x) => x !== me.id) ?? '';
+      const name = c.type === 'direct' ? (db.users[other]?.name ?? chatTitle(c, me.id, db)) : (c.name ?? chatTitle(c, me.id, db));
+      notifyFor(me.id, 'system', 'Api streak padam', `Api ${count} hari bareng ${name} padam karena sehari kosong. Bisa dihidupkan lagi (sisa ${Math.max(0, 5 - (me.fireRevives?.[new Date().toISOString().slice(0, 7)] ?? 0))}x bulan ini).`, { chatId: c.id });
+      updateDoc(doc(fb.db, C.chats, c.id), { streakDeadNotifiedAt: lastDay }).catch(() => {});
+    }
+  }
+}
+
 export function startCall(chatId: string, video: boolean): string | null {
   const me = getMe();
   const fb = firebase();
@@ -1462,14 +1621,19 @@ export function startCall(chatId: string, video: boolean): string | null {
   setDoc(doc(fb.db, C.calls, id), {
     id, chatId, callerId: me.id, calleeIds: [callee], video, status: 'ringing', startedAt: serverTimestamp(),
   }).catch((e) => pushBanner({ title: 'Gagal memulai panggilan', body: fbError(e), icon: 'alert' }));
+  const online = isOnline(peer);
   // Push FCM: panggilan masuk berdering juga saat aplikasi ditutup / di luar website
   void fcmPush({
     uids: [callee],
     title: `${peer.name} · panggilan ${video ? 'video' : 'suara'} masuk`,
-    body: 'Ketuk untuk menerima panggilan Zeroid.',
+    body: online ? 'Ketuk untuk menerima panggilan Zeroid.' : 'Sedang offline — buka aplikasi untuk melihat panggilan.',
     kind: 'call',
     chatId,
   });
+  if (!online) {
+    pushBanner({ title: `${peer.name} sedang offline`, body: 'Panggilan tetap diteruskan + notif dikirim — panggilan akan tersambung saat ia membuka aplikasi.', icon: 'phone' });
+    notifyFor(callee, 'call', `Panggilan ${video ? 'video' : 'suara'} dari ${me.name}`, 'Kamu sedang offline — buka aplikasi untuk menelepon balik.', { chatId });
+  }
   return id;
 }
 
@@ -1522,6 +1686,27 @@ export const endCall = (id: string) => {
   if (!c) return;
   setCallStatus(id, c.status === 'ringing' ? (c.callerId === uid0 ? 'missed' : 'declined') : 'ended');
 };
+
+/**
+ * Badge "Panggilan N" hilang REAL-TIME begitu tab dibuka: simpan lastCallsSeenAt
+ * + tandai notifikasi 'call' sudah dibaca. Dulu badge mentok karena hitungan
+ * missed-call 24 jam tidak pernah ditandai terbaca.
+ */
+export function markCallsSeen() {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb) return;
+  // optimis: badge hilang detik ini juga
+  db.users = { ...db.users, [me.id]: { ...me, lastCallsSeenAt: Date.now() } };
+  bump();
+  updateDoc(doc(fb.db, C.users, me.id), { lastCallsSeenAt: Date.now() }).catch(() => {});
+  const calls = db.notifications.filter((n) => n.kind === 'call' && !n.read && n.userId === me.id);
+  calls.slice(0, 30).forEach((n) => {
+    db.notifications = db.notifications.map((x) => (x.id === n.id ? { ...x, read: true } : x));
+    updateDoc(doc(fb.db, C.notifications, n.id), { read: true }).catch(() => {});
+  });
+  if (calls.length) bump();
+}
 
 function watchCalls() {
   const now = Date.now();
@@ -1865,8 +2050,8 @@ export function adminDecideOrder(orderId: string, approve: boolean) {
   const fb = firebase();
   if (!me || !fb || !isFullAdmin(me)) return;
   const o = db.orders.find((x) => x.id === orderId);
-  if (!o || o.status !== 'pending') return;
-  const p = productOf(o.product);
+  if (!o || o.status !== 'pending' || o.id === '_schema') return;
+  const p = productSafe(o.product);
   const batch = writeBatch(fb.db);
   batch.update(doc(fb.db, C.orders, orderId), { status: approve ? 'paid' : 'rejected', decidedAt: Date.now() });
   if (approve) {
@@ -2182,6 +2367,12 @@ export function createOrder(product: ProductKey, planIdx: number, methodKey: str
     const until = product === 'vip' ? me.vipUntil : product === 'member' ? me.memberUntil : 0;
     const msg = until ? `sudah aktif hingga ${new Date(until).toLocaleDateString('id-ID')}` : 'sudah aktif (permanen)';
     return { error: `${p.title} kamu ${msg}. Tunggu masa habis sebelum membeli lagi.` };
+  }
+  // 1b) LIMITED ORDER: satu pesanan aktif per produk — tunggu konfirmasi admin
+  //     (atau masa langganan habis) sebelum bisa membeli lagi. Anti-spam order.
+  const dupPending = db.orders.find((o) => o.userId === me.id && o.product === product && o.status === 'pending' && o.id !== '_schema');
+  if (dupPending) {
+    return { error: `Kamu sudah punya pesanan ${p.title} yang masih menunggu konfirmasi admin. Tunggu sampai diputuskan.` };
   }
   // 2) limit 5x per jam + jeda 1 jam antar pembelian
   const { left, waitMs } = orderLimitRemaining(me);

@@ -177,7 +177,8 @@ export default function MessageBubble({
           {showName && !mine && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
               <T v="caption" color={senderColor} style={{ fontWeight: '700' }}>{senderName ?? 'Pengguna'}</T>
-              {sender?.blueCheck && <VerifiedBadge size={12} animate={false} />}
+              {/* centang biru: pembeli + developer/admin */}
+              {(sender?.blueCheck || sender?.developer || sender?.role === 'admin' || sender?.role === 'developer') && <VerifiedBadge size={12} animate={false} />}
             </View>
           )}
           <View style={{ width: 272, borderRadius: 20, padding: 14, gap: 9, backgroundColor: t.bg, boxShadow: t.raised } as any}>
@@ -241,8 +242,8 @@ export default function MessageBubble({
             <T v="caption" color={senderColor} style={{ fontWeight: '700' }}>
               {senderName ?? 'Pengguna'}
             </T>
-            {/* centang biru SVG resmi di samping nama (BUKAN emoji) */}
-            {sender?.blueCheck && <VerifiedBadge size={12} animate={false} />}
+            {/* centang biru SVG resmi di samping nama (pembeli, developer, admin) */}
+            {(sender?.blueCheck || sender?.developer || sender?.role === 'admin' || sender?.role === 'developer') && <VerifiedBadge size={12} animate={false} />}
             {!m.assistant && chat.admins.includes(m.senderId) && chat.type !== 'direct' ? (
               <T v="caption" color={mine ? 'rgba(255,255,255,0.8)' : t.sub} style={{ fontSize: 11 }}>· admin</T>
             ) : null}

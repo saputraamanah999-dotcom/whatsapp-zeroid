@@ -69,12 +69,13 @@ export default function ChatsTab() {
     <View style={{ flex: 1 }}>
       <View style={{ paddingTop: insets.top + 12, paddingHorizontal: 20, paddingBottom: 6, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
         {archived ? <IconBtn icon="chevron-back" onPress={() => setArchived(false)} /> : null}
-        <T v="h1" style={{ flex: 1 }}>
-          {archived ? 'Diarsipkan' : 'Chat'}
-        </T>
+        <View style={{ flex: 1 }}>
+          <T v="h1">{archived ? 'Diarsipkan' : 'Chat'}</T>
+          {archived && <T v="caption" color={t.sub}>{archivedCount} chat tersimpan — pesan baru tetap masuk</T>}
+        </View>
         <IconBtn icon="notifications-outline" badge={notifCount} onPress={() => nav.navigate('Notifications')} label="Notifikasi" />
         <IconBtn icon="search-outline" onPress={() => nav.navigate('Search')} label="Cari semua pesan" />
-        <IconBtn icon="create-outline" onPress={() => nav.navigate('NewChat')} label="Chat baru" color={t.accent} />
+        {!archived && <IconBtn icon="create-outline" onPress={() => nav.navigate('NewChat')} label="Chat baru" color={t.accent} />}
       </View>
       <FlatList
         data={list}

@@ -247,6 +247,9 @@ export default function Composer({
           const res = await uploadMedia(uri, `chats/${chatId}/vn_${Date.now()}${ext}`, mime);
           send({ type: 'audio', uri: res.url, duration: dur, mime, fileSize: res.size, storagePath: res.path });
           resetInput();
+        } catch (e: any) {
+          // DULU: gagal senyap → VN "hilang" tanpa pesan. Sekarang: selalu kasih tahu.
+          pushBanner({ title: 'Voice note gagal terkirim', body: e?.message ?? 'Koneksi/unggahan bermasalah — coba rekam ulang.', icon: 'alert' });
         } finally {
           setBusy(false);
         }

@@ -7,7 +7,7 @@ import { Header, Screen, Avatar, T, Neu, Card, NeuInput, Btn, Empty, Segmented, 
 import { Confirm, Sheet } from '../components/Sheet';
 import { UserBadges } from '../components/ui';
 import { ProductIcon } from '../lib/icons';
-import { productOf, rupiah } from '../lib/products';
+import { productOf, productSafe, rupiah } from '../lib/products';
 import { useTheme, R } from '../lib/theme';
 import {
   useStore, adminBan, adminUnban, adminSetRole, adminVerify, adminBroadcast, adminEndAnnouncement, adminResolveReport,
@@ -204,7 +204,7 @@ export default function AdminScreen() {
           <>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginBottom: 22 }}>
               <Stat icon="people" label={`Pengguna · ${stats.online} online`} value={stats.users} color={t.accent} />
-              <Stat icon="chatbubbles" label={`Pesan · ${stats.today} hari ini`} value={stats.msgs} color="#7B61FF" />
+              <Stat icon="chatbubbles" label={`hari ini: ${stats.today} pesan`} value={stats.msgs} color="#7B61FF" />
               <Stat icon="people-circle" label={`Grup · ${stats.channels} channel`} value={stats.groups} color="#14C47A" />
               <Stat icon="aperture" label="Story aktif" value={stats.stories} color="#FF5A8A" />
               <Stat icon="call" label="Total panggilan" value={stats.calls} color="#FF9F0A" />
@@ -416,7 +416,7 @@ export default function AdminScreen() {
           <>
             {db.orders.length === 0 && <Empty icon="receipt-outline" title="Belum ada transaksi" body="Pesanan VIP, Member, Centang biru, dan Keamanan akan muncul di sini." />}
             {db.orders.map((o) => {
-              const p = productOf(o.product);
+              const p = productSafe(o.product);
               const buyer = db.users[o.userId];
               return (
                 <Neu key={o.id} radius={R.lg} style={{ padding: 16, marginBottom: 12, gap: 10 }}>

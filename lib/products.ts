@@ -67,4 +67,18 @@ export const PAYMENT_METHODS = [
 
 export const productOf = (k: ProductKey) => PRODUCTS.find((p) => p.key === k)!;
 
+/** AMAN untuk data lama/penanda seed (mis. product 'schema-marker'):
+ *  krash "Cannot read properties of undefined (reading 'icon'/'color'/'title')"
+ *  terjadi bila order punya product key yang tidak ada di PRODUCTS. */
+const UNKNOWN_PRODUCT: Product = {
+  key: 'vip',
+  title: 'Produk',
+  icon: 'receipt',
+  color: '#7B61FF',
+  desc: '',
+  perks: [],
+  plans: [{ label: '-', days: 0, price: 0 }],
+};
+export const productSafe = (k?: string): Product => (k && PRODUCTS.find((p) => p.key === k)) || UNKNOWN_PRODUCT;
+
 export const rupiah = (n: number) => 'Rp' + n.toLocaleString('id-ID');

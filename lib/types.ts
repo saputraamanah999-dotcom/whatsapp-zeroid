@@ -62,6 +62,8 @@ export type User = {
   refCount?: number;
   /** Pemakaian hidupkan api: { 'YYYY-MM': count } — maks 5x per bulan */
   fireRevives?: Record<string, number>;
+  /** Terakhir kali daftar Panggilan dibuka — badge panggilan tak terjawab hilang real-time */
+  lastCallsSeenAt?: number;
   verified: boolean;
   banned: boolean;
   suspendedUntil?: number;
@@ -130,6 +132,8 @@ export type Chat = {
   streakDay?: number;
   /** epoch ms pesan terakhir (untuk deteksi api melemah/padam) */
   streakUpdatedAt?: number;
+  /** epoch ms hari yang SUDAH dinotifikasikan padam — anti notif dobel */
+  streakDeadNotifiedAt?: number;
   /** disappearing messages timer — set by group admins */
   disappearing?: 'off' | '24h' | '7d' | '90d';
 };

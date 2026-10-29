@@ -4,23 +4,23 @@ import { User } from './types';
 
 /**
  * KOIN & REFERRAL — mesin reward untuk mempromosikan Zeroid.
- * - 1 koin = Rp10 → centang biru 49rb = 4.900 koin.
- * - Check-in harian: +100 koin, bonus +50 tiap 7 hari beruntun (jeda 20 jam).
- * - Ajak teman: pengundang +500, teman baru +100 — terdeteksi OTOMATIS dari link.
+ * - 1 koin = Rp1 → centang biru 49rb = 49.000 koin (harga koin = harga rupiah).
+ * - Check-in harian: +1.000 koin, bonus +500 tiap 7 hari beruntun (jeda 20 jam).
+ * - Ajak teman: pengundang +5.000, teman baru +1.000 — terdeteksi OTOMATIS dari link.
  * - Semua mutasi tercatat di koleksi `ledger` (audit + syarat rules).
  */
 
-export const KOIN_PER_RP = 0.1;          // 1 koin = Rp10
+export const KOIN_PER_RP = 1;             // 1 koin = Rp1
 export const rpToKoin = (rp: number) => Math.round(rp * KOIN_PER_RP);
 export const koinToRp = (k: number) => Math.round(k / KOIN_PER_RP);
 
-export const CHECKIN_BASE = 100;
-export const CHECKIN_STREAK_BONUS = 50;  // tiap kelipatan 7 hari beruntun
+export const CHECKIN_BASE = 1000;
+export const CHECKIN_STREAK_BONUS = 500;  // tiap kelipatan 7 hari beruntun
 export const CHECKIN_GAP_MS = 20 * 3600 * 1000;
-export const REF_REWARD_REFERRER = 500;
-export const REF_REWARD_NEWBIE = 100;
+export const REF_REWARD_REFERRER = 5000;
+export const REF_REWARD_NEWBIE = 1000;
 /** batas kenaikan koin per tulisan (dipakai juga rules) */
-export const POINTS_MAX_STEP = 600;
+export const POINTS_MAX_STEP = 6000;
 
 export const fmtKoin = (n: number) => n.toLocaleString('id-ID');
 
@@ -109,7 +109,9 @@ export async function applyPendingReferral(me: User): Promise<{ ok: boolean; rew
   }
 }
 
-/** Check-in harian: +100 koin, bonus +50 tiap 7 hari beruntun. */
+/** Check-in harian: +1.000 koin, bonus +500 tiap 7 hari beruntun.
+ *  ANTI-SPAM: ledger doc id SATU PER HARI (c_<uid>_<yyyymmdd>) + rules
+ *  menolak lastCheckinAt yang maju <19 jam — tap-tap-tap tidak bisa lagi. */
 export async function dailyCheckIn(me: User): Promise<{ ok: boolean; reward?: number; error?: string }> {
   const fb = firebase();
   if (!fb || !me?.id) return { ok: false, error: 'Belum masuk.' };
@@ -117,16 +119,28 @@ export async function dailyCheckIn(me: User): Promise<{ ok: boolean; reward?: nu
   if (now - (me.lastCheckinAt ?? 0) < CHECKIN_GAP_MS) {
     const left = CHECKIN_GAP_MS - (now - (me.lastCheckinAt ?? 0));
     const h = Math.floor(left / 3600000), m = Math.ceil((left % 3600000) / 60000);
-    return { ok: false, error: `Sudah check-in — lagi-lagi dalam ${h} jam ${m} menit.` };
+    return { ok: false, error: `Sudah check-in — kembali lagi dalam ${h} jam ${m} menit.` };
   }
   const yStart = new Date(now); yStart.setHours(0, 0, 0, 0);
   const yesterday = yStart.getTime() - 3600000; // toleransi jam
   const streak = (me.lastCheckinAt ?? 0) >= yesterday ? (me.checkinStreak ?? 0) + 1 : 1;
   const reward = CHECKIN_BASE + (streak % 7 === 0 ? CHECKIN_STREAK_BONUS : 0);
+  const dayId = new Date(now).toISOString().slice(0, 10).replace(/-/g, '');
   try {
-    await setDoc(doc(fb.db, 'ledger', `c_${me.id}_${now}`), {
-      uid: me.id, kind: 'checkin', delta: reward, streak, at: now,
-    }).catch(() => { });
+    // bukti unik per hari — doc sudah ada = sudah check-in hari ini (anti spam tap).
+    // setDoc di doc yang SUDAH ada = update → rules ledger (update: false) MENOLAK.
+    const { getDoc } = await import('firebase/firestore');
+    const ledRef = doc(fb.db, 'ledger', `c_${me.id}_${dayId}`);
+    const led = await getDoc(ledRef).catch(() => null);
+    if (led && led.exists()) {
+      return { ok: false, error: 'Sudah check-in hari ini — kembali lagi besok!' };
+    }
+    try {
+      await setDoc(ledRef, { uid: me.id, kind: 'checkin', delta: reward, streak, at: now });
+    } catch (w: any) {
+      // ditolak rules = doc sudah ada (update ditolak) ATAU user dibanned
+      return { ok: false, error: 'Sudah check-in hari ini — kembali lagi besok!' };
+    }
     await updateDoc(doc(fb.db, C.users, me.id), {
       points: (me.points ?? 0) + reward,
       checkinStreak: streak,

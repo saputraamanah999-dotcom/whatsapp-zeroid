@@ -10,6 +10,7 @@ import { font } from '../lib/theme';
 import { useStore, activeStories, viewStory, likeStory, deleteStory, replyStory } from '../lib/store';
 import { ago } from '../lib/format';
 import { pushBanner } from '../lib/bus';
+import { VerifiedBadge } from '../lib/icons';
 
 const DURATION = 5500;
 
@@ -113,9 +114,13 @@ export default function StoryViewer() {
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 }}>
             <Avatar uri={owner.avatar} name={owner.name} color={owner.color} size={40} />
             <View style={{ flex: 1 }}>
-              <T v="h3" color="#fff">
-                {mine ? 'Story saya' : owner.name}
-              </T>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <T v="h3" color="#fff">
+                  {mine ? 'Story saya' : owner.name}
+                </T>
+                {/* centang biru di nama pembuat SW (pembeli centang biru & developer) */}
+                {(owner.blueCheck || owner.developer || owner.role === 'admin' || owner.role === 'developer') && <VerifiedBadge size={14} animate={false} />}
+              </View>
               <T v="caption" color="rgba(255,255,255,0.8)">
                 {ago(story.createdAt)}
               </T>
