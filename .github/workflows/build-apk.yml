@@ -67,6 +67,10 @@ jobs:
           fi
 
       - name: Build APK (assembleRelease)
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_ALIAS_PASSWORD: ${{ secrets.ANDROID_KEY_ALIAS_PASSWORD }}
         run: cd android && ./gradlew assembleRelease --no-daemon
 
       - name: Siapkan artefak
