@@ -39,6 +39,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppNotification, Call, Chat, ChatAppeal, DB, LeaderRow, Message, ModOffense, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav, Ban, Appeal, AiProfile } from './types';
 import { productOf, productSafe, rupiah, PAYMENT_METHODS } from './products';
 import { applyStreak } from './streak';
+import { voMarkOpened } from './viewonce';
 import { refCodeFor, applyPendingReferral, captureRefFromUrl } from './points';
 import { sendMail, otpEmailHtml } from './mail';
 import { uid, hash, isEmail, duration as fmtDur } from './format';
@@ -131,6 +132,16 @@ export function useStore(): Snapshot {
 }
 export const getDB = () => db;
 export const getMe = () => me;
+
+/** Optimis: perbarui profil-ku di memori — UI langsung berubah TANPA menunggu
+ *  snapshot server (koin check-in masuk seketika = real-time). Snapshot server
+ *  berikutnya otomatis menimpa dengan nilai resmi. */
+export function patchMeLocal(patch: Partial<User>) {
+  const id = uid0;
+  if (!id || !db.users[id]) return;
+  db.users[id] = { ...db.users[id], ...patch };
+  bump();
+}
 
 function bump() { version++; rebuild(); }
 
@@ -1679,13 +1690,15 @@ export function votePoll(chatId: string, msgId: string, optionIdx: number) {
 }
 
 /** Foto/video SEKALI LIHAT: catat bahwa aku sudah membuka media ini.
- *  Dibaca sekali per pengguna — setelah itu bubble berubah jadi "dibuka". */
+ *  Dua lapis: server (viewedBy, real-time untuk SEMUA perangkat) + LOKAL
+ *  (lib/viewonce — tetap terkunci walau server menolak / offline). */
 export function markViewOnce(chatId: string, msgId: string) {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb) return;
   const m = (db.messages[chatId] ?? []).find((x) => x.id === msgId);
   if (!m?.viewOnce || (m.viewedBy ?? []).includes(me.id)) return;
+  voMarkOpened(chatId, msgId); // kunci lokal dulu — anti buka ulang
   updateDoc(doc(fb.db, C.chats, chatId, 'messages', msgId), { viewedBy: arrayUnion(me.id) }).catch(() => {});
 }
 

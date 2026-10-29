@@ -41,6 +41,35 @@ const stripMapRefs = (p) => {
 };
 fs.readdirSync(DIST).forEach((f) => { if (f.endsWith('.js')) stripMapRefs(path.join(DIST, f)); });
 
+// 1c) RULES HELPER: /rules.html — halaman bantu pasang Rules Firebase dari HP.
+//     Teks rules di-inject dari file repo SAAT BUILD → selalu versi terbaru.
+const rulesSrc = path.join(ROOT, 'firestore.rules');
+const storageSrc = path.join(ROOT, 'storage.rules');
+const rulesTpl = path.join(PWA, 'rules.html');
+if (fs.existsSync(rulesSrc) && fs.existsSync(rulesTpl)) {
+  const esc = (s) => s.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$\{/g, '\\${');
+  const rulesText = fs.readFileSync(rulesSrc, 'utf8');
+  const storageText = fs.existsSync(storageSrc) ? fs.readFileSync(storageSrc, 'utf8') : '';
+  let page = fs.readFileSync(rulesTpl, 'utf8')
+    .replace('__RULES_TEXT__', '`' + esc(rulesText) + '`')
+    .replace('__STORAGE_TEXT__', '`' + esc(storageText) + '`');
+  fs.writeFileSync(path.join(DIST, 'rules.html'), page);
+  console.log('rules.html generated (firestore.rules v terbaru ter-embed)');
+
+  // 1d) SEED: sinkronkan kotak Rules di /seed.html dengan firestore.rules TERBARU —
+  //     tidak ada lagi rules basi yang tersalin dari halaman seed.
+  const seedPath = path.join(DIST, 'seed.html');
+  if (fs.existsSync(seedPath)) {
+    let sh = fs.readFileSync(seedPath, 'utf8');
+    const re = /const RULES_TEXT = `[\s\S]*?`;/;
+    if (re.test(sh)) {
+      sh = sh.replace(re, 'const RULES_TEXT = `' + esc(rulesText) + '`;');
+      fs.writeFileSync(seedPath, sh);
+      console.log('seed.html: RULES_TEXT disinkronkan dengan firestore.rules terbaru');
+    }
+  }
+}
+
 // 2) inject meta + SW registration
 const index = path.join(DIST, 'index.html');
 let html = fs.readFileSync(index, 'utf8');

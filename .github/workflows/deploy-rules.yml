@@ -1,0 +1,46 @@
+name: Deploy Firebase Rules
+
+# Rules Firestore/Storage + index otomatis TER-UPDATE setiap kali ada push yang
+# mengubah file rules. Sekali pasang secret FIREBASE_SERVICE_ACCOUNT, lalu lupakan.
+#
+# Cara pasang secret (sekali saja):
+#  1. Firebase Console → ⚙️ Project settings → Service accounts →
+#     "Generate new private key" → unduh file JSON.
+#  2. GitHub repo → Settings → Secrets and variables → Actions →
+#     "New repository secret" → Name: FIREBASE_SERVICE_ACCOUNT
+#     → Secret: tempel SELURUH isi file JSON tadi.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'firestore.rules'
+      - 'storage.rules'
+      - 'firestore.indexes.json'
+      - '.github/workflows/deploy-rules.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install firebase-tools
+        run: npm i -g firebase-tools
+      - name: Deploy rules + indexes
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
+            echo "⚠️ Secret FIREBASE_SERVICE_ACCOUNT belum dipasang — deploy dilewati."
+            echo "Lihat komentar di atas file ini untuk cara memasangnya (2 menit)."
+            exit 0
+          fi
+          echo "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
+          npx firebase-tools deploy --only firestore:rules,firestore:indexes,storage --project whatsapp-zeroid --force --non-interactive
+          rm -f "$RUNNER_TEMP/sa.json"
+          echo "✅ Rules Firebase ter-update otomatis."

@@ -21,6 +21,7 @@ import { ZeroidLogo, Icon } from './lib/icons';
 import { T, Btn } from './components/ui';
 import { BannerHost, PermissionHost, IncomingCallHost, AnnouncementBanner, InstallBanner } from './components/Hosts';
 import MusicBar from './components/MusicBar';
+import CallBar from './components/CallBar';
 import ErrorBoundary from './components/ErrorBoundary';
 import BannedScreen from './screens/BannedScreen';
 import { LoginScreen, RegisterScreen, ForgotScreen, VerifyEmailScreen } from './screens/AuthScreens';
@@ -294,6 +295,14 @@ export default function App() {
     initStore();
     setupNotifications();
     captureRefFromUrl(); // web: simpan ?ref=CODE dari link ajakan teman
+    // MUSIK & PANGGILAN TETAP NYALA DI LATAR BELAKANG (native/Android):
+    // tanpa shouldPlayInBackground, expo-audio mematikan pemutaran begitu
+    // keluar layar / lock screen. Web tidak terpengaruh (aman dipanggil native saja).
+    if (Platform.OS !== 'web') {
+      import('expo-audio').then(({ setAudioModeAsync }) =>
+        setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: true, interruptionMode: 'doNotMix' } as any).catch(() => {})
+      ).catch(() => {});
+    }
   }, []);
 
   useEffect(() => {
@@ -395,6 +404,7 @@ export default function App() {
                 </Stack.Navigator>
                 <AnnouncementBanner dismissed={dismissedNotices} onDismiss={(id) => setDismissedNotices((x) => [...x, id])} />
                 <MusicBar />
+                <CallBar />
               </>
             )}
           </MaintenanceGate>

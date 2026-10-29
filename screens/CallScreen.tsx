@@ -8,7 +8,9 @@ import { T, Avatar } from '../components/ui';
 import RTCVideo from '../components/RTCVideo';
 import { useTheme } from '../lib/theme';
 import { useStore, endCall, chatTitle, getDB } from '../lib/store';
-import { CallSession, RtcState } from '../lib/webrtc';
+import { CallSession } from '../lib/webrtc';
+import { hubAttachCall, hubHangup, hubLeaveScreen, hubSyncFlags, useHubCall } from '../lib/callhub';
+import type { RtcState } from '../lib/webrtc';
 import { duration } from '../lib/format';
 
 function Ripple({ delay, color }: { delay: number; color: string }) {
@@ -43,27 +45,32 @@ export default function CallScreen() {
   const peer = peerId ? db.users[peerId] : undefined;
   const realPeer = chat?.type === 'direct';
 
-  // start media / peer connection
+  // start media / peer connection via CALL HUB — keluar layar TIDAK mematikan
+  // panggilan (suara tetap jalan, bisa kembali lewat bar). Kembali ke layar ini
+  // memakai SESI YANG SAMA (tidak dibuat ulang).
   useEffect(() => {
     if (!call || !me || !peerId) return;
-    const s = new CallSession({
+    const s = hubAttachCall({
       callId: call.id,
+      chatId: call.chatId,
       me: me.id,
       peer: peerId,
       video: call.video,
       isCaller: call.callerId === me.id,
       realPeer,
-      onLocal: (st) => setLocal(st),
-      onRemote: (st) => setRemote(st),
-      onState: (st) => {
-        setRtcState(st);
-        if (st === 'closed') endCall(call.id);
-      },
+      onEnded: () => endCall(call.id),
     });
     session.current = s;
-    s.start();
-    return () => s.hangup();
+    return () => { hubLeaveScreen(); }; // ← PANGGILAN LANJUT di latar belakang
   }, [call?.id]);
+
+  // ikuti aliran audio/video dari hub (balik ke panggilan → langsung tampil)
+  const hb = useHubCall();
+  useEffect(() => {
+    if (hb?.local && hb.local !== local) setLocal(hb.local);
+    if (hb?.remote && hb.remote !== remote) setRemote(hb.remote);
+    if (hb && hb.rtcState !== rtcState) setRtcState(hb.rtcState);
+  }, [hb?.local, hb?.remote, hb?.rtcState]);
 
   // tick timer
   useEffect(() => {
@@ -75,7 +82,7 @@ export default function CallScreen() {
   const finished = !call || call.status === 'ended' || call.status === 'declined' || call.status === 'missed';
   useEffect(() => {
     if (finished) {
-      session.current?.hangup();
+      hubHangup('selesai');
       const id = setTimeout(() => (nav.canGoBack() ? nav.goBack() : nav.navigate('Main')), 1300);
       return () => clearTimeout(id);
     }
@@ -211,9 +218,9 @@ export default function CallScreen() {
 
       <View style={{ paddingBottom: insets.bottom + 30, paddingHorizontal: 20 }}>
         <View style={{ flexDirection: 'row', justifyContent: 'space-around', alignItems: 'flex-end', maxWidth: 440, width: '100%', alignSelf: 'center', padding: 16, borderRadius: 34, backgroundColor: dark ? 'rgba(15,23,42,0.55)' : t.bg, boxShadow: dark ? undefined : t.raised } as ViewStyle}>
-          <Ctrl icon={muted ? 'mic-off' : 'mic'} on={muted} label={muted ? 'Bisu' : 'Mic'} onPress={() => (setMuted(!muted), session.current?.setMuted(!muted))} />
+          <Ctrl icon={muted ? 'mic-off' : 'mic'} on={muted} label={muted ? 'Bisu' : 'Mic'} onPress={() => { const v = !muted; setMuted(v); session.current?.setMuted(v); hubSyncFlags(v, camOff); }} />
           {video ? (
-            <Ctrl icon={camOff ? 'videocam-off' : 'videocam'} on={camOff} label="Kamera" onPress={() => (setCamOff(!camOff), session.current?.setCameraOff(!camOff))} />
+            <Ctrl icon={camOff ? 'videocam-off' : 'videocam'} on={camOff} label="Kamera" onPress={() => { const v = !camOff; setCamOff(v); session.current?.setCameraOff(v); hubSyncFlags(muted, v); }} />
           ) : (
             <Ctrl icon={speaker ? 'volume-high' : 'volume-low'} on={speaker} label="Speaker" onPress={() => setSpeaker(!speaker)} />
           )}
@@ -223,7 +230,7 @@ export default function CallScreen() {
             danger
             label="Akhiri"
             onPress={() => {
-              session.current?.hangup();
+              hubHangup('tombol');
               endCall(call.id);
               if (getDB().calls.find((c) => c.id === call.id)?.status === 'ringing') nav.goBack();
             }}

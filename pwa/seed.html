@@ -104,6 +104,10 @@
       <button class="primary" id="btnSeed">🚀 Buat koleksi & akun developer</button>
       <button class="ghost" id="btnVerify">🔍 Verifikasi ulang</button>
     </div>
+    <div class="row" style="margin-top:8px">
+      <button class="ghost" id="btnRepair">🧰 Perbaiki field yang hilang (semua profil & chat)</button>
+      <button class="ghost" id="btnProbe">🩺 Tes izin server (rules live)</button>
+    </div>
     <div id="summary" style="margin-top:12px"></div>
   </div>
 
@@ -635,6 +639,81 @@ $('btnFill').onclick = () => { fill(); log('Config tersimpan dimuat.', 'ok'); };
 $('btnSeed').onclick = () => run(true);
 $('btnVerify').onclick = () => run(false);
 fill();
+
+// ---------- PERBAIKI FIELD HILANG + TES IZIN SERVER ----------
+async function initDev() {
+  const c = cfg();
+  if (!firebase.apps.length) firebase.initializeApp(c);
+  const auth = firebase.auth();
+  const db = firebase.firestore();
+  let user = auth.currentUser;
+  if (!user) {
+    const cred = await auth.signInWithEmailAndPassword($('admEmail').value.trim(), $('admPass').value);
+    user = cred.user;
+  }
+  return { db, user };
+}
+
+$('btnRepair').onclick = async () => {
+  try {
+    const { db, user } = await initDev();
+    log('Perbaikan field dimulai (akun ' + user.uid.slice(0, 6) + '…)…');
+    const snap = await db.collection('users').get();
+    const batch = db.batch();
+    let n = 0;
+    snap.forEach((d) => {
+      const u = d.data() ?? {};
+      const patch = {};
+      const def = (k, v) => { if (u[k] === undefined) patch[k] = v; };
+      def('points', 0); def('bestStreak', 0); def('checkinStreak', 0); def('lastCheckinAt', 0);
+      def('fireRevives', {}); def('refCount', 0); def('referredBy', '');
+      def('banned', false); def('banUntil', 0); def('suspendedUntil', 0);
+      def('blocked', []); def('contacts', []); def('blueCheck', false);
+      def('privacy', { lastSeen: 'everyone', profilePhoto: 'everyone' });
+      def('notif', { inApp: true, push: true }); def('role', 'user');
+      def('mutedUntil', 0); def('orderAttempts', 0);
+      if (Object.keys(patch).length) { batch.set(d.ref, patch, { merge: true }); n++; }
+    });
+    // chat inti: global + saluran AI — pastikan field streak/ban/blueCheck lengkap
+    for (const id of ['c_global', 'ch_zeroid_ai']) {
+      const ref = db.collection('chats').doc(id);
+      const s = await ref.get().catch(() => null);
+      if (s && s.exists) {
+        const ch = s.data() ?? {};
+        const patch = {};
+        const def = (k, v) => { if (ch[k] === undefined) patch[k] = v; };
+        def('streakCount', 0); def('streakDay', 0); def('streakUpdatedAt', 0); def('streakDeadNotifiedAt', 0);
+        def('banned', false); def('banUntil', 0); def('blueCheckPot', 0);
+        def('admins', ch.admins ?? []); def('mutedBy', []); def('archivedBy', []); def('pinnedBy', []); def('typing', {});
+        if (Object.keys(patch).length) batch.set(ref, patch, { merge: true });
+      }
+    }
+    await batch.commit();
+    log(`Perbaikan selesai — ${n} profil + chat inti dipastikan field-nya LENGKAP. Tidak ada lagi field kosong.`, 'ok');
+  } catch (e) { log('Perbaikan gagal: ' + (e?.message ?? e), 'err'); }
+};
+
+$('btnProbe').onclick = async () => {
+  try {
+    const { db, user } = await initDev();
+    const uid = user.uid;
+    log('Mengukur izin server (rules live)…');
+    const tests = [
+      ['Bukti check-in (ledger)', db.collection('ledger').doc('probe_' + uid + '_' + Date.now()).set({ uid, kind: 'probe', delta: 0, at: Date.now() })],
+      ['Bukti sekali lihat (config probe)', db.collection('config').doc('probe_vo_' + uid).set({ uid, viewedBy: [uid], at: Date.now() }, { merge: true })],
+      ['Catatan IP/device (usermeta)', db.collection('usermeta').doc(uid).set({ lastIpHash: 'probe', lastDeviceHash: 'probe', at: Date.now() }, { merge: true })],
+      ['Notifikasi', db.collection('notifications').doc('probe_' + uid).set({ userId: uid, title: 'probe', kind: 'system', at: Date.now() }, { merge: true })],
+      ['Config (admin)', db.collection('config').doc('probe_' + uid).set({ uid, at: Date.now() }, { merge: true })],
+    ];
+    let okN = 0;
+    for (const [name, p] of tests) {
+      try { await p; okN++; log('OK — ' + name, 'ok'); }
+      catch (e) { log('DITOLAK — ' + name + ' → ' + why(e, name), 'err'); }
+    }
+    if (okN === tests.length) log(`Semua ${tests.length} izin OK — rules di server sudah terbaru. Check-in, referral, sekali lihat & ban-IP jalan penuh.`, 'ok');
+    else log('Sebagian izin DITOLAK → publish rules terbaru (langkah 3 / /rules.html), lalu tes ulang.', 'warn');
+  } catch (e) { log('Tes gagal: ' + (e?.message ?? e), 'err'); }
+};
 
 function refreshIndexUrls() {
   const pid = ($('projectId').value.trim() || 'whatsapp-zeroid');

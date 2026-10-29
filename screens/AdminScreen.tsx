@@ -23,6 +23,7 @@ import { firebase, firebaseConfig } from '../lib/firebase';
 import { proxyPost } from '../lib/proxy';
 import { ago } from '../lib/format';
 import { pushBanner } from '../lib/bus';
+import { checkServerRules, rulesBanner, type RuleProbe } from '../lib/rulescheck';
 import { pickGallery, uploadMedia, uploadMediaDirect } from '../lib/media';
 
 type Tab = 'overview' | 'users' | 'chats' | 'orders' | 'reports' | 'appeals' | 'content' | 'ai' | 'system';
@@ -100,6 +101,7 @@ export default function AdminScreen() {
   const [verifyDays, setVerifyDays] = useState(30);
   const [seedMsg, setSeedMsg] = useState('');
   const [seedBusy, setSeedBusy] = useState(false);
+  const [rulesProbes, setRulesProbes] = useState<RuleProbe[]>([]);
   const [allMsg, setAllMsg] = useState('');
   const [allBusy, setAllBusy] = useState(false);
   const [botMsg, setBotMsg] = useState('');
@@ -658,6 +660,26 @@ export default function AdminScreen() {
             </Card>
             <Card title="Layanan">
               {me.developer && <Row icon="pulse" title="Status layanan & API" subtitle="Diagnostik Firebase, WebRTC, proxy AI" onPress={() => nav.navigate('ApiStatus')} />}
+              <Row
+                icon="server"
+                title="Cek izin server (Rules)"
+                subtitle="Tes check-in / sekali lihat / ban-IP ditolak atau tidak oleh Firestore"
+                onPress={async () => {
+                  const probes: RuleProbe[] = await checkServerRules(me);
+                  rulesBanner(probes);
+                  setRulesProbes(probes);
+                }}
+                chevron
+              />
+              {rulesProbes.length > 0 && (
+                <View style={{ paddingHorizontal: 14, paddingBottom: 8, gap: 4 }}>
+                  {rulesProbes.map((p) => (
+                    <T key={p.key} v="caption" style={{ color: p.ok ? '#0E9F6E' : t.danger }}>
+                      {p.ok ? '✓' : '✗'} {p.label}{!p.ok && p.hint ? ` — ${p.hint}` : ''}
+                    </T>
+                  ))}
+                </View>
+              )}
               <Row icon="shield-checkmark" title="Audit log" subtitle={`${db.audit.length} tindakan moderasi tercatat — ketuk untuk semua`} onPress={() => nav.navigate('Audit')} chevron />
             </Card>
             <Card title="Supabase (media permanen & database)">

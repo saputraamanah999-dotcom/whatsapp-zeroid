@@ -7,6 +7,7 @@ import { T, Btn } from './ui';
 import SwipeReply from './SwipeReply';
 import { productOf, rupiah } from '../lib/products';
 import { adminDecideOrder, votePoll, markViewOnce } from '../lib/store';
+import { voLocalOpened } from '../lib/viewonce';
 import { ProductIcon, VerifiedBadge } from '../lib/icons';
 import VoicePlayer from './VoicePlayer';
 import { Ticks } from './ChatRow';
@@ -85,8 +86,9 @@ export default function MessageBubble({
   // FOTO/VIDEO SEKALI LIHAT: penerima belum membuka → media tersembunyi (ketuk utk
   // buka 1x); sudah membuka → bubble jadi placeholder "dibuka"; pengirim melihat
   // normal + lencana mata.
-  const voLocked = !!m.viewOnce && !mine && !(m.viewedBy ?? []).includes(me.id);
-  const voOpened = !!m.viewOnce && !mine && (m.viewedBy ?? []).includes(me.id);
+  // sekali lihat: terkunci kalau server (viewedBy) ATAU catatan lokal bilang sudah dibuka
+  const voOpened = !!m.viewOnce && !mine && ((m.viewedBy ?? []).includes(me.id) || voLocalOpened(m.chatId, m.id));
+  const voLocked = !!m.viewOnce && !mine && !voOpened;
   const status = messageStatus(m, chat, me.id);
   const isPoll = m.type === 'poll' && !!m.poll && !m.deletedForAll;
   const retention =

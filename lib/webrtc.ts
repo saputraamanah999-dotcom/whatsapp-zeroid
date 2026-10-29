@@ -92,7 +92,15 @@ export class CallSession {
       return;
     }
     try {
-      this.local = await rtc.getUserMedia({ audio: true, video: this.o.video ? { facingMode: this.facing, width: { ideal: 720 }, height: { ideal: 1280 } } : false });
+      // HD + zoom-out: 1280x720 @30fps (bukan 480p burik) dan zoom DIPAKEKAN —
+      // kamera jangan terlalu dekat (badan harus kelihatan, seperti kamera biasa).
+      this.local = await rtc.getUserMedia({
+        audio: true,
+        video: this.o.video
+          ? { facingMode: this.facing, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } }
+          : false,
+      });
+      await this.relaxZoom();
       if (this.closed) return this.release();
       this.o.onLocal(this.local);
       this.o.onState('media');
@@ -113,13 +121,36 @@ export class CallSession {
     };
     this.pc.onconnectionstatechange = () => {
       const s = this.pc?.connectionState;
-      if (s === 'connected') this.o.onState('connected');
+      if (s === 'connected') { this.o.onState('connected'); void this.boostHd(); }
       else if (s === 'failed') this.o.onState('failed');
       else if (s === 'connecting') this.o.onState('connecting');
     };
     this.unsub = signaling.listen(this.o.me, this.o.callId, (s) => this.onSignal(s));
     if (!this.o.isCaller) this.send('ready');
     this.o.onState('connecting');
+  }
+
+  /** Kamera jangan terlalu dekat: pakai zoom TERKECIL yang didukung perangkat. */
+  private async relaxZoom() {
+    try {
+      const track: any = this.local?.getVideoTracks?.()[0];
+      if (!track?.getCapabilities) return;
+      const caps = track.getCapabilities();
+      if (caps?.zoom && typeof caps.zoom.min === 'number') {
+        await track.applyConstraints({ advanced: [{ zoom: caps.zoom.min }] });
+      }
+    } catch { /* tidak semua perangkat mendukung — abaikan */ }
+  }
+
+  /** HD anti-burik: encoder video jangan diturunkan — bitrate tinggi + resolusi penuh. */
+  private async boostHd() {
+    try {
+      const sender = this.pc?.getSenders?.().find((x: any) => x.track?.kind === 'video');
+      if (!sender?.getParameters) return;
+      const p = sender.getParameters();
+      p.encodings = [{ maxBitrate: 2_600_000, scaleResolutionDownBy: 1, maxFramerate: 30 }];
+      await sender.setParameters(p);
+    } catch { /* opsional */ }
   }
 
   private send(kind: SigKind, payload?: any) {

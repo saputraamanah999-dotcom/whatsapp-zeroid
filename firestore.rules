@@ -1,4 +1,7 @@
 rules_version = '2';
+// ZEROID WHATSAPP — FIRESTORE RULES v12
+// WAJIB terpasang di Firebase Console (atau otomatis via GitHub Actions).
+// Cek status izin live: /seed.html (tes izin server) atau /rules.html (panduan pasang).
 service cloud.firestore {
   match /databases/{db}/documents {
 

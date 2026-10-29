@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
 import { Avatar, Btn, Card, Empty, Header, Row, Screen, Segmented, T, UserBadges } from '../components/ui';
 import { useTheme, type Theme } from '../lib/theme';
-import { useStore, topKoin, topStreaks } from '../lib/store';
+import { useStore, topKoin, topStreaks, patchMeLocal } from '../lib/store';
 import { dailyCheckIn, checkinLockedToday, fmtKoin, koinToRp, refCodeFor, shareReferral, CHECKIN_BASE, CHECKIN_STREAK_BONUS, REF_REWARD_REFERRER, REF_REWARD_NEWBIE } from '../lib/points';
 import { fireColor } from '../lib/streak';
 import { LeaderRow } from '../lib/types';
@@ -39,7 +39,18 @@ export function RewardsScreen() {
     setClaiming(false);
     if (r.ok) {
       setClaimed(true);
-      pushBanner({ title: 'Check-in berhasil', body: `+${(r.reward ?? 0).toLocaleString('id-ID')} koin masuk! Kembali lagi besok untuk +${CHECKIN_BASE} koin lagi.`, icon: 'gift' });
+      // REAL-TIME: koin tampil SEKETIKA di layar (optimis), snapshot server menyusul
+      patchMeLocal({
+        points: (me.points ?? 0) + (r.reward ?? 0),
+        lastCheckinAt: Date.now(),
+        checkinStreak: (me.checkinStreak ?? 0) + 1,
+      });
+      pushBanner({
+        title: 'Check-in berhasil',
+        body: `+${(r.reward ?? 0).toLocaleString('id-ID')} koin masuk! Kembali lagi besok untuk +${CHECKIN_BASE} koin lagi.`
+          + (r.fallback ? ' (rules server belum terpasang — pasang lewat /rules.html biar referral & sekali lihat ikut normal.)' : ''),
+        icon: 'gift',
+      });
     } else {
       // "sudah check-in" → tombol IKUT terkunci, bukan cuma toast (anti tap berkali-kali)
       if ((r as any).already) setClaimed(true);

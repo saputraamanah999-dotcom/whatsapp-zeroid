@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Zeroid — Pasang Rules Firebase (2 menit)</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>" />
+<style>
+  :root { --bg:#0D1117; --card:#161B22; --line:#2A313B; --text:#E6EDF3; --sub:#8B949E; --accent:#1E6BFF; --ok:#0E9F6E; --warn:#C27803; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:ui-sans-serif,system-ui,'Segoe UI',Roboto,Arial,sans-serif; background:var(--bg); color:var(--text); padding:18px; line-height:1.6; }
+  .wrap { max-width:880px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
+  h1 { font-size:21px; margin:0; } h2 { font-size:16px; margin:0 0 8px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:16px; }
+  .muted { color:var(--sub); font-size:13px; }
+  .step { display:flex; gap:12px; align-items:flex-start; margin:10px 0; }
+  .num { width:26px; height:26px; border-radius:999px; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:900; font-size:13px; flex-shrink:0; }
+  button { cursor:pointer; border:0; border-radius:999px; padding:13px 20px; font-size:14px; font-weight:800; width:100%; }
+  .primary { background:var(--accent); color:#fff; }
+  .ghost { background:transparent; color:var(--accent); border:2px solid var(--accent); }
+  .ok { background:#12261e; color:#3ddc97; border:1px solid #1d4030; padding:10px 12px; border-radius:10px; font-size:13px; display:none; }
+  code { background:#0B0F14; border:1px solid var(--line); padding:2px 7px; border-radius:6px; font-size:12px; }
+  a { color:#6CB0FF; }
+  details { margin-top:8px; } summary { cursor:pointer; font-weight:800; color:#6CB0FF; }
+  pre { background:#0B0F14; border:1px solid var(--line); border-radius:12px; padding:12px; max-height:220px; overflow:auto; font-size:11px; color:#9DB2C7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>🛡️ Pasang Rules Firebase — 2 menit, dari HP</h1>
+    <p class="muted">
+      Rules di server Firebase masih versi lama. Akibatnya: <b>check-in ditolak</b> (padahal belum check-in),
+      <b>referral mati</b>, <b>foto sekali lihat bisa dibuka berkali-kali</b>, dan catatan IP/perangkat ban tidak tersimpan.
+      Teks di bawah adalah <b>rules terbaru v12</b> (otomatis ikut versi terbaru saat build). Setelah dipasang,
+      semua fitur langsung hidup tanpa update aplikasi.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Cara 1 — Publish manual (tercepat)</h2>
+    <div class="step"><div class="num">1</div><div>Buka <a href="https://console.firebase.google.com/project/whatsapp-zeroid/firestore/rules" target="_blank" rel="noopener">console.firebase.google.com → Firestore Database → Rules</a> (login akun Google pemilik project).</div></div>
+    <div class="step"><div class="num">2</div><div>Ketuk tombol di bawah — seluruh teks rules terbaru tersalin ke papan klip.</div></div>
+    <button class="primary" id="btnCopyRules">📋 Salin Rules Firestore (v12)</button>
+    <div class="step" style="margin-top:10px"><div class="num">3</div><div>Hapus SEMUA teks lama di editor Rules Console, lalu <b>tempel</b> dan ketuk <b>Publish</b>.</div></div>
+    <div class="step"><div class="num">4</div><div>(Opsional, disarankan) lakukan yang sama untuk Storage: <a href="https://console.firebase.google.com/project/whatsapp-zeroid/storage/rules" target="_blank" rel="noopener">Storage → Rules</a> — pakai tombol kedua.</div></div>
+    <button class="ghost" id="btnCopyStorage" style="margin-top:10px">📋 Salin Rules Storage</button>
+    <div class="ok" id="copied">✅ Tersalin! Sekarang tempel di editor Rules Console Firebase, lalu Publish.</div>
+    <details>
+      <summary>Lihat cuplikan rules</summary>
+      <pre id="preview"></pre>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>Cara 2 — Otomatis selamanya (GitHub Actions)</h2>
+    <p class="muted">
+      Supaya rules <b>otomatis ter-update setiap kali ada push</b>: buat <b>service account key</b>
+      (Firebase Console → ⚙️ Project settings → Service accounts → <i>Generate new private key</i> → unduh JSON),
+      lalu di GitHub repo: <b>Settings → Secrets and variables → Actions → New repository secret</b>,
+      Nama: <code>FIREBASE_SERVICE_ACCOUNT</code>, Isi: seluruh isi file JSON tadi.
+      Workflow <code>deploy-rules.yml</code> sudah disiapkan — setiap push yang mengubah rules akan
+      ter-deploy otomatis tanpa disentuh lagi.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>Cek sudah aktif belum?</h2>
+    <p class="muted">
+      Setelah Publish, buka aplikasi → akun baru → check-in: tombol harus memberi
+      <b>+1.000 koin</b> (bukan "sudah check-in"). Fitur referral & foto sekali lihat juga langsung normal.
+      Panel <b>Admin → Cek Izin Server</b> di aplikasi menampilkan status tiap izin secara detail.
+    </p>
+  </div>
+</div>
+<script>
+  const RULES = __RULES_TEXT__;
+  const STORAGE = __STORAGE_TEXT__;
+  document.getElementById('preview').textContent = RULES.slice(0, 1200) + '\n… (lengkap saat disalin)';
+  function flash() {
+    const el = document.getElementById('copied');
+    el.style.display = 'block';
+    setTimeout(() => { el.style.display = 'none'; }, 4000);
+  }
+  async function copy(text) {
+    try { await navigator.clipboard.writeText(text); flash(); return; } catch (e) {}
+    const ta = document.createElement('textarea');
+    ta.value = text; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); flash(); } catch (e) { alert('Salin manual: tekan lama pada teks rules.'); }
+    ta.remove();
+  }
+  document.getElementById('btnCopyRules').onclick = () => copy(RULES);
+  document.getElementById('btnCopyStorage').onclick = () => copy(STORAGE);
+</script>
+</body>
+</html>

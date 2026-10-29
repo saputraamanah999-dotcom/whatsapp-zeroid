@@ -19,6 +19,7 @@ import { useTheme, font, R } from '../lib/theme';
 import { Message, DB, User } from '../lib/types';
 import { messagePreview, sendMessage, editMessage, setTyping, clearTyping, retryMessage, OutMsg, stickersFor, createSticker } from '../lib/store';
 import { bratSticker } from '../lib/supabase';
+import { bratStickerLocal } from '../lib/brat';
 import MentionSuggestions, { MentionOption } from './MentionSuggestions';
 import { activeMentionQuery, applyMention, mentionCandidates } from '../lib/mentions';
 import { ensurePermission } from '../lib/permissions';
@@ -249,7 +250,10 @@ export default function Composer({
     setRecording(false);
     try {
       await recorder.stop();
-      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
+      // PENTING: pulihkan mode audio ke BACKGROUND-PLAY — kalau tidak, musik &
+      // panggilan mati begitu keluar layar/lock screen (mode rekam mematikan
+      // pemutaran latar). shouldPlayInBackground wajib aktif setelah rekam.
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true, shouldPlayInBackground: true, interruptionMode: 'doNotMix' } as any);
       const uri = recorder.uri;
       if (sendIt && uri && dur >= 1) {
         setBusy(true);
@@ -619,8 +623,16 @@ export default function Composer({
                   onPress={async () => {
                     setBratBusy(true);
                     try {
-                      const r = await bratSticker(bratText.trim());
-                      setBratUrl(r.url ?? r.dataUrl ?? null);
+                      // PRIMÁR: generate LOKAL (instan, tanpa server — tidak mungkin kosong).
+                      // Endpoint jadi cadangan bila generate lokal gagal (kasus ekstrem).
+                      let url: string | null = null;
+                      try { url = await bratStickerLocal(bratText.trim()); } catch { }
+                      if (!url) {
+                        const r = await bratSticker(bratText.trim());
+                        url = r.url ?? r.dataUrl ?? null;
+                      }
+                      setBratUrl(url);
+                      if (url) pushBanner({ title: 'Stiker siap', body: 'Kirim atau tambah ke favorit.', icon: 'happy' });
                     } catch (e: any) {
                       pushBanner({ title: 'Stiker Brat gagal', body: String(e?.message ?? 'Coba lagi.').slice(0, 140), icon: 'alert' });
                     } finally {

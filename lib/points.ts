@@ -115,7 +115,7 @@ export async function applyPendingReferral(me: User): Promise<{ ok: boolean; rew
  *  klaim 2x / tap berkali-kali, dan tidak ada lagi state nyangkut
  *  (versi lama: ledger ketulis tapi update user gagal → tombol bisa dipencet terus).
  *  Nilai koin/streak dihitung dari DATA SERVER (bukan cache) biar anti manipulasi. */
-export async function dailyCheckIn(me: User): Promise<{ ok: boolean; reward?: number; error?: string; already?: boolean }> {
+export async function dailyCheckIn(me: User): Promise<{ ok: boolean; reward?: number; error?: string; already?: boolean; fallback?: boolean }> {
   const fb = firebase();
   if (!fb || !me?.id) return { ok: false, error: 'Belum masuk.' };
   const now = Date.now();
@@ -154,24 +154,45 @@ export async function dailyCheckIn(me: User): Promise<{ ok: boolean; reward?: nu
     }
 
     // --- JALUR NORMAL: satu transaction = update koin + bukti ledger ---
-    const reward = await runTransaction(fb.db, async (tx) => {
-      const u = await tx.get(uRef);
-      if (!u.exists()) throw new Error('Profil tidak ditemukan.');
-      const srv: any = u.data();
-      const last = srv.lastCheckinAt ?? 0;
-      if (now - last < CHECKIN_GAP_MS) throw ALREADY; // kalah kejar device lain → semua batal
-      const streak = last >= yesterday ? (srv.checkinStreak ?? 0) + 1 : 1;
-      const r = CHECKIN_BASE + (streak % 7 === 0 ? CHECKIN_STREAK_BONUS : 0);
-      tx.update(uRef, { points: (srv.points ?? 0) + r, checkinStreak: streak, lastCheckinAt: now });
-      // bukti unik per hari — kalau doc-nya sudah ada rules menolak UPDATE →
-      // seluruh transaksi dibatalkan (koin tidak ikut masuk) = anti spam tap server.
-      tx.set(ledRef, { uid: me.id, kind: 'checkin', delta: r, streak, at: now });
-      return r;
-    });
-    return { ok: true, reward };
+    try {
+      const reward = await runTransaction(fb.db, async (tx) => {
+        const u = await tx.get(uRef);
+        if (!u.exists()) throw new Error('Profil tidak ditemukan.');
+        const srv: any = u.data();
+        const last = srv.lastCheckinAt ?? 0;
+        if (now - last < CHECKIN_GAP_MS) throw ALREADY; // kalah kejar device lain → semua batal
+        const streak = last >= yesterday ? (srv.checkinStreak ?? 0) + 1 : 1;
+        const r = CHECKIN_BASE + (streak % 7 === 0 ? CHECKIN_STREAK_BONUS : 0);
+        tx.update(uRef, { points: (srv.points ?? 0) + r, checkinStreak: streak, lastCheckinAt: now });
+        // bukti unik per hari — kalau doc-nya sudah ada rules menolak UPDATE →
+        // seluruh transaksi dibatalkan (koin tidak ikut masuk) = anti spam tap server.
+        tx.set(ledRef, { uid: me.id, kind: 'checkin', delta: r, streak, at: now });
+        return r;
+      });
+      return { ok: true, reward };
+    } catch (full: any) {
+      // ---- JALUR DARURAT (rules server belum ada blok ledger) ----
+      // Tulis koin TANPA bukti ledger — tetap ANTI DOBEL karena rules selfEconomyUpdate
+      // menolak lastCheckinAt yang maju <19 jam di sisi SERVER. Begitu rules baru
+      // terpasang, jalur penuh (dengan bukti ledger) otomatis dipakai lagi.
+      if (full === ALREADY || full?.already) return ALREADY;
+      const reward = await runTransaction(fb.db, async (tx) => {
+        const u = await tx.get(uRef);
+        if (!u.exists()) throw new Error('Profil tidak ditemukan.');
+        const srv: any = u.data();
+        const last = srv.lastCheckinAt ?? 0;
+        if (now - last < CHECKIN_GAP_MS) throw ALREADY;
+        const streak = last >= yesterday ? (srv.checkinStreak ?? 0) + 1 : 1;
+        const r = CHECKIN_BASE + (streak % 7 === 0 ? CHECKIN_STREAK_BONUS : 0);
+        tx.update(uRef, { points: (srv.points ?? 0) + r, checkinStreak: streak, lastCheckinAt: now });
+        return r;
+      });
+      return { ok: true, reward, fallback: true };
+    }
   } catch (e: any) {
-    if (e === ALREADY || e?.already || e?.code === 'permission-denied') return ALREADY;
-    return { ok: false, error: e?.message ?? 'Check-in gagal.' };
+    if (e === ALREADY || e?.already) return ALREADY;
+    // permission-denied di sini = server menolak karena ALASAN LAIN (bukan "sudah")
+    return { ok: false, error: 'Server menolak (izin Firestore). Jalankan update Rules Firebase lalu coba lagi.' };
   }
 }
 
