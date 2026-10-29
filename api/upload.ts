@@ -115,13 +115,31 @@ function sniff(buf: Buffer): string | null {
   if (h.toString('ascii', 0, 4) === 'RIFF' && h.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
   if (h.toString('ascii', 0, 4) === 'RIFF' && h.toString('ascii', 8, 12) === 'WAVE') return 'audio/wav';
   if (h.toString('ascii', 4, 8) === 'ftyp') return h.toString('ascii', 8, 12).startsWith('qt') ? 'video/quicktime' : 'video/mp4';
-  if (h[0] === 0x1a && h[1] === 0x45 && h[2] === 0xdf && h[3] === 0xa3) return 'video/webm'; // matroska/webm
+  if (h[0] === 0x1a && h[1] === 0x45 && h[2] === 0xdf && h[3] === 0xa3) return 'video/webm'; // matroska/webm (audio & video)
   if (h.toString('ascii', 0, 4) === 'OggS') return 'audio/ogg';
-  if (h.toString('ascii', 0, 3) === 'ID3' || (h[0] === 0xff && (h[1] & 0xe0) === 0xe0)) return 'audio/mpeg';
+  if (h[0] === 0xff && (h[1] & 0xf6) === 0xf0) return 'audio/aac'; // ADTS AAC (sync + layer 00) — CEK SEBELUM mp3!
+  if (h.toString('ascii', 0, 3) === 'ID3' || (h[0] === 0xff && (h[1] & 0xe0) === 0xe0 && (h[1] & 0x06) !== 0)) return 'audio/mpeg'; // MP3: layer bits ≠ 00
   if (h.toString('ascii', 0, 4) === '%PDF') return 'application/pdf';
   if (h[0] === 0x50 && h[1] === 0x4b) return 'application/zip'; // also docx/xlsx/pptx
   return null;
 }
+
+/**
+ * Keluarga container audio/video yang magic bytes-nya SAMA untuk varian audio
+ * dan video: WebM/Matroska, MP4/ISO-BMFF, Ogg, WAV. VN Chrome mis. blob
+ * "audio/webm" ter-sniff "video/webm" — itu BUKAN kebohongan tipe, hanya
+ * container yang sama. Semua anggota keluarga dianggap cocok satu sama lain.
+ */
+const AV_FAMILY: Record<string, string[]> = {
+  'video/webm': ['audio/webm', 'video/webm'],
+  'audio/webm': ['audio/webm', 'video/webm'],
+  'video/mp4': ['audio/mp4', 'audio/m4a', 'audio/aac', 'video/mp4', 'video/quicktime'],
+  'video/quicktime': ['video/quicktime', 'video/mp4', 'audio/mp4', 'audio/m4a'],
+  'audio/wav': ['audio/wav', 'audio/x-wav', 'audio/wave'],
+  'audio/ogg': ['audio/ogg', 'application/ogg', 'audio/opus', 'audio/vorbis'],
+  'audio/aac': ['audio/aac', 'audio/aacp', 'audio/mp4', 'audio/m4a'],
+  'audio/mpeg': ['audio/mpeg', 'audio/mp3'],
+};
 
 const safeName = (n: string) => n.replace(/[^\w.\-() ]/g, '_').replace(/\.{2,}/g, '.').slice(0, 90) || 'file';
 
@@ -219,14 +237,14 @@ export default async function handler(req: any, res: any) {
 
   if (!ALLOWED_MIME.has(mime)) return bad(res, 415, `Jenis file tidak didukung (${mime || 'tidak dikenal'}).`);
   const sniffed = sniff(buf);
-  // Pengecualian container yang memang identik secara format:
-  //  - webm audio (VN Chrome/Firefox) terdeteksi sebagai 'video/webm' (magic byte Matroska sama)
-  //  - audio/mp4 & audio/m4a terdeteksi sebagai 'video/mp4' (box ftyp sama)
-  const containerAlias =
-    (sniffed === 'video/webm' && (mime === 'audio/webm' || mime === 'video/webm')) ||
-    (sniffed === 'video/mp4' && (mime === 'audio/mp4' || mime === 'audio/m4a')) ||
-    (sniffed === 'audio/wav' && mime === 'video/webm'); // opus di RIFF jarang, guard lembut
-  if (!sniffed || (sniffed !== mime && !containerAlias)) {
+  // 1) Keluarga container A/V (webm/mp4/ogg/wav/aac/mp3): varian audio & video
+  //    berbagi magic bytes yang sama — VN, video, audio disamakan otomatis.
+  // 2) Fallback longgar khusus AUDIO: kalau klaim audio/* tapi sniff menemukan
+  //    container A/V mana pun, terima (VN dari browser aneh kadang dilabeli
+  //    audio/mp4 padahal webm) — pemutar <audio> tetap membaca isi file.
+  const familyOk = !!sniffed && (AV_FAMILY[sniffed] ?? []).includes(mime);
+  const audioLoose = mime.startsWith('audio/') && !!sniffed && sniffed in AV_FAMILY;
+  if (!sniffed || (sniffed !== mime && !familyOk && !audioLoose)) {
     return bad(res, 415, 'Isi file tidak cocok dengan jenis yang diklaim.');
   }
 

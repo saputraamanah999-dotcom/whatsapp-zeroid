@@ -27,12 +27,9 @@ import {
   regenerateInvite,
   chatVerified,
   chatBadge,
-  createOrder,
-  contributeBlueCheckPot,
-  BLUECHECK_POT_TARGET,
   isFullAdmin,
 } from '../lib/store';
-import { productOf, rupiah } from '../lib/products';
+import { rupiah } from '../lib/products';
 import { ago } from '../lib/format';
 import { placeCall } from './tabs/CallsTab';
 import { pickGallery, uploadMedia } from '../lib/media';
@@ -54,7 +51,8 @@ export default function ChatInfo() {
   const [confirm, setConfirm] = useState<null | 'clear' | 'leave' | 'block'>(null);
   const [disTimer, setDisTimer] = useState(false);
 
-  const media = useMemo(() => (db.messages[chat?.id ?? ''] ?? []).filter((m) => (m.type === 'image' || m.type === 'video') && m.uri && !m.deletedForAll && !m.deletedFor.includes(me?.id ?? '')).slice(-12).reverse(), [db, chat?.id, me?.id]);
+  // galeri info: media sekali lihat TIDAK ikut (ala WhatsApp — hanya bisa dibuka dari bubble)
+  const media = useMemo(() => (db.messages[chat?.id ?? ''] ?? []).filter((m) => (m.type === 'image' || m.type === 'video') && m.uri && !m.viewOnce && !m.deletedForAll && !m.deletedFor.includes(me?.id ?? '')).slice(-12).reverse(), [db, chat?.id, me?.id]);
   const docs = useMemo(() => (db.messages[chat?.id ?? ''] ?? []).filter((m) => (m.type === 'document' || m.type === 'audio') && !m.deletedForAll).length, [db, chat?.id]);
 
   if (!me) return null;
@@ -135,7 +133,9 @@ export default function ChatInfo() {
           </Card>
         )}
 
-        {/* centang biru grup/saluran — status + patungan + pembelian */}
+        {/* centang biru grup/saluran — OTOMATIS dari pemilik (tanpa beli lagi):
+            user/Developer yang sudah punya centang biru → semua grup & saluran
+            miliknya ikut terverifikasi tanpa biaya apa pun. */}
         {(chat.type === 'group' || chat.type === 'channel') && (
           <Card title="Centang biru">
             <View style={{ padding: 12, gap: 10 }}>
@@ -148,75 +148,40 @@ export default function ChatInfo() {
                       ? (chat.verifiedUntil ?? 0) > Date.now()
                         ? ` — masa aktif ${Math.ceil(((chat.verifiedUntil ?? 0) - Date.now()) / 86400000)} hari lagi`
                         : ' — permanen'
-                      : ' — otomatis ikut centang biru pemilik (tanpa beli lagi)'}
+                      : ' — otomatis ikut centang biru pemilik (tanpa beli)'}
                   </T>
                 </View>
               ) : (
-                <T v="sub">Tandai {chat.type === 'channel' ? 'saluran' : 'grup'} ini sebagai resmi dengan centang biru — muncul di nama, daftar chat, dan info.</T>
+                <T v="sub">{chat.type === 'channel' ? 'Saluran' : 'Grup'} ini belum terverifikasi.</T>
               )}
-              {/* PATUNGAN: anggota menyetor bersama sampai target tercapai */}
-              {!badge && (
-                <View style={{ gap: 8, borderRadius: R.md, padding: 12, backgroundColor: t.bg2 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Ionicons name="people-circle" size={18} color={t.accent} />
-                    <T v="caption" style={{ flex: 1, fontWeight: '800' }}>PATUNGAN BERSAMA — target {rupiah(BLUECHECK_POT_TARGET)} (permanen)</T>
-                  </View>
-                  {(() => {
-                    const pot = chat.blueCheckPot ?? {};
-                    const total = Object.values(pot).reduce((a: number, b: any) => a + Number(b ?? 0), 0) as number;
-                    const pct = Math.min(100, Math.round((total / BLUECHECK_POT_TARGET) * 100));
-                    return (
-                      <>
-                        <View style={{ height: 8, borderRadius: 4, backgroundColor: t.border, overflow: 'hidden' }}>
-                          <View style={{ width: `${pct}%`, height: '100%', borderRadius: 4, backgroundColor: t.accent }} />
-                        </View>
-                        <T v="caption" color={t.sub}>Terkumpul {rupiah(total)} dari {rupiah(BLUECHECK_POT_TARGET)} · {Object.keys(pot).length} anggota ikut</T>
-                        {!!Object.keys(pot).length && (
-                          <T v="caption" color={t.faint} numberOfLines={2}>
-                            {Object.entries(pot).map(([uid, v]: any) => `${db.users[uid]?.name?.split(' ')[0] ?? 'Anggota'}: ${rupiah(Number(v))}`).join(' · ')}
-                          </T>
-                        )}
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                          {[10000, 25000, 49000].map((amt) => (
-                            <Btn
-                              key={amt}
-                              small
-                              variant="primary"
-                              icon="wallet"
-                              title={`Ikut ${rupiah(amt)}`}
-                              onPress={async () => {
-                                const r = await contributeBlueCheckPot(chat.id, amt);
-                                if (r.ok) pushBanner({ title: r.reached ? 'Target tercapai!' : 'Kontribusi masuk', body: r.reached ? 'Pesanan centang biru dikirim ke admin untuk konfirmasi pembayaran.' : `Total patungan sekarang dilihat di info ${chat.name}.`, icon: 'wallet' });
-                                else pushBanner({ title: 'Patungan gagal', body: r.error ?? 'Coba lagi.', icon: 'alert' });
-                              }}
-                            />
-                          ))}
-                        </View>
-                        <T v="caption" color={t.faint}>Kalau target tercapai, pesanan otomatis dikirim ke admin — pembayaran dikonfirmasi lewat chat transaksi patungan.</T>
-                      </>
-                    );
-                  })()}
+              <View style={{ gap: 6, borderRadius: R.md, padding: 12, backgroundColor: t.bg2 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Ionicons name="shield-checkmark" size={18} color={t.accent} />
+                  <T v="caption" style={{ flex: 1, fontWeight: '800' }}>CENTANG OTOMATIS DARI PEMILIK</T>
                 </View>
-              )}
-              {isAdmin && !autoVerified && (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-                  {productOf('bluecheck').plans.map((pl, i) => (
-                    <Btn
-                      key={pl.label}
-                      small
-                      variant="primary"
-                      icon="checkmark-circle"
-                      title={`${pl.label} · ${rupiah(pl.price)}`}
-                      onPress={() => {
-                        const r = createOrder('bluecheck', i, 'qris', { id: chat.id, name: chat.name });
-                        if (r && 'error' in r) pushBanner({ title: 'Tidak bisa memesan', body: r.error, icon: 'alert' });
-                        else if (r) pushBanner({ title: 'Pesanan dikirim', body: `Centang biru untuk "${chat.name}" menunggu konfirmasi admin.`, icon: 'checkmark-circle' });
-                      }}
-                    />
-                  ))}
-                </View>
-              )}
-              {!badge && <T v="caption" color={t.faint}>Centang aktif setelah admin mengonfirmasi pembayaran. Kalau pemilik sudah punya centang biru, grup/saluran otomatis ikut — tanpa beli lagi.</T>}
+                <T v="caption" color={t.sub}>
+                  Tidak ada pembelian centang biru untuk grup/saluran. Begitu pemilik (user atau Developer)
+                  punya centang biru di akunnya, {chat.type === 'channel' ? 'saluran' : 'grup'} ini otomatis ikut terverifikasi
+                  {' '}— muncul di nama, daftar chat, dan info. Tanpa biaya, tanpa patungan.
+                </T>
+                {!!chat.createdBy && db.users[chat.createdBy] && (() => {
+                  const owner = db.users[chat.createdBy];
+                  const ownerBadged = owner.blueCheck || owner.developer || owner.role === 'admin' || owner.role === 'developer';
+                  return (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <T v="caption" color={t.faint}>Pemilik: {owner.name}</T>
+                      {ownerBadged ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+                          <VerifiedBadge size={12} animate={false} />
+                          <T v="caption" color={t.accent} style={{ fontWeight: '700' }}>punya centang biru</T>
+                        </View>
+                      ) : (
+                        <T v="caption" color={t.faint}>— belum punya centang biru</T>
+                      )}
+                    </View>
+                  );
+                })()}
+              </View>
             </View>
           </Card>
         )}

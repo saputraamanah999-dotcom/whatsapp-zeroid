@@ -45,7 +45,7 @@ function RecDot() {
   return <Animated.View style={[{ width: 9, height: 9, borderRadius: 5, backgroundColor: '#FF3B5C' }, st]} />;
 }
 
-type PendingMedia = { prepared: PreparedMedia; preview: string; caption: string; progress: number };
+type PendingMedia = { prepared: PreparedMedia; preview: string; caption: string; progress: number; viewOnce: boolean };
 
 /** one-shot per session: web browser notification permission (requested on first send) */
 let webNotifAsked = false;
@@ -141,7 +141,7 @@ export default function Composer({
     if (!p) return;
     try {
       const prepared = await prepareForSend(p, chatId);
-      setPending({ prepared, preview: prepared.uri, caption: '', progress: 0 });
+      setPending({ prepared, preview: prepared.uri, caption: '', progress: 0, viewOnce: false });
     } catch (e: any) {
       pushBanner({ title: 'Lampiran tidak valid', body: e instanceof MediaError ? e.message : (e?.message ?? 'Gagal menyiapkan media.'), icon: 'alert' });
     }
@@ -164,6 +164,8 @@ export default function Composer({
         storagePath: res.path,
         mediaExpiresAt: res.expiresAt,
         text: pending.caption.trim() || undefined,
+        // FOTO/VIDEO SEKALI LIHAT: penerima hanya bisa membuka 1x
+        viewOnce: pending.viewOnce && (pending.prepared.type === 'image' || pending.prepared.type === 'video') ? true : undefined,
       });
       setPending(null);
       resetInput();
@@ -252,11 +254,26 @@ export default function Composer({
       if (sendIt && uri && dur >= 1) {
         setBusy(true);
         try {
-          // expo-audio: native → .m4a (audio/mp4), web MediaRecorder → .webm (audio/webm)
-          const isWebm = /\.webm$/i.test(uri);
-          const mime = isWebm ? 'audio/webm' : 'audio/mp4';
-          const ext = isWebm ? '.webm' : '.m4a';
-          const res = await uploadMedia(uri, `chats/${chatId}/vn_${Date.now()}${ext}`, mime);
+          // MIME VN harus BENAR-BENAR sesuai isi file — server memverifikasi magic
+          // bytes. Web: recorder.uri itu blob: TANPA ekstensi (.webm test dulu GAGAL
+          // karena dikira audio/mp4 padahal isinya WebM → 415 "isi file tidak
+          // cocok"). Solusi: baca blob dan pakai blob.type yang sebenarnya.
+          let mime = 'audio/mp4';
+          let ext = '.m4a';
+          let payload: Blob | string = uri;
+          if (Platform.OS === 'web') {
+            const blob = await (await fetch(uri)).blob();
+            const real = (blob.type || '').toLowerCase().split(';')[0].trim();
+            if (real === 'video/webm' || real === 'audio/webm') { mime = 'audio/webm'; ext = '.webm'; }
+            else if (real === 'audio/ogg' || real === 'application/ogg') { mime = 'audio/ogg'; ext = '.ogg'; }
+            else if (real === 'audio/wav' || real === 'audio/x-wav') { mime = 'audio/wav'; ext = '.wav'; }
+            else if (real === 'audio/mp4' || real === 'video/mp4' || real === 'audio/m4a') { mime = 'audio/mp4'; ext = '.m4a'; }
+            else if (real === 'audio/mpeg') { mime = 'audio/mpeg'; ext = '.mp3'; }
+            payload = blob;
+          } else if (/\.webm$/i.test(uri)) {
+            mime = 'audio/webm'; ext = '.webm'; // native webm jarang, tapi antisipasi
+          }
+          const res = await uploadMedia(payload, `chats/${chatId}/vn_${Date.now()}${ext}`, mime);
           send({ type: 'audio', uri: res.url, duration: dur, mime, fileSize: res.size, storagePath: res.path });
           resetInput();
         } catch (e: any) {
@@ -317,6 +334,20 @@ export default function Composer({
               </View>
               <T v="caption" color={t.faint}>{busy ? `Mengunggah ${pending.progress}%` : 'Siap dikirim'}</T>
             </View>
+            {/* FOTO/VIDEO SEKALI LIHAT — ala WhatsApp "1x lihat" */}
+            {(pending.prepared.type === 'image' || pending.prepared.type === 'video') && (
+              <Pressable
+                onPress={() => !busy && setPending((x) => (x ? { ...x, viewOnce: !x.viewOnce } : x))}
+                disabled={busy}
+                accessibilityLabel="Mode sekali lihat"
+                style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: R.md, backgroundColor: pending.viewOnce ? t.accent : pressed ? t.bg2 : t.bg2, opacity: busy ? 0.5 : 1 })}
+              >
+                <Icon name={pending.viewOnce ? 'eye-off' : 'eye'} size={15} color={pending.viewOnce ? '#fff' : t.sub} />
+                <T v="caption" color={pending.viewOnce ? '#fff' : t.sub} style={{ fontWeight: '800' }}>
+                  {pending.viewOnce ? 'Sekali lihat' : '1× lihat'}
+                </T>
+              </Pressable>
+            )}
             <Pressable onPress={() => { if (!busy) setPending(null); }} hitSlop={10} accessibilityLabel="Batalkan lampiran">
               <Icon name="x" size={18} color={busy ? t.faint : t.sub} />
             </Pressable>

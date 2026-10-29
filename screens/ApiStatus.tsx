@@ -94,7 +94,7 @@ export default function ApiStatus() {
         <Card title={`Firebase · ${firebaseConfig.projectId}`}>
           <Row icon="flame" iconColor="#FF9F0A" title="Konfigurasi web app" subtitle={isFirebaseConfigured ? 'EXPO_PUBLIC_FIREBASE_* lengkap' : 'API key/appId belum diset (.env)'} chevron={false} right={<Status ok={isFirebaseConfigured} label={isFirebaseConfigured ? 'Terhubung' : 'Perlu konfigurasi'} />} />
           <Row icon="person" title="Authentication" subtitle={`Email/password${googleAuthConfigured ? ' + Google' : ''}${phoneAuthConfigured ? ' + Phone OTP' : ''} · reset & verifikasi email`} chevron={false} />
-          <Row icon="server" title="Firestore & Storage" subtitle={`Bucket: ${firebaseConfig.storageBucket}`} chevron={false} />
+          <Row icon="server" title="Database & Penyimpanan" subtitle={`Proyek: ${firebaseConfig.projectId}`} chevron={false} />
           <Row icon="notifications" title="Cloud Messaging" subtitle="Token tersimpan di fcm_tokens/{uid}; FCM dikirim oleh Cloud Functions" chevron={false} />
         </Card>
 

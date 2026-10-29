@@ -111,10 +111,11 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(['members','admins','name','description','avatar','postPolicy','inviteCode','disappearing']);
     }
-    // Message fields any member may touch (receipts, reactions, own stars, poll votes).
+    // Message fields any member may touch (receipts, reactions, own stars, poll votes,
+    // view-once open receipts).
     function memberMsgUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys()
-        .hasOnly(['deliveredAt','reactions','starredBy','votes']);
+        .hasOnly(['deliveredAt','reactions','starredBy','votes','viewedBy']);
     }
     // Message fields the SENDER may additionally touch (edit, delete, media metadata).
     function senderMsgUpdate() {

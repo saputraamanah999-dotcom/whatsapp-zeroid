@@ -124,7 +124,7 @@ export type Chat = {
   lastMsg?: { text: string; type: MsgType; senderId: string; createdAt: number };
   /** public join link token (groups/channels) */
   inviteCode?: string;
-  /** Patungan centang biru: map uid → jumlah kontribusi (rupiah) */
+  /** @deprecated fitur patungan dihapus — field lama di Firestore diabaikan. */
   blueCheckPot?: Record<string, number>;
   /** STREAK API: beruntun hari ada pesan (muncul mulai 3 hari), dirawat bareng seluruh anggota */
   streakCount?: number;
@@ -211,6 +211,10 @@ export type Message = {
   locationLabel?: string;
   /** polling: data pilihan + suara per user (uid → index pilihan / array utk multi) */
   poll?: PollData;
+  /** FOTO/VIDEO SEKALI LIHAT (ala WhatsApp): media hanya bisa dibuka 1x per penerima */
+  viewOnce?: boolean;
+  /** uid yang SUDAH membuka media sekali lihat (tidak bisa dibuka lagi) */
+  viewedBy?: string[];
   votes?: Record<string, number | number[]>;
   /** contact card message */
   contactName?: string;

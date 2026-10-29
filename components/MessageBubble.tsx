@@ -6,7 +6,7 @@ import Animated, { FadeInUp } from 'react-native-reanimated';
 import { T, Btn } from './ui';
 import SwipeReply from './SwipeReply';
 import { productOf, rupiah } from '../lib/products';
-import { adminDecideOrder, votePoll } from '../lib/store';
+import { adminDecideOrder, votePoll, markViewOnce } from '../lib/store';
 import { ProductIcon, VerifiedBadge } from '../lib/icons';
 import VoicePlayer from './VoicePlayer';
 import { Ticks } from './ChatRow';
@@ -82,6 +82,11 @@ export default function MessageBubble({
   const reactions = Object.values(m.reactions);
   const grouped = reactions.reduce<Record<string, number>>((a, e) => ((a[e] = (a[e] ?? 0) + 1), a), {});
   const isMedia = (m.type === 'image' || m.type === 'video') && !m.deletedForAll;
+  // FOTO/VIDEO SEKALI LIHAT: penerima belum membuka → media tersembunyi (ketuk utk
+  // buka 1x); sudah membuka → bubble jadi placeholder "dibuka"; pengirim melihat
+  // normal + lencana mata.
+  const voLocked = !!m.viewOnce && !mine && !(m.viewedBy ?? []).includes(me.id);
+  const voOpened = !!m.viewOnce && !mine && (m.viewedBy ?? []).includes(me.id);
   const status = messageStatus(m, chat, me.id);
   const isPoll = m.type === 'poll' && !!m.poll && !m.deletedForAll;
   const retention =
@@ -226,7 +231,15 @@ export default function MessageBubble({
       <Pressable
         onLongPress={onLongPress}
         delayLongPress={300}
-        onPress={() => (isMedia ? onOpenMedia(m) : undefined)}
+        onPress={() => {
+          if (!isMedia) return;
+          if (voLocked) {
+            // buka SEKALI: catat penerima dulu (realtime), lalu tampilkan viewer
+            markViewOnce(m.chatId, m.id);
+            onOpenMedia(m);
+          } else if (!voOpened) onOpenMedia(m);
+          // voOpened → sudah dibuka, tidak bisa dibuka lagi
+        }}
         style={({ pressed }) =>
           ({
             maxWidth: '82%',
@@ -283,9 +296,16 @@ export default function MessageBubble({
           </View>
         ) : (
           <>
-            {m.type === 'image' && m.uri && <Image source={{ uri: m.uri }} style={{ width: 240, height: 240, borderRadius: 16 }} contentFit="cover" transition={200} />}
-            {m.type === 'image' && !m.uri && <T v="sub" color={subFg}>Foto tidak tersedia</T>}
-            {m.type === 'video' && (
+            {m.type === 'image' && m.uri && !voLocked && !voOpened && <Image source={{ uri: m.uri }} style={{ width: 240, height: 240, borderRadius: 16 }} contentFit="cover" transition={200} />}
+            {m.type === 'image' && !m.uri && !voLocked && !voOpened && <T v="sub" color={subFg}>Foto tidak tersedia</T>}
+            {m.type === 'image' && (voLocked || voOpened) && (
+              <View style={{ width: 240, height: 240, borderRadius: 16, backgroundColor: '#0F172A', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <Ionicons name={voOpened ? 'eye-off' : 'eye'} size={34} color="rgba(255,255,255,0.75)" />
+                <T v="caption" color="#fff" style={{ fontWeight: '700' }}>{voOpened ? 'Foto sekali lihat — sudah dibuka' : 'Foto sekali lihat'}</T>
+                {!voOpened && <T v="caption" color="rgba(255,255,255,0.65)">Ketuk untuk melihat 1×</T>}
+              </View>
+            )}
+            {m.type === 'video' && !voLocked && !voOpened && (
               <View style={{ width: 240, height: 180, borderRadius: 16, backgroundColor: '#0F172A', alignItems: 'center', justifyContent: 'center' }}>
                 <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' }}>
                   <Ionicons name="play" size={28} color="#fff" style={{ marginLeft: 3 }} />
@@ -293,6 +313,13 @@ export default function MessageBubble({
                 <T v="caption" color="#fff" style={{ position: 'absolute', bottom: 8, left: 10 }}>
                   {m.fileName ?? 'Video'} {m.fileSize ? `· ${bytes(m.fileSize)}` : ''}{retention ? ` · ${retention}` : ''}
                 </T>
+              </View>
+            )}
+            {m.type === 'video' && (voLocked || voOpened) && (
+              <View style={{ width: 240, height: 180, borderRadius: 16, backgroundColor: '#0F172A', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <Ionicons name={voOpened ? 'eye-off' : 'eye'} size={34} color="rgba(255,255,255,0.75)" />
+                <T v="caption" color="#fff" style={{ fontWeight: '700' }}>{voOpened ? 'Video sekali lihat — sudah dibuka' : 'Video sekali lihat'}</T>
+                {!voOpened && <T v="caption" color="rgba(255,255,255,0.65)">Ketuk untuk melihat 1×</T>}
               </View>
             )}
             {m.type === 'audio' && m.uri && <VoicePlayer uri={m.uri} seed={m.id} dur={m.duration} mine={mine} accent={t.accent} />}
@@ -382,6 +409,7 @@ export default function MessageBubble({
           </>
         )}
         <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 4, marginTop: 3, paddingHorizontal: isMedia ? 8 : 0, paddingBottom: isMedia ? 4 : 0 }}>
+          {m.viewOnce && <Ionicons name="eye-off" size={11} color={subFg} />}
           {m.expiresAt && <Ionicons name="timer-outline" size={11} color={subFg} />}
           {m.starredBy.includes(me.id) && <Ionicons name="star" size={11} color={subFg} />}
           {m.editedAt && !m.deletedForAll && (

@@ -70,15 +70,21 @@ export function EditProfile() {
     }
   };
 
-  const save = () => {
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    if (saving) return;
     if (name.trim().length < 2) return pushBanner({ title: 'Nama terlalu pendek', body: 'Minimal 2 karakter', icon: 'alert-circle' });
-    updateMe({ name: name.trim(), about: about.trim() || 'Hai! Aku pakai Zeroid-whatsapp.', phone: phone.trim() || undefined });
-    pushBanner({ title: 'Profil disimpan', body: 'Perubahan berhasil diterapkan', icon: 'checkmark-circle' });
+    setSaving(true);
+    // await hasil tulisan SEBENARNYA — dulu banner sukses muncul padahal tulisan gagal
+    const r = await updateMe({ name: name.trim(), about: about.trim() || 'Hai! Aku pakai Zeroid-whatsapp.', phone: phone.trim() || undefined });
+    setSaving(false);
+    if (r.ok) pushBanner({ title: 'Profil disimpan', body: 'Perubahan berhasil diterapkan', icon: 'checkmark-circle' });
+    else pushBanner({ title: 'Gagal menyimpan profil', body: r.error ?? 'Coba lagi.', icon: 'alert' });
   };
 
   return (
     <Screen>
-      <Header title="Edit profil" right={<Btn small title="Simpan" onPress={save} />} />
+      <Header title="Edit profil" right={<Btn small title={saving ? 'Menyimpan…' : 'Simpan'} disabled={saving} onPress={save} />} />
       <ScrollView contentContainerStyle={{ padding: 20, gap: 18, maxWidth: 560, width: '100%', alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
         <Pressable onPress={() => setBannerSheet(true)} disabled={busyMedia} style={({ pressed }) => ({ height: 116, borderRadius: R.lg, overflow: 'hidden', backgroundColor: t.bg2, opacity: pressed ? 0.9 : 1 })} accessibilityLabel="Ganti banner profil">
           {me.banner ? (

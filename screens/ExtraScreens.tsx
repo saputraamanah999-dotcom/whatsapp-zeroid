@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, ScrollView, Pressable, Platform, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -391,15 +391,25 @@ export function MusicScreen() {
   const [err, setErr] = useState('');
   const [link, setLink] = useState('');
   const [linkBusy, setLinkBusy] = useState(false);
+  // ANTI-NGELEG: (1) debounce timer di ref, (2) nomor urut pencarian — hasil
+  // respons lama TIDAK BOLEH menimpa ketikan terbaru, (3) runSearch TIDAK
+  // menyentuh setQ — dulu ia menulis balik teks lama → ketikan "balik sendiri"
+  // setelah dihapus dan layar terasa delay.
+  const seq = useRef(0);
+  const debounceT = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const runSearch = async (text: string) => {
-    setQ(text);
     const s = text.trim();
-    if (!s) { setSongs([]); setPls([]); setArts([]); setErr(''); return; }
+    const my = ++seq.current;
+    if (!s) {
+      setSongs([]); setPls([]); setArts([]); setErr(''); setSearching(false);
+      return;
+    }
     setSearching(true);
     setErr('');
     try {
       const r = await musicSearch(s, 'all') as any;
+      if (my !== seq.current) return; // ketikan lebih baru sudah jalan — buang hasil basi
       // search 'all' → kembalikan songs+playlists+artists sekaligus
       const list: MusicSong[] = Array.isArray(r) ? r : r?.songs ?? [];
       setSongs(list);
@@ -407,12 +417,22 @@ export function MusicScreen() {
       setArts(r?.artists ?? []);
       if (!list.length && !r?.playlists?.length && !r?.artists?.length) setErr('Tidak ada hasil. Coba kata kunci lain.');
     } catch (e: any) {
+      if (my !== seq.current) return;
       setErr(e?.message ?? 'Pencarian gagal.');
       setSongs([]); setPls([]); setArts([]);
     } finally {
-      setSearching(false);
+      if (my === seq.current) setSearching(false);
     }
   };
+
+  const onType = (s: string) => {
+    setQ(s); // input SELALU mengikuti ketikan pengguna
+    if (debounceT.current) clearTimeout(debounceT.current);
+    const txt = s;
+    debounceT.current = setTimeout(() => void runSearch(txt), 450);
+  };
+
+  useEffect(() => () => { if (debounceT.current) clearTimeout(debounceT.current); }, []);
 
   const openSong = (s: MusicSong) => {
     void playSong(s, songs.length ? songs : [s]);
@@ -505,13 +525,11 @@ export function MusicScreen() {
           icon="search"
           placeholder="Cari lagu, artis, album…"
           value={q}
-          onChangeText={(s: string) => {
-            setQ(s);
-            // debounce ringan
-            clearTimeout((runSearch as any)._t);
-            (runSearch as any)._t = setTimeout(() => void runSearch(s), 550);
+          onChangeText={onType}
+          onSubmitEditing={() => {
+            if (debounceT.current) clearTimeout(debounceT.current);
+            void runSearch(q);
           }}
-          onSubmitEditing={() => void runSearch(q)}
           returnKeyType="search"
           autoCapitalize="none"
         />
@@ -519,7 +537,7 @@ export function MusicScreen() {
           {TRENDING.map((c) => (
             <Pressable
               key={c}
-              onPress={() => void runSearch(c)}
+              onPress={() => { setQ(c); void runSearch(c); }}
               style={({ pressed }) => ({ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: q === c ? t.accent : t.bg2, borderWidth: 1, borderColor: q === c ? t.accent : t.border, opacity: pressed ? 0.85 : 1 })}
             >
               <T v="caption" color={q === c ? '#fff' : t.sub} style={{ fontWeight: '800' }}>{c}</T>
@@ -554,7 +572,7 @@ export function MusicScreen() {
           <Card title="Artis">
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, padding: 8 }}>
               {arts.map((a) => (
-                <Pressable key={a.browseId} onPress={() => void runSearch(a.name)} style={{ alignItems: 'center', width: 86, gap: 6 }}>
+                <Pressable key={a.browseId} onPress={() => { setQ(a.name); void runSearch(a.name); }} style={{ alignItems: 'center', width: 86, gap: 6 }}>
                   {a.thumb ? (
                     <Image source={{ uri: a.thumb }} style={{ width: 74, height: 74, borderRadius: 37 }} contentFit="cover" />
                   ) : (

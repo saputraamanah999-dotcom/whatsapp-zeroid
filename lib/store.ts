@@ -239,6 +239,7 @@ function mapMessage(id: string, d: DocumentData): Message {
     reactions: d.reactions ?? {}, starredBy: d.starredBy ?? [], forwarded: !!d.forwarded, orderId: d.orderId, assistant: !!d.assistant,
     lat: d.lat, lng: d.lng, locationLabel: d.locationLabel, contactName: d.contactName, contactPhone: d.contactPhone,
     poll: d.poll ?? undefined, votes: d.votes ?? undefined,
+    viewOnce: !!d.viewOnce, viewedBy: Array.isArray(d.viewedBy) ? d.viewedBy : [],
     expiresAt: ts(d.expiresAt) || undefined, mediaExpiresAt: ts(d.mediaExpiresAt) || undefined, reasoning: d.reasoning,
     mentions: Array.isArray(d.mentions) ? d.mentions.filter((x: any) => x && x.uid) : undefined,
     mentionsAll: !!d.mentionsAll, verified: !!d.verified,
@@ -698,8 +699,8 @@ export function messagePreview(m?: Message) {
   if (!m) return '';
   if (m.deletedForAll) return 'Pesan ini telah dihapus';
   switch (m.type) {
-    case 'image': return `Foto${m.text ? ` · ${m.text}` : ''}`;
-    case 'video': return `Video${m.text ? ` · ${m.text}` : ''}`;
+    case 'image': return `Foto${m.viewOnce ? ' sekali lihat' : ''}${m.text ? ` · ${m.text}` : ''}`;
+    case 'video': return `Video${m.viewOnce ? ' sekali lihat' : ''}${m.text ? ` · ${m.text}` : ''}`;
     case 'audio': return `Pesan suara${m.duration ? ` (${fmtDur(m.duration)})` : ''}`;
     case 'document': return m.fileName ?? 'Dokumen';
     case 'sticker': return 'Stiker';
@@ -758,7 +759,7 @@ function fbError(e: any): string {
   if (c.includes('operation-not-allowed')) return 'Metode masuk ini belum diaktifkan di Firebase console.';
   if (c.includes('requires-recent-login')) return 'Sesi sudah lama. Keluar lalu masuk kembali, dan ulangi tindakan ini.';
   if (c.includes('permission-denied') || c.includes('insufficient permissions'))
-    return 'Server menolak aksi ini (izin Firestore). Admin perlu mempublikasikan Rules terbaru di Firebase Console (pwa/seed.html → langkah Rules).';
+    return 'Server menolak aksi ini. Admin perlu mempublikasikan Rules terbaru di Firebase Console (pwa/seed.html → langkah Rules).';
   if (c.includes('unavailable') || c.includes('network')) return 'Koneksi ke server terputus. Periksa internet kamu.';
   return e?.message ?? 'Terjadi kesalahan.';
 }
@@ -904,21 +905,38 @@ export async function verifyEmail(): Promise<{ ok: boolean; error?: string }> {
 }
 
 type Updatable = Partial<Pick<User, 'name' | 'about' | 'avatar' | 'banner' | 'bannerType' | 'phone' | 'privacy' | 'notif' | 'spotify' | 'username' | 'pin' | 'color'>>;
-export function updateMe(patch: Updatable) {
+/**
+ * Simpan perubahan profil ke Firestore.
+ * - Field undefined DIBUANG (updateDoc menolak undefined → dulu tombol "Simpan"
+ *   diam-diam gagal kalau telepon kosong).
+ * - Mengembalikan Promise { ok } sehingga layar pemanggil bisa menunggu hasil
+ *   SEBELUM menampilkan "tersimpan" (dulu banner sukses bohong muncul duluan).
+ */
+export async function updateMe(patch: Updatable): Promise<{ ok: boolean; error?: string }> {
   const me = getMe();
   const fb = firebase();
-  if (!me || !fb) return;
-  // strip protected fields defensively (rules also enforce this)
-  const safe: any = { ...patch };
+  if (!me || !fb) return { ok: false, error: 'Belum masuk.' };
+  // strip protected fields defensively (rules also enforce this) + buang undefined/undefined-safe
+  const safe: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) continue; // updateDoc error "Unsupported field value: undefined"
+    safe[k] = v;
+  }
   delete safe.role; delete safe.banned; delete safe.vipUntil; delete safe.memberUntil;
   delete safe.blueCheck; delete safe.verified; delete safe.developer;
-  updateDoc(doc(fb.db, C.users, me.id), safe).catch((e) => pushBanner({ title: 'Gagal menyimpan', body: fbError(e), icon: 'alert' }));
-  if (fb.auth.currentUser && (patch.name || patch.avatar !== undefined)) {
+  if (!Object.keys(safe).length) return { ok: true };
+  try {
+    await updateDoc(doc(fb.db, C.users, me.id), safe);
+  } catch (e) {
+    return { ok: false, error: fbError(e) };
+  }
+  if (fb.auth.currentUser && ((patch.name && patch.name !== me.name) || patch.avatar !== undefined)) {
     fbUpdateProfile(fb.auth.currentUser, {
       displayName: patch.name ?? me.name,
       photoURL: patch.avatar && /^https?:/.test(patch.avatar) ? patch.avatar : fb.auth.currentUser.photoURL,
     }).catch(() => {});
   }
+  return { ok: true };
 }
 
 export async function changePassword(oldPw: string, newPw: string): Promise<{ ok: boolean; error?: string }> {
@@ -1170,7 +1188,7 @@ export function typingUsers(chat: Chat, meId: string) {
 
 // ============================ messages ============================
 
-export type OutMsg = Partial<Pick<Message, 'type' | 'text' | 'uri' | 'fileName' | 'fileSize' | 'duration' | 'mime' | 'width' | 'height' | 'thumb' | 'storagePath' | 'replyTo' | 'forwarded' | 'orderId' | 'assistant' | 'lat' | 'lng' | 'locationLabel' | 'contactName' | 'contactPhone' | 'reasoning' | 'mediaExpiresAt' | 'poll'>>;
+export type OutMsg = Partial<Pick<Message, 'type' | 'text' | 'uri' | 'fileName' | 'fileSize' | 'duration' | 'mime' | 'width' | 'height' | 'thumb' | 'storagePath' | 'replyTo' | 'forwarded' | 'orderId' | 'assistant' | 'lat' | 'lng' | 'locationLabel' | 'contactName' | 'contactPhone' | 'reasoning' | 'mediaExpiresAt' | 'poll' | 'viewOnce'>>;
 
 /** disappearing-message TTL in ms for a chat, or 0 when off */
 export const disappearingMs = (c?: Chat | null): number =>
@@ -1275,6 +1293,7 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     storagePath: payload.storagePath, replyTo: payload.replyTo, forwarded: payload.forwarded, orderId: payload.orderId, assistant: payload.assistant,
     lat: payload.lat, lng: payload.lng, locationLabel: payload.locationLabel, contactName: payload.contactName, contactPhone: payload.contactPhone,
     poll: payload.poll, votes: payload.poll ? {} : undefined,
+    viewOnce: payload.viewOnce, viewedBy: [],
     reasoning: payload.reasoning, expiresAt: ttl ? Date.now() + ttl : undefined, mediaExpiresAt: payload.mediaExpiresAt,
     createdAt: Date.now(), deletedFor: [], reactions: {}, starredBy: [], status: 'sending',
   };
@@ -1293,6 +1312,7 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     locationLabel: local.locationLabel ?? null, contactName: local.contactName ?? null, contactPhone: local.contactPhone ?? null,
     reasoning: local.reasoning ?? null, expiresAt: local.expiresAt ?? null, mediaExpiresAt: local.mediaExpiresAt ?? null,
     poll: local.poll ?? null, votes: {},
+    viewOnce: !!local.viewOnce, viewedBy: [],
     mentions: local.mentions ?? [], mentionsAll: !!local.mentionsAll,
     clientTime: local.createdAt, createdAt: serverTimestamp(),
     deletedFor: [], reactions: {}, starredBy: [],
@@ -1335,7 +1355,7 @@ export function retryMessage(chatId: string, id: string) {
     duration: m.duration, mime: m.mime, width: m.width, height: m.height, thumb: m.thumb, storagePath: m.storagePath,
     replyTo: m.replyTo, forwarded: m.forwarded, lat: m.lat ?? null, lng: m.lng ?? null, locationLabel: m.locationLabel ?? null,
     contactName: m.contactName ?? null, contactPhone: m.contactPhone ?? null, expiresAt: m.expiresAt ?? null,
-    mediaExpiresAt: m.mediaExpiresAt ?? null,
+    mediaExpiresAt: m.mediaExpiresAt ?? null, viewOnce: !!m.viewOnce, viewedBy: m.viewedBy ?? [],
     mentions: rm.refs, mentionsAll: rm.all,
     clientTime: m.createdAt, createdAt: serverTimestamp(), deletedFor: [], reactions: {}, starredBy: [],
   })).catch(() => {});
@@ -1402,6 +1422,17 @@ export function votePoll(chatId: string, msgId: string, optionIdx: number) {
     next = cur === optionIdx ? -1 : optionIdx;
   }
   updateDoc(doc(fb.db, C.chats, chatId, 'messages', msgId), { [`votes.${me.id}`]: next }).catch(() => {});
+}
+
+/** Foto/video SEKALI LIHAT: catat bahwa aku sudah membuka media ini.
+ *  Dibaca sekali per pengguna — setelah itu bubble berubah jadi "dibuka". */
+export function markViewOnce(chatId: string, msgId: string) {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb) return;
+  const m = (db.messages[chatId] ?? []).find((x) => x.id === msgId);
+  if (!m?.viewOnce || (m.viewedBy ?? []).includes(me.id)) return;
+  updateDoc(doc(fb.db, C.chats, chatId, 'messages', msgId), { viewedBy: arrayUnion(me.id) }).catch(() => {});
 }
 
 export function forwardMessage(msg: Message, chatIds: string[]) {
@@ -2428,34 +2459,19 @@ export function createOrder(product: ProductKey, planIdx: number, methodKey: str
   return { orderId, chatId };
 }
 
-// ============================ patungan centang biru (grup/saluran) ============================
+// ============================ centang biru grup/saluran ============================
+// CATATAN: pembelian/patungan centang biru grup & saluran DIHAPUS permanen
+// (permintaan pemilik). Centang grup/saluran kini 100% OTOMATIS dari pemilik:
+// user/Developer yang punya centang biru di akun → semua grup & saluran
+// miliknya ikut terverifikasi lewat chatBadge() — tanpa biaya apa pun.
 
 export const BLUECHECK_POT_TARGET = 49000;
 
-/** Anggota ikut patungan: tambah kontribusi ke pot grup/saluran. */
-export async function contributeBlueCheckPot(chatId: string, amount: number): Promise<{ ok: boolean; error?: string; reached?: boolean }> {
-  const me = getMe();
-  const fb = firebase();
-  const chat = db.chats[chatId];
-  if (!me || !fb || !chat) return { ok: false, error: 'Belum masuk.' };
-  if (!chat.members.includes(me.id)) return { ok: false, error: 'Hanya anggota yang bisa ikut patungan.' };
-  if (amount <= 0 || amount > 1_000_000) return { ok: false, error: 'Nominal tidak valid.' };
-  const pot = { ...(chat.blueCheckPot ?? {}) };
-  pot[me.id] = (pot[me.id] ?? 0) + amount;
-  const total = Object.values(pot).reduce((a: number, b: any) => a + Number(b ?? 0), 0) as number;
-  try {
-    await updateDoc(doc(fb.db, C.chats, chatId), { blueCheckPot: pot });
-    sysMsg(chatId, `${me.name} ikut patungan centang biru — total terkumpul ${rupiah(total)} dari ${rupiah(BLUECHECK_POT_TARGET)}`, me.id);
-    // pot tercapai → order otomatis dibuat atas nama peng-contributor terakhir
-    if (total >= BLUECHECK_POT_TARGET) {
-      const r = createOrder('bluecheck', 0, 'patungan', { id: chatId, name: chat.name });
-      if (r && 'chatId' in r) sysMsg(chatId, `Patungan tercapai ${rupiah(total)} — pesanan centang biru permanen dikirim ke admin untuk dikonfirmasi.`, me.id);
-      return { ok: true, reached: true };
-    }
-    return { ok: true };
-  } catch (e: any) {
-    return { ok: false, error: fbError(e) };
-  }
+/** Anggota ikut patungan: tambah kontribusi ke pot grup/saluran.
+ *  @deprecated fitur patungan dihapus — dipertahankan hanya sebagai no-op agar
+ *  pemanggil lama tidak crash. UI-nya sudah tidak ada. */
+export async function contributeBlueCheckPot(): Promise<{ ok: boolean; error?: string }> {
+  return { ok: false, error: 'Fitur patungan centang biru sudah dihapus — centang grup/saluran otomatis dari pemilik.' };
 }
 
 export const isVip = (u?: User | null) => (u?.vipUntil ?? 0) > Date.now();

@@ -14,7 +14,7 @@ export type IconName =
   | 'shield' | 'shield-check' | 'check' | 'check-check' | 'clock' | 'arrow-left' | 'arrow-right'
   | 'chevron-right' | 'chevron-down' | 'more-vertical' | 'trash' | 'pin' | 'star' | 'forward'
   | 'copy' | 'edit' | 'log-out' | 'moon' | 'sun' | 'globe' | 'wifi' | 'wifi-off' | 'plus'
-  | 'eye' | 'ban' | 'flag' | 'mail' | 'lock' | 'key' | 'message-circle' | 'megaphone'
+  | 'eye' | 'eye-off' | 'ban' | 'flag' | 'mail' | 'lock' | 'key' | 'message-circle' | 'megaphone'
   | 'music' | 'play' | 'pause' | 'volume' | 'volume-x' | 'image' | 'file-text' | 'download'
   | 'heart' | 'info' | 'alert' | 'refresh' | 'qr' | 'wallet' | 'credit-card' | 'landmark'
   | 'sparkles' | 'code' | 'mic-off' | 'cam-off' | 'switch-camera' | 'phone-incoming'
@@ -83,6 +83,7 @@ export const Icon = React.memo(function Icon({ name, ...p }: P & { name: IconNam
     case 'wifi-off': return b(<><Line x1="2" y1="2" x2="22" y2="22" /><Path d="M8.53 16.11a6 6 0 0 1 6.95 0" /><Path d="M5 12.55a11 11 0 0 1 5.17-2.39" /><Path d="M10.71 5.05A16 16 0 0 1 22.58 9" /><Path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" /><Path d="M16.85 11.25a10.95 10.95 0 0 1 2.16 1.31" /><Line x1="12" y1="20" x2="12.01" y2="20" /></>);
     case 'plus': return b(<><Line x1="12" y1="5" x2="12" y2="19" /><Line x1="5" y1="12" x2="19" y2="12" /></>);
     case 'eye': return b(<><Path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><Circle cx="12" cy="12" r="3" /></>);
+    case 'eye-off': return b(<><Path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" /><Path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" /><Path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" /><Line x1="2" y1="2" x2="22" y2="22" /></>);
     case 'ban': return b(<><Circle cx="12" cy="12" r="10" /><Path d="m4.9 4.9 14.2 14.2" /></>);
     case 'flag': return b(<><Path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" /><Line x1="4" y1="22" x2="4" y2="15" /></>);
     case 'mail': return b(<><Rect x="2" y="4" width="20" height="16" rx="2" /><Path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></>);
