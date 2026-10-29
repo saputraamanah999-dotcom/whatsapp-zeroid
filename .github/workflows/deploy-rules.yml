@@ -28,23 +28,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Install firebase-tools
-        run: npm i -g firebase-tools
-      - name: Deploy rules + indexes
+      - name: Deploy rules via Rules API (tanpa firebase-tools — cukup izin firebaserules)
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-        run: |
-          if [ -z "$FIREBASE_SERVICE_ACCOUNT" ]; then
-            echo "⚠️ Secret FIREBASE_SERVICE_ACCOUNT belum dipasang — deploy dilewati."
-            echo "Lihat komentar di atas file ini untuk cara memasangnya (2 menit)."
-            exit 0
-          fi
-          echo "$FIREBASE_SERVICE_ACCOUNT" > "$RUNNER_TEMP/sa.json"
-          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/sa.json"
-          # Firestore rules + indexes (utama — jangan pernah gagal)
-          npx firebase-tools deploy --only firestore:rules,firestore:indexes --project whatsapp-zeroid --force --non-interactive
-          # Storage rules (sekunder — kalau SA belum punya izin serviceusage, lewati saja)
-          npx firebase-tools deploy --only storage --project whatsapp-zeroid --force --non-interactive \
-            || echo "⚠️ Storage rules dilewati (izin SA terbatas) — fungsi upload tetap aman."
-          rm -f "$RUNNER_TEMP/sa.json"
-          echo "✅ Rules Firebase ter-update otomatis."
+        run: node scripts/ci-deploy-rules.mjs
