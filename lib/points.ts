@@ -110,46 +110,86 @@ export async function applyPendingReferral(me: User): Promise<{ ok: boolean; rew
 }
 
 /** Check-in harian: +1.000 koin, bonus +500 tiap 7 hari beruntun.
- *  ANTI-SPAM: ledger doc id SATU PER HARI (c_<uid>_<yyyymmdd>) + rules
- *  menolak lastCheckinAt yang maju <19 jam — tap-tap-tap tidak bisa lagi. */
-export async function dailyCheckIn(me: User): Promise<{ ok: boolean; reward?: number; error?: string }> {
+ *  ATOMIK (runTransaction): update koin user + bukti ledger ditulis SEKALIGUS —
+ *  kalau bukti hari ini sudah ada, SELURUH transaksi ditolak server → mustahil
+ *  klaim 2x / tap berkali-kali, dan tidak ada lagi state nyangkut
+ *  (versi lama: ledger ketulis tapi update user gagal → tombol bisa dipencet terus).
+ *  Nilai koin/streak dihitung dari DATA SERVER (bukan cache) biar anti manipulasi. */
+export async function dailyCheckIn(me: User): Promise<{ ok: boolean; reward?: number; error?: string; already?: boolean }> {
   const fb = firebase();
   if (!fb || !me?.id) return { ok: false, error: 'Belum masuk.' };
   const now = Date.now();
   if (now - (me.lastCheckinAt ?? 0) < CHECKIN_GAP_MS) {
     const left = CHECKIN_GAP_MS - (now - (me.lastCheckinAt ?? 0));
     const h = Math.floor(left / 3600000), m = Math.ceil((left % 3600000) / 60000);
-    return { ok: false, error: `Sudah check-in — kembali lagi dalam ${h} jam ${m} menit.` };
+    return { ok: false, already: true, error: `Sudah check-in — kembali lagi dalam ${h} jam ${m} menit.` };
   }
   const yStart = new Date(now); yStart.setHours(0, 0, 0, 0);
   const yesterday = yStart.getTime() - 3600000; // toleransi jam
-  const streak = (me.lastCheckinAt ?? 0) >= yesterday ? (me.checkinStreak ?? 0) + 1 : 1;
-  const reward = CHECKIN_BASE + (streak % 7 === 0 ? CHECKIN_STREAK_BONUS : 0);
-  const dayId = new Date(now).toISOString().slice(0, 10).replace(/-/g, '');
+  const d = new Date(now);
+  const dayId = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+  const ALREADY = { ok: false as const, already: true as const, error: 'Sudah check-in hari ini — kembali lagi besok!' };
   try {
-    // bukti unik per hari — doc sudah ada = sudah check-in hari ini (anti spam tap).
-    // setDoc di doc yang SUDAH ada = update → rules ledger (update: false) MENOLAK.
-    const { getDoc } = await import('firebase/firestore');
+    const { runTransaction, getDoc } = await import('firebase/firestore');
     const ledRef = doc(fb.db, 'ledger', `c_${me.id}_${dayId}`);
+    const uRef = doc(fb.db, C.users, me.id);
+
+    // --- PEMULIHAN STATE LAMA: bukti ledger ada tapi koin tak pernah masuk? ---
     const led = await getDoc(ledRef).catch(() => null);
     if (led && led.exists()) {
-      return { ok: false, error: 'Sudah check-in hari ini — kembali lagi besok!' };
+      const L: any = led.data() ?? {};
+      const res = await runTransaction(fb.db, async (tx) => {
+        const u = await tx.get(uRef);
+        if (!u.exists()) throw new Error('Profil tidak ditemukan.');
+        const srv: any = u.data();
+        const prev = srv.lastCheckinAt ?? 0;
+        if (now - prev < CHECKIN_GAP_MS) return false; // sudah dikredit (device lain duluan)
+        const reward = Math.max(0, Math.min(6000, L.delta ?? CHECKIN_BASE));
+        const streak = prev >= yesterday ? (srv.checkinStreak ?? 0) + 1 : Math.max(1, Math.min(L.streak ?? 1, (srv.checkinStreak ?? 0) + 1));
+        tx.update(uRef, { points: (srv.points ?? 0) + reward, checkinStreak: streak, lastCheckinAt: now });
+        return reward;
+      });
+      if (res === false) return ALREADY;
+      return { ok: true, reward: res as number };
     }
-    try {
-      await setDoc(ledRef, { uid: me.id, kind: 'checkin', delta: reward, streak, at: now });
-    } catch (w: any) {
-      // ditolak rules = doc sudah ada (update ditolak) ATAU user dibanned
-      return { ok: false, error: 'Sudah check-in hari ini — kembali lagi besok!' };
-    }
-    await updateDoc(doc(fb.db, C.users, me.id), {
-      points: (me.points ?? 0) + reward,
-      checkinStreak: streak,
-      lastCheckinAt: now,
+
+    // --- JALUR NORMAL: satu transaction = update koin + bukti ledger ---
+    const reward = await runTransaction(fb.db, async (tx) => {
+      const u = await tx.get(uRef);
+      if (!u.exists()) throw new Error('Profil tidak ditemukan.');
+      const srv: any = u.data();
+      const last = srv.lastCheckinAt ?? 0;
+      if (now - last < CHECKIN_GAP_MS) throw ALREADY; // kalah kejar device lain → semua batal
+      const streak = last >= yesterday ? (srv.checkinStreak ?? 0) + 1 : 1;
+      const r = CHECKIN_BASE + (streak % 7 === 0 ? CHECKIN_STREAK_BONUS : 0);
+      tx.update(uRef, { points: (srv.points ?? 0) + r, checkinStreak: streak, lastCheckinAt: now });
+      // bukti unik per hari — kalau doc-nya sudah ada rules menolak UPDATE →
+      // seluruh transaksi dibatalkan (koin tidak ikut masuk) = anti spam tap server.
+      tx.set(ledRef, { uid: me.id, kind: 'checkin', delta: r, streak, at: now });
+      return r;
     });
     return { ok: true, reward };
   } catch (e: any) {
+    if (e === ALREADY || e?.already || e?.code === 'permission-denied') return ALREADY;
     return { ok: false, error: e?.message ?? 'Check-in gagal.' };
   }
+}
+
+/** Apakah tombol check-in HARUS terkunci sekarang? Dipanggil UI saat halaman dibuka:
+ *  bukti ledger hari ini ada DAN koinnya sudah masuk → kunci tombol sejak awal,
+ *  jangan tunggu user tap dulu baru dapat pesan "sudah check-in". */
+export async function checkinLockedToday(me: User): Promise<boolean> {
+  const fb = firebase();
+  if (!fb || !me?.id) return false;
+  try {
+    const { getDoc } = await import('firebase/firestore');
+    const d = new Date();
+    const dayId = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    const led = await getDoc(doc(fb.db, 'ledger', `c_${me.id}_${dayId}`)).catch(() => null);
+    if (!led || !led.exists()) return false;
+    const at = (led.data() as any)?.at ?? 0;
+    return (me.lastCheckinAt ?? 0) >= at - 60000; // koin sudah masuk → kunci; belum → biarkan jalur pemulihan
+  } catch { return false; }
 }
 
 /** Belanja dengan koin (kurangi saldo sendiri). Dipanggil sebelum membuat order. */

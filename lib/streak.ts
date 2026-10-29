@@ -5,8 +5,10 @@ import { Chat, User } from './types';
 /**
  * STREAK API — rawat bareng api & kucing di setiap chat.
  * - Bertambah +1 setiap ada pesan di hari beruntun (lokasi zona waktu perangkat).
- * - Api MUNCUL mulai streak 3 hari, makin lama makin besar.
- * - Setiap kelipatan 100 warna api berubah (siklus terus-menerus).
+ * - Api MUNCUL mulai streak 3 hari, makin lama makin besar & makin menyala.
+ * - TIAP 10 HARI BERUNTUN warna api berganti (siklus palet terus-menerus) —
+ *   contoh: 3-9 hari oranye, 10-19 merah, 20-29 ungu, 30-39 hijau, dst.
+ *   Di bar chat tampil "Nama 100🔥" — angkanya ikut warna tier terkini.
  * - Melemah bila 1 jam tidak ada aktivitas, PADAM bila 1 hari penuh kosong.
  * - Padam bisa dinyalakan lagi: maks 5x per bulan per pengguna.
  */
@@ -31,9 +33,12 @@ export const dayStart = (t = Date.now()) => {
   return d.getTime();
 };
 
-/** index warna api: streak 3-99 → 0, 100-199 → 1, dst (siklus palet) */
+/** warna api berganti tiap 10 hari beruntun (siklus palet terus menerus) */
+export const FIRE_TIER_DAYS = 10;
+
+/** index warna api: streak 3-9 → 0, 10-19 → 1, 20-29 → 2, dst (siklus palet) */
 export const fireColor = (count: number) =>
-  count < FIRE_MIN_STREAK ? null : FIRE_PALETTE[Math.floor(count / 100) % FIRE_PALETTE.length];
+  count < FIRE_MIN_STREAK ? null : FIRE_PALETTE[Math.floor(count / FIRE_TIER_DAYS) % FIRE_PALETTE.length];
 
 export type FireState = {
   count: number;
@@ -43,7 +48,7 @@ export type FireState = {
   reviveable: boolean;
   revivesLeft: number;
   color: string | null;
-  tier: number;      // kelipatan 100 (0,1,2…)
+  tier: number;      // kelipatan FIRE_TIER_DAYS (0,1,2…)
 };
 
 export const monthKey = (t = Date.now()) => {
@@ -71,7 +76,7 @@ export function fireState(chat: Chat | null | undefined, u: User | null | undefi
     reviveable,
     revivesLeft: revivesLeft(u, t),
     color: fireColor(dead ? 0 : count),
-    tier: Math.floor(count / 100),
+    tier: Math.floor(count / FIRE_TIER_DAYS),
   };
 }
 

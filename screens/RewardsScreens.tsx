@@ -5,7 +5,7 @@ import * as Clipboard from 'expo-clipboard';
 import { Avatar, Btn, Card, Empty, Header, Row, Screen, Segmented, T, UserBadges } from '../components/ui';
 import { useTheme, type Theme } from '../lib/theme';
 import { useStore, topKoin, topStreaks } from '../lib/store';
-import { dailyCheckIn, fmtKoin, koinToRp, refCodeFor, shareReferral, CHECKIN_BASE, CHECKIN_STREAK_BONUS, REF_REWARD_REFERRER, REF_REWARD_NEWBIE } from '../lib/points';
+import { dailyCheckIn, checkinLockedToday, fmtKoin, koinToRp, refCodeFor, shareReferral, CHECKIN_BASE, CHECKIN_STREAK_BONUS, REF_REWARD_REFERRER, REF_REWARD_NEWBIE } from '../lib/points';
 import { fireColor } from '../lib/streak';
 import { LeaderRow } from '../lib/types';
 import { pushBanner } from '../lib/bus';
@@ -17,6 +17,14 @@ export function RewardsScreen() {
   const nav = useNavigation<any>();
   const [claiming, setClaiming] = useState(false);
   const [claimed, setClaimed] = useState(false); // disable instan setelah check-in (anti tap-tap)
+  // Saat halaman dibuka: kalau bukti check-in hari ini sudah ada di server, tombol
+  // LANGSUNG terkunci — tidak ada lagi "bisa dibuka berkali-kali".
+  useEffect(() => {
+    let dead = false;
+    if (me) checkinLockedToday(me).then((lock) => { if (!dead && lock) setClaimed(true); }).catch(() => {});
+    return () => { dead = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [me?.id]);
   if (!me) return null;
   const code = me.referralCode ?? refCodeFor(me.id);
   const link = `https://whatsapp-zeroid.vercel.app/?ref=${code}`;
@@ -32,7 +40,11 @@ export function RewardsScreen() {
     if (r.ok) {
       setClaimed(true);
       pushBanner({ title: 'Check-in berhasil', body: `+${(r.reward ?? 0).toLocaleString('id-ID')} koin masuk! Kembali lagi besok untuk +${CHECKIN_BASE} koin lagi.`, icon: 'gift' });
-    } else pushBanner({ title: 'Check-in', body: r.error ?? 'Coba lagi nanti.', icon: 'alert' });
+    } else {
+      // "sudah check-in" → tombol IKUT terkunci, bukan cuma toast (anti tap berkali-kali)
+      if ((r as any).already) setClaimed(true);
+      pushBanner({ title: 'Check-in', body: r.error ?? 'Coba lagi nanti.', icon: 'alert' });
+    }
   };
 
   const copyLink = async () => {

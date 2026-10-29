@@ -7,7 +7,7 @@ import Svg, { Circle, Ellipse, Path, Polygon } from 'react-native-svg';
  * Semua animasi berjalan di Animated.View (aman web & android, useNativeDriver):
  * - api 2 lapis berkedip, glow bernapas
  * - kucing bernapas + ekor bergoyang (pivot pangkal ekor via transformOrigin)
- * - ukuran api naik mengikuti streak; warna berubah tiap kelipatan 100
+ * - ukuran api naik mengikuti streak; warna berganti tiap 10 hari beruntun
  */
 
 type Props = {

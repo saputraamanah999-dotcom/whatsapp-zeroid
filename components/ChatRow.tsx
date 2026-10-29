@@ -54,7 +54,13 @@ export default function ChatRow({ chat, me, db, onPress, onLongPress }: { chat: 
           </T>
           {/* centang biru: SVG resmi yang sama di SEMUA tempat (chat, grup, saluran, AI) */}
           {chat.type === 'direct' ? <UserBadges user={peer} /> : chatBadge(chat, db) && <VerifiedBadge size={15} animate={false} />}
-          {fcol && <FireDot color={fcol} dimmed={fst.dimmed} />}
+          {/* api streak: angka + api berwarna sesuai tier (contoh: 100🔥) */}
+          {fcol && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 1 }}>
+              <T v="caption" style={{ color: fcol, fontWeight: '800', fontSize: 12 }}>{fst.count}</T>
+              <FireDot color={fcol} dimmed={fst.dimmed} />
+            </View>
+          )}
           <View style={{ flex: 1 }} />
           <T v="caption" color={unread ? t.accent : t.faint}>
             {last ? chatTime(last.createdAt) : ''}

@@ -493,7 +493,8 @@ export default function ChatRoom() {
           </T>
           <T v="caption" color={t.sub} style={{ textAlign: 'center', lineHeight: 19 }}>
             Kucing ini dirawat bareng seluruh anggota chat. Kirim pesan tiap hari supaya api terus menyala —
-            1 jam kosong apinya melemah, 1 hari penuh kosong apinya padam. Setiap 100 hari warna api berganti.
+            1 jam kosong apinya melemah, 1 hari penuh kosong apinya padam. Tiap 10 hari beruntun warna api
+            berganti dan makin menyala — angkanya tampil di daftar chat, contoh 100🔥 = 100 hari.
           </T>
           {st.dead && (
             <T v="caption" color={t.danger} style={{ textAlign: 'center' }}>
