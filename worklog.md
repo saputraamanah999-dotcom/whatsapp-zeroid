@@ -495,3 +495,10 @@
 - Catatan desain (pra-ada, bukan regresi): gerbang ban di sisi klien bisa
   dilewati klien patch — penegakan server tetap via rules & gate saat auth.
 - tsc 0 error; expo export web + android sukses.
+
+### LANJUTAN batch 10: CI deploy-web jadi PEMANTAU (bukan deploy CLI)
+- Token Vercel ternyata project/team-scoped (REST API jalan, /v2/user tak ada)
+  → vercel CLI (link/whoami) selalu gagal "User not found".
+- deploy-web.yml ditulis ulang: pantau deployment commit terbaru via REST API
+  (READY = sukses, ERROR = job gagal + pesan build tampil). Build tetap oleh
+  Git Integration Vercel — tidak ada deploy dobel.
