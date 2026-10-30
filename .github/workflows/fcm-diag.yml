@@ -20,3 +20,10 @@ jobs:
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
         run: node scripts/ci-fcm-diag.mjs
+      - name: Sinkronkan SA terbukti-jalan ke env Vercel + redeploy
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_PROJ: prj_6OYo8RNMp2SK5RPjqzsgNg1SG4q7
+          VERCEL_TEAM: team_fybYTSWM5mXCCnbqYqQUeU2c
+        run: node scripts/ci-sync-sa-vercel.cjs
