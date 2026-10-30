@@ -18,3 +18,12 @@ android/
 *.log
 .DS_Store
 *.tsbuildinfo
+
+# sandbox-only dirs (jangan pernah commit)
+skills/
+upload/
+agent-ctx/
+bun.lock
+secrets/
+*.jks
+*.keystore
