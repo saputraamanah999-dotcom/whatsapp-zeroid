@@ -278,3 +278,44 @@
 - Fix t.card → t.bg2 (FeedbackScreen) — tsc bersih; expo export web OK.
 - Versi **1.4.0 / versionCode 5** untuk batch APK baru (force-close R8 fix ikut
   terbang kali ini lewat trigger [main]).
+
+## 2026-10-30 — AI 3-PROVIDER + BOT SERVER-SIDE + AKAR TAMPILAN HILANG (rules v18, APK 1.5.0)
+
+### AKAR TERBESAR ditemukan: mapUser/mapMessage MEMBUANG field baru
+- Semua keluhan "simpan sukses tapi dibuka kosong" (tautan profil), "gaya balon
+  gak muncul", "wallpaper gak kepasang", "tema warna gak tersimpan", dan "foto
+  live gak kekirim" punya SATU akar: `mapUser()` dan `mapMessage()` di
+  lib/store.ts tidak memetakan field baru (links/bubble/wallpapers/chatTheme +
+  bubble/bratText/videoUri) → setiap snapshot Firestore mengosongkannya lagi.
+  Semua kini dipetakan (pola sama dengan bug koin 0 sebelumnya).
+
+### AI — 3 penyedia failover + prompt Zeroid + bot server-side + cari Google
+- api/ai.ts dirombak: SYLVATICA → JEREXD → VEXO (VEXO_APIKEY, OpenAI-compatible
+  /api/v1/chat/completions), sticky provider, failover senyap. Satu system prompt
+  khusus Zeroid (manusiawi, berpikir, analisis web, akurat, sebut sumber).
+  sanitizeIdentity diperluas. Live verified: chat OK, identity OK.
+- BOT: action 'bot-reply' (idToken → keanggotaan via Firestore REST service
+  account → rantai AI → tulis pesan zeroid-bot + auto-join + lastMsg). Tag
+  @zeroid di grup/global/saluran menjawab TANPA perangkat developer. BotHost
+  perangkat dihapus (anti dobel). 401/403 terverifikasi live.
+- 'cari <topik>' di chat AI → action 'search' (Vexo Google → Vexo DDG → DDG
+  langsung) + ringkasan AI + sumber.
+
+### ANIME — akar timeout: antrean berurutan 6-7 sumber × 20-40 dtk > 60 dtk Vercel
+- raceNonEmpty: semua sumber PARALEL + batas total; Jikan dgn retry 429/5xx;
+  fallback dibungkus try/catch. Live verified: anime_search OK (komikindo source).
+
+### LAINNYA
+- Stiker/brat gaya WA (rata kanan/kiri, tanpa pill); BubbleDecor SVG (kucing,
+  kodok, beruang, kelinci, panda, rubah, mahkota, tanduk) + 4 gaya baru;
+  balon/tema apply instan (optimis); wallpaper crop + opacity (wallpaperFx,
+  rules v18); tautan profil dual-write Supabase (zeroid_profile_links otomatis)
+  + restore otomatis; feedback: index (uid,at) via CI (SA kena 403 indexes.create
+  → butuh 1 klik manual di Console — langkah dikirim ke user), layar menampilkan
+  galat jelas; FCM channel_id per jenis + visibility PUBLIC (popup luar APK);
+  teks "ala WhatsApp Business" dihapus; centang biru bisa ditekan → info (chat +
+  profil); audit security-audit-skill: /api/notify dulu TERBUKA (spam push) →
+  kini wajib idToken + rate limit + topik all khusus admin; batas memori peta
+  rate limit; versi 1.5.0/versionCode 6; docs/VEXO_SETUP.md (langkah Vercel).
+- CATATAN sandbox: output terminal menyaring "[m" (main → ain) — dulu mengira
+  trigger workflow rusak; ternyata benar [main]. Verifikasi bracket-safe: OK.

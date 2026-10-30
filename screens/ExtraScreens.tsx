@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, ScrollView, Pressable, Platform, ActivityIndicator, Linking } from 'react-native';
+import { View, ScrollView, Pressable, Platform, ActivityIndicator, Linking, Alert } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -156,7 +156,18 @@ export function UserProfile() {
             ]
               .filter((b) => b.on)
               .map((b) => (
-                <View key={b.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <Pressable
+                  key={b.label}
+                  disabled={b.label !== 'Centang biru'}
+                  onPress={() =>
+                    b.label === 'Centang biru' &&
+                    Alert.alert(
+                      'Tentang centang biru',
+                      'Centang biru berarti akun ini sudah diperiksa dan dikonfirmasi ASLI oleh admin Zeroid — bukan tiruan atau penipu yang menyamar pakai nama orang lain.\n\nYang didapat: lencana di nama dan profil, prioritas dukungan dari developer, serta status resmi di seluruh chat, grup, dan saluran.\n\nIngin akunmu terverifikasi? Hubungi developer lewat menu Masukan & bantuan, atau beli paket centang biru di tab Saya.'
+                    )
+                  }
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}
+                >
                   <Ionicons name={b.icon} size={22} color={b.color} />
                   <View style={{ flex: 1 }}>
                     <T v="body" style={{ fontWeight: '600' }}>
@@ -164,7 +175,8 @@ export function UserProfile() {
                     </T>
                     {!!b.sub && <T v="caption">{b.sub}</T>}
                   </View>
-                </View>
+                  {b.label === 'Centang biru' && <Ionicons name="information-circle-outline" size={16} color={t.faint} />}
+                </Pressable>
               ))}
             {!u.blueCheck && !u.security && !u.otpVerified && !((u.vipUntil ?? 0) > now) && !((u.memberUntil ?? 0) > now) && <T v="sub">Belum ada lencana.</T>}
           </View>
