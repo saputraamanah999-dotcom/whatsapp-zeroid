@@ -13,7 +13,7 @@
  *  1. OAuth2 service account (FIREBASE_SERVICE_ACCOUNT) — project baru.
  *  2. Legacy FCM_SERVER_KEY — fallback project lama.
  */
-import { fcmAccessToken } from './_fcmAuth';
+import { fcmAccessToken, lastOauthDiag } from './_fcmAuth';
 
 export const config = { runtime: 'nodejs' };
 
@@ -51,7 +51,7 @@ export default async function handler(req: any, res: any) {
   const auth = async () => {
     if (saOk) {
       const t = await fcmAccessToken();
-      if (!t) throw new Error('oauth gagal — cek FIREBASE_SERVICE_ACCOUNT');
+      if (!t) throw new Error(`oauth gagal (${lastOauthDiag || 'tanpa diagnosa'})`);
       return { bearer: t, legacy: '' };
     }
     return { bearer: '', legacy: legacyKey };
@@ -80,6 +80,6 @@ export default async function handler(req: any, res: any) {
     const [u, all] = await Promise.all([subscribe(`user_${uid}`, h), subscribe('all', h)]);
     return json(res, 200, { ok: u || all, topics: [`user_${uid}`, 'all'], mode: h.bearer ? 'v1' : 'legacy' });
   } catch (e: any) {
-    return json(res, 200, { ok: false, error: String(e?.message ?? 'iid failed').slice(0, 160) });
+    return json(res, 200, { ok: false, error: String(e?.message ?? 'iid failed').slice(0, 160), oauth: lastOauthDiag });
   }
 }

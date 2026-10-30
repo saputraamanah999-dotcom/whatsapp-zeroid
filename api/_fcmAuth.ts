@@ -17,6 +17,9 @@ import crypto from 'crypto';
 type Sa = { client_email?: string; private_key?: string; project_id?: string };
 
 let cached: { token: string; exp: number } | null = null;
+/** Diagnosis terakhir oauth (status + kode error Google) — AMAN ditampilkan:
+ *  body oauth error hanya berisi error_code, tidak pernah ada kunci. */
+export let lastOauthDiag = '';
 
 function b64url(input: Buffer | string): string {
   return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -62,7 +65,8 @@ export async function fcmAccessToken(): Promise<string | null> {
   let signature: string;
   try {
     signature = b64url(signer.sign(sa.private_key!.replace(/\\n/g, '\n')));
-  } catch {
+  } catch (e: any) {
+    lastOauthDiag = `sign gagal: ${String(e?.message ?? e).slice(0, 120)}`;
     return null;
   }
   const jwt = `${header}.${claims}.${signature}`;
@@ -73,10 +77,17 @@ export async function fcmAccessToken(): Promise<string | null> {
     body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt }).toString(),
     signal: AbortSignal.timeout(10_000),
   });
-  if (!r.ok) return null;
+  if (!r.ok) {
+    const txt = await r.text().catch(() => '');
+    let code = '';
+    try { code = String(JSON.parse(txt)?.error ?? txt).slice(0, 80); } catch { code = txt.slice(0, 80); }
+    lastOauthDiag = `HTTP ${r.status} ${code}`;
+    return null;
+  }
   const data = (await r.json()) as { access_token?: string; expires_in?: number };
-  if (!data.access_token) return null;
+  if (!data.access_token) { lastOauthDiag = 'respons tanpa access_token'; return null; }
   cached = { token: data.access_token, exp: Date.now() + (data.expires_in ?? 3600) * 1000 };
+  lastOauthDiag = '';
   return cached.token;
 }
 
