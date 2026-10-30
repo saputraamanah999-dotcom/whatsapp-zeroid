@@ -99,6 +99,11 @@ if (process.env.CREATE_INDEXES !== '0' && (process.env.FIREBASE_SERVICE_ACCOUNT 
     try {
       const SA = loadSA();
       const token = await accessToken(SA);
+      // DIAGNOSTIK: apakah SA boleh baca Firestore documents sama sekali?
+      try {
+        const dr = await fetch(`https://firestore.googleapis.com/v1/projects/${SA.project_id}/databases/(default)/documents/config/bootstrap`, { headers: { Authorization: `Bearer ${token}` } });
+        console.log(`↷ diag documents: HTTP ${dr.status} (${dr.status === 200 || dr.status === 403 || dr.status === 404 ? 'json/datastore' : 'aneh'})`);
+      } catch (e) { console.log('↷ diag documents gagal:', String(e.message).slice(0, 80)); }
       await ensureIndex(token, SA.project_id, {
         collectionGroup: 'feedback',
         queryScope: 'COLLECTION',
