@@ -18,11 +18,33 @@ import { useTheme, R } from '../lib/theme';
 import { isAnimeFav, toggleAnimeFav, useStore } from '../lib/store';
 import { animeDetail, animeHot, animeLatest, animeSchedule, animeSearch, animeQuotes, animeNews, AnimeCard, AnimeDetail, AnimeQuote, AnimeNews } from '../lib/jere';
 
-function Poster({ uri, style }: { uri?: string; style?: any }) {
+/** Cache poster fallback per judul (Jikan/MyAnimeList — CORS publik). */
+const posterFallback = new Map<string, string>();
+
+function Poster({ uri, title, style }: { uri?: string; title?: string; style?: any }) {
+  const [src, setSrc] = React.useState<string | undefined>(uri);
+  React.useEffect(() => { setSrc(uri); }, [uri]);
+  const onErr = React.useCallback(() => {
+    // v21: poster sumber sering URL MATI (oploverz redirect ke HTML). Saat gambar
+    // gagal dimuat, cari poster asli via Jikan sekali per judul (cache) — jalan
+    // di web & APK tanpa tergantung IP server (Jikan membatasi IP Vercel).
+    const t = String(title ?? '').trim();
+    if (!t) return;
+    if (posterFallback.has(t)) { setSrc(posterFallback.get(t)); return; }
+    if (posterFallback.has('__busy__' + t)) return;
+    posterFallback.set('__busy__' + t, '');
+    fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(t.slice(0, 80))}&limit=1&sfw=true`)
+      .then((r) => r.json())
+      .then((j) => {
+        const p = j?.data?.[0]?.images?.jpg?.large_image_url ?? j?.data?.[0]?.images?.jpg?.image_url;
+        if (p) { posterFallback.set(t, p); setSrc(p); }
+      })
+      .catch(() => {})
+      .finally(() => posterFallback.delete('__busy__' + t));
+  }, [title]);
   return (
     <View style={[{ backgroundColor: 'rgba(127,127,127,0.15)', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderRadius: R.md }, ...(Array.isArray(style) ? style : [style ?? {}])]}>
-      {/* v20: poster kini terisi — normAnimeList memetakan 'imgSrc' (oploverz). */}
-      {uri ? <Image source={{ uri }} style={{ width: '100%', height: '100%' }} contentFit="cover" recyclingKey={uri} transition={150} /> : <Ionicons name="tv-outline" size={26} color="rgba(127,127,127,0.6)" />}
+      {src ? <Image source={{ uri: src }} style={{ width: '100%', height: '100%' }} contentFit="cover" recyclingKey={src} transition={150} onError={onErr} /> : <Ionicons name="tv-outline" size={26} color="rgba(127,127,127,0.6)" />}
     </View>
   );
 }
@@ -31,7 +53,7 @@ function AnimeCardItem({ a, onPress }: { a: AnimeCard; onPress: () => void }) {
   const t = useTheme();
   return (
     <Pressable onPress={onPress} style={({ pressed }) => ({ flex: 1, margin: 5, borderRadius: R.lg, overflow: 'hidden', backgroundColor: t.surface, boxShadow: pressed ? t.insetSm : t.raisedSm, transform: [{ scale: pressed ? 0.98 : 1 }] } as any)}>
-      <Poster uri={a.poster} style={{ width: '100%', aspectRatio: 0.7 }} />
+      <Poster uri={a.poster} title={a.title} style={{ width: '100%', aspectRatio: 0.7 }} />
       <View style={{ padding: 9, gap: 3 }}>
         <T v="caption" numberOfLines={2} style={{ fontWeight: '700', minHeight: 30 }}>
           {a.title}
@@ -263,7 +285,7 @@ export function AnimeScreen() {
           renderItem={({ item }) => (
             <Pressable onPress={() => item.url && Linking.openURL(item.url).catch(() => {})}>
               <Neu style={{ flexDirection: 'row', gap: 10, padding: 10, alignItems: 'center' }}>
-                <Poster uri={item.thumb} style={{ width: 86, height: 62 }} />
+                <Poster uri={item.thumb} title={item.title} style={{ width: 86, height: 62 }} />
                 <View style={{ flex: 1, gap: 3 }}>
                   <T v="caption" numberOfLines={2} style={{ fontWeight: '800' }}>{item.title}</T>
                   {!!item.date && <T v="caption" color={t.faint}>{item.date}</T>}
@@ -378,7 +400,7 @@ export function AnimeDetailScreen() {
       />
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 44, gap: 14 }}>
         <View style={{ flexDirection: width > 560 ? 'row' : 'column', gap: 14 }}>
-          <Poster uri={poster} style={{ width: width > 560 ? 180 : '100%', aspectRatio: 0.7 }} />
+          <Poster uri={poster} title={title} style={{ width: width > 560 ? 180 : '100%', aspectRatio: 0.7 }} />
           <View style={{ flex: 1, gap: 6 }}>
             <T style={{ fontWeight: '900', fontSize: 20 }}>{title}</T>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>

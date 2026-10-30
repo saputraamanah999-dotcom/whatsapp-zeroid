@@ -170,7 +170,8 @@ async function jikanPosterByTitle(title: string): Promise<string | null> {
   if (posterCache.has(key)) return posterCache.get(key) ?? null;
   let found: string | null = null;
   try {
-    const d = await jikan(`/anime?q=${encodeURIComponent(key.slice(0, 80))}&limit=1&sfw=true`, 7000);
+    // jikanOnce TANPA retry — poster opsional, jangan perpanjang respon server
+    const d = await jikanOnce(`/anime?q=${encodeURIComponent(key.slice(0, 80))}&limit=1&sfw=true`, 4500);
     const a = d?.data?.[0];
     found = a?.images?.jpg?.large_image_url ?? a?.images?.jpg?.image_url ?? null;
   } catch { found = null; }
@@ -186,18 +187,29 @@ async function fixPoster(title: string, url?: string | null): Promise<string | u
   return (await jikanPosterByTitle(title)) ?? undefined;
 }
 
-/** Perbaiki poster SELURUH list (batch 3 agar aman rate limit Jikan). */
+/** Perbaiki poster SELURUH list — BERBATAS WAKTU (maks 8 dtk total, item 0-23):
+ *  dulu poster diperbaiki satu per satu berurutan → respon server bisa >50 dtk
+ *  dan request mati. Kini paralel terkendali + berhenti saat anggaran habis. */
 async function fixPosters(list: any[]): Promise<any[]> {
   if (!Array.isArray(list)) return list;
   const out = [...list];
-  for (let i = 0; i < out.length; i += 3) {
-    await Promise.all(out.slice(i, i + 3).map(async (item, j) => {
-      const idx = i + j;
-      if (!item?.title) return;
-      const fixed = await fixPoster(item.title, item.poster);
-      if (fixed && fixed !== item.poster) out[idx] = { ...item, poster: fixed };
+  const t0 = Date.now();
+  const BUDGET = 8000;
+  const targets = out.slice(0, 24)
+    .map((item, idx) => ({ item, idx }))
+    .filter(({ item }) => !!item?.title && (!item.poster || DEAD_POSTER.test(String(item.poster)) || String(item.poster).startsWith('http://')));
+  const CONC = 6;
+  for (let i = 0; i < targets.length; i += CONC) {
+    if (Date.now() - t0 > BUDGET) break; // anggaran habis → sisanya dikirim apa adanya
+    await Promise.all(targets.slice(i, i + CONC).map(async ({ item, idx }) => {
+      try {
+        const fixed = await Promise.race([
+          fixPoster(item.title, item.poster),
+          new Promise<undefined>((r) => setTimeout(() => r(undefined), Math.max(1200, BUDGET - (Date.now() - t0)))),
+        ]);
+        if (fixed && fixed !== item.poster) out[idx] = { ...item, poster: fixed };
+      } catch { /* poster asli dipertahankan */ }
     }));
-    if (i + 3 < out.length) await new Promise((r) => setTimeout(r, 350));
   }
   return out;
 }
@@ -711,8 +723,10 @@ export default async function handler(req: any, res: any) {
       case 'anime_detail': {
         const d = normAnimeDetail(r.data);
         if (!d.slug && !d.episodes.length && !d.synopsis) return fail(res, 502, 'Detail anime tidak dapat dibaca.');
-        d.poster = await fixPoster(d.title ?? 'Anime', d.poster);
-        d.banner = await fixPoster(`${d.title ?? 'Anime'} banner`, d.banner);
+        // poster detail hanya 1-2 lookup — cepat
+        try {
+          d.poster = (await Promise.race([fixPoster(d.title ?? 'Anime', d.poster), new Promise<undefined>((r) => setTimeout(() => r(undefined), 5000))])) ?? d.poster;
+        } catch { /* poster asli dipertahankan */ }
         return res.status(200).json({ ok: true, anime: d });
       }
       default:
