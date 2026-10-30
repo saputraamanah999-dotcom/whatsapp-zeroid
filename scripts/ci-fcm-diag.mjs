@@ -46,10 +46,39 @@ async function enableApi(SA, serviceName) {
   return r.ok || r.status === 400 || r.status === 409;
 }
 
+async function tokenVariant(SA, scope, useStringBody) {
+  const iat = Math.floor(Date.now() / 1000);
+  const h = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const p = b64url(JSON.stringify({ iss: SA.client_email, sub: SA.client_email, aud: 'https://oauth2.googleapis.com/token', iat, exp: iat + 3600, ...(scope ? { scope } : {}) }));
+  const s = crypto.createSign('RSA-SHA256'); s.update(h + '.' + p);
+  const jwt = `${h}.${p}.${b64url(s.sign(SA.private_key.replace(/\\n/g, '\n')))}`;
+  const bodyObj = new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt });
+  const r = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: useStringBody ? bodyObj.toString() : bodyObj,
+  });
+  const j = await r.json().catch(() => ({}));
+  return { status: r.status, keys: Object.keys(j).join(','), hasAccess: !!j.access_token, err: j.error ?? '' };
+}
+
 (async () => {
   const SA = loadSA();
   console.log('SA project:', SA.project_id, '| client:', String(SA.client_email).split('@')[0]);
   const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging https://www.googleapis.com/auth/instance.id';
+  // === EKSPERIMEN MATRIKS: scope x bentuk body ===
+  const FCM = 'https://www.googleapis.com/auth/firebase.messaging';
+  const IID = 'https://www.googleapis.com/auth/instance.id';
+  for (const [label, scope, strBody] of [
+    ['FCM saja, objek', FCM, false],
+    ['FCM saja, string', FCM, true],
+    ['FCM+IID, objek', FCM + ' ' + IID, false],
+    ['FCM+IID, string', FCM + ' ' + IID, true],
+    ['IID saja, objek', IID, false],
+    ['TANPA scope, objek', '', false],
+  ]) {
+    const v = await tokenVariant(SA, scope, strBody);
+    console.log(`  [${label}] HTTP ${v.status} | keys=[${v.keys}] | access_token=${v.hasAccess} | err=${v.err}`);
+  }
   let t = await token(SA, FCM_SCOPE);
   if (t.ok) { console.log('✅ token FCM v1 SUKSES — push seharusnya hidup.'); return; }
   console.log(`⚠️ token FCM gagal: HTTP ${t.status} — body: ${JSON.stringify(t.body).slice(0, 300)}`);
