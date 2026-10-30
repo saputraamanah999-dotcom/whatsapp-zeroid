@@ -413,9 +413,10 @@ export function PremiumScreen() {
             },
           })),
           // BAYAR DENGAN KOIN: potong saldo koin langsung (1 koin = Rp1 → harga = jumlah koin)
+          // v21: label dipendekkan — dulu teks panjang melewati tepi layar
           {
             icon: 'sparkles' as const,
-            label: `Koin Zeroid (${(me.points ?? 0).toLocaleString('id-ID')} koin · butuh ${Math.ceil(priceOf(buy?.product ?? 'vip', buy?.plan ?? 0)).toLocaleString('id-ID')}${voucher ? ` · diskon ${voucher.percent}%` : ''})`,
+            label: `Bayar dengan koin (butuh ${Math.ceil(priceOf(buy?.product ?? 'vip', buy?.plan ?? 0)).toLocaleString('id-ID')})`,
             onPress: async () => {
               if (!buy) return;
               const p = productOf(buy.product);

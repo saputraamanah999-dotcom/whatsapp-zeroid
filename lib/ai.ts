@@ -156,7 +156,7 @@ export async function askBotReply(
  * sesuai konfigurasi skill di admin panel (ban jam/hari, lock IP/perangkat,
  * log guardlog + push ke admin). Fire-and-forget — hasil tidak menunggu.
  */
-export async function guardEnforce(chatId: string, messageId: string, kind: 'porn' | 'profanity' | 'sticker_spam' | 'media_bomb'): Promise<void> {
+export async function guardEnforce(chatId: string, messageId: string, kind: 'porn' | 'profanity' | 'sticker_spam' | 'media_bomb' | 'virtex'): Promise<void> {
   const cu = firebase()?.auth.currentUser;
   if (!cu || !chatId || !messageId) return;
   const token = await cu.getIdToken().catch(() => '');

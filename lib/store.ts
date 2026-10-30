@@ -51,7 +51,7 @@ import { askAI, thinkAI, analyzeImage, AI_PROVIDERS, askBotReply, webSearch, gua
 import { firebase, isFirebaseConfigured, COLLECTIONS as C, firebaseConfig } from './firebase';
 import { fcmPush } from './fcm';
 import { recordFbError } from './health';
-import { detectViolation } from './moderation';
+import { detectViolation, virtexHit } from './moderation';
 import { getDeviceHash, sha256Hex } from './device';
 
 const THEME_KEY = 'zeroid-theme';
@@ -1801,12 +1801,42 @@ export function markRead(chatId: string) {
   if (!me || !fb) return;
   const c = db.chats[chatId];
   if (!c) return;
+  const now = Date.now();
   const last = c.lastMsg?.createdAt ?? (db.messages[chatId] ?? []).at(-1)?.createdAt ?? 0;
-  if ((c.lastRead[me.id] ?? 0) >= last) return;
-  // FIX REALTIME: tulis map UTUH (bukan path titik 'lastRead.<uid>') —
-  // rules memberChatUpdate hanya mengizinkan key 'lastRead', path titik DITOLAK
-  // server → unread tidak pernah terbaca server → badge nyangkut & tidak realtime.
-  updateDoc(doc(fb.db, C.chats, chatId), { lastRead: { ...(c.lastRead ?? {}), [me.id]: Date.now() } }).catch(() => {});
+  if ((c.lastRead[me.id] ?? 0) >= last && (c.lastRead[me.id] ?? 0) >= now - 55_000) return;
+  // FIX BADGE NYANGKUT (v21): tulis OPTIMIS ke state lokal DULU → badge daftar
+  // chat hilang INSTAN saat chat dibuka (dulu badge menunggu server, dan kalau
+  // tulisan server ditolak/delay, badge "2" bertahan terus walau chat dibuka).
+  // Server menyusul dengan map UTUH (bukan path titik 'lastRead.<uid>' — ditolak rules).
+  db.chats = { ...db.chats, [chatId]: { ...c, lastRead: { ...(c.lastRead ?? {}), [me.id]: Math.max(now, last) } } };
+  bump();
+  markChatNotificationsRead(chatId);
+  updateDoc(doc(fb.db, C.chats, chatId), { lastRead: { ...(db.chats[chatId].lastRead ?? {}), [me.id]: Math.max(now, last) } })
+    .catch((e) => console.warn('markRead', e?.code ?? e));
+}
+
+/**
+ * NOTIFIKASI CHAT DITANDAI DIBACA SAAT CHAT DIBUKA (v21).
+ * Dulu: lonceng/badge "2" hanya hilang kalau user membuka halaman Notifikasi —
+ * membuka chatnya TIDAK menandai notifikasi chat itu terbaca, jadi angka
+ * "nyangkut" terus walau semua pesan sudah dibaca. Kini: buka chat → semua
+ * dokumen notifications dengan chatId itu langsung read:true (optimis + server).
+ */
+export function markChatNotificationsRead(chatId: string) {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !chatId) return;
+  const targets = db.notifications.filter((n) => !n.read && n.chatId === chatId && !!n.id);
+  if (!targets.length) return;
+  db.notifications = db.notifications.map((n) => (targets.some((t) => t.id === n.id) ? { ...n, read: true } : n));
+  bump();
+  try {
+    const batch = writeBatch(fb.db);
+    targets.slice(0, 300).forEach((n) => batch.update(doc(fb.db, C.notifications, n.id), { read: true }));
+    void batch.commit().catch((e) => console.warn('notif read', e?.code ?? e));
+  } catch (e: any) {
+    console.warn('notif read', e?.code ?? e);
+  }
 }
 
 let lastTypingWrite = 0;
@@ -1949,6 +1979,16 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
   if (chatBannedNow(chat) && !isFullAdmin(getMe())) {
     pushBanner({ title: 'Grup/Saluran dibanned', body: chat.banReason || 'Grup atau saluran ini diblokir admin — tulis banding di layar tinjauan.', icon: 'ban' });
     return null;
+  }
+  // ANTI-BUG / VIRTEX (v21): blokir di sisi PENGIRIM — pesan bom karakter yang
+  // bisa membuat aplikasi penerima lag/crash tidak pernah dikirim. Server tetap
+  // memverifikasi + menghapus + mensanksi bila lolos dari klien lawas.
+  if (payload.type !== 'system' && !payload.assistant && payload.text) {
+    const vx = virtexHit(payload.text);
+    if (vx) {
+      pushBanner({ title: 'Diblokir AI Guard', body: `Pesanmu terdeteksi ${vx.label} (${vx.reason}) — bisa membuat aplikasi orang lain crash. Perkecil teksnya ya.`, icon: 'shield' });
+      return null;
+    }
   }
   // AI Anti-Spam: pesan sistem/AI tidak ikut dihitung
   if (!payload.assistant && payload.type !== 'system') {

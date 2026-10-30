@@ -2,11 +2,17 @@
  * Zeroid-whatsapp Android config plugin.
  *
  * - Keeps the EXISTING Firebase native config: if ./google-services.json
- *   (project "projekwhattsaf") is present it is wired into Gradle automatically.
+ *   (project "whatsapp-zeroid") is present it is wired into Gradle automatically.
  * - Adds incoming-call activity flags (showWhenLocked / turnScreenOn) so the
  *   full-screen-intent call notification can wake the device.
  * - Default FCM notification channel = "messages".
- * - Sets Gradle properties (minSdk 24, target/compile 35, Hermes, R8).
+ * - Sets Gradle properties (minSdk 24, Hermes, R8 OFF — R8 ever caused the
+ *   v1.2.0 force close; compile/target SDK now follow Expo SDK 57 defaults,
+ *   memaksa 35 di bawah standar RN 0.86 berisiko crash native saat startup).
+ * - v21: Native crash reporter — Thread.setDefaultUncaughtExceptionHandler
+ *   menulis laporan ke file + menampilkan TOAST berisi penyebab crash, jadi
+ *   force close yang disebabkan kode native TIDAK lagi diam-diam: pemakai bisa
+ *   screenshot penyebabnya dan mengirimkannya ke developer.
  */
 const fs = require('fs');
 const path = require('path');
@@ -14,8 +20,41 @@ const {
   withAndroidManifest,
   withGradleProperties,
   withAppBuildGradle,
+  withMainApplication,
   AndroidConfig,
 } = require('@expo/config-plugins');
+
+const CRASH_MARKER = '// ZEROID-CRASH-REPORTER v21';
+
+const CRASH_REPORTER_KT = `
+        ${CRASH_MARKER}
+        run {
+            val prevHandler = Thread.getDefaultUncaughtExceptionHandler()
+            Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+                try {
+                    val reason = (throwable?.message ?: throwable?.javaClass?.name ?: "unknown")
+                    val top = throwable?.stackTrace?.firstOrNull()?.let { " at " + it.className + "." + it.methodName + " (" + it.fileName + ":" + it.lineNumber + ")" } ?: ""
+                    try {
+                        val file = java.io.File(filesDir, "zeroid-native-crash.txt")
+                        file.writeText("at=" + java.lang.System.currentTimeMillis() + "\\nthread=" + (thread?.name ?: "?") + "\\nclass=" + (throwable?.javaClass?.name ?: "?") + "\\nmessage=" + reason + "\\n" + throwable?.stackTrace?.take(30)?.joinToString("\\n") ?: "")
+                    } catch (_: Throwable) {}
+                    try {
+                        val app = this
+                        val main = android.os.Handler(android.os.Looper.getMainLooper())
+                        main.post {
+                            try {
+                                android.widget.Toast.makeText(app, "Zeroid crash: " + (throwable?.javaClass?.simpleName ?: "?") + ": " + reason.take(120), android.widget.Toast.LENGTH_LONG).show()
+                            } catch (_: Throwable) {}
+                            main.postDelayed({
+                                try { android.widget.Toast.makeText(app, top.take(160), android.widget.Toast.LENGTH_LONG).show() } catch (_: Throwable) {}
+                            }, 3700)
+                        }
+                    } catch (_: Throwable) {}
+                } catch (_: Throwable) {}
+                prevHandler?.uncaughtException(thread, throwable)
+            }
+        }
+`;
 
 function setGradleProp(props, key, value) {
   const existing = props.find((p) => p.type === 'property' && p.key === key);
@@ -32,10 +71,8 @@ module.exports = function withZeroidAndroid(config) {
 
   config = withGradleProperties(config, (cfg) => {
     setGradleProp(cfg.modResults, 'android.minSdkVersion', '24');
-    setGradleProp(cfg.modResults, 'android.compileSdkVersion', '35');
-    setGradleProp(cfg.modResults, 'android.targetSdkVersion', '35');
-    // AKAR BUG FORCE CLOSE v1.2.0: R8/ProGuard + shrinkResources membuang class native
-    // → aplikasi crash saat dibuka. DIMATIKAN TOTAL (stabil > ukuran kecil).
+    // compile/target SDK: ikuti DEFAULT Expo SDK 57 (RN 0.86) — dipaksa 35 sebelumnya,
+    // di bawah standar framework, berisiko galat native. R8 tetap MATI total.
     setGradleProp(cfg.modResults, 'android.enableProguardInReleaseBuilds', 'false');
     setGradleProp(cfg.modResults, 'android.enableShrinkResourcesInReleaseBuilds', 'false');
     setGradleProp(cfg.modResults, 'android.enableMinifyInReleaseBuilds', 'false');
@@ -49,6 +86,17 @@ module.exports = function withZeroidAndroid(config) {
       cfg.modResults.contents = cfg.modResults.contents.replace(
         /applicationId\s+['"][^'"]+['"]/,
         'applicationId "com.zeroid.whatsapp"'
+      );
+    }
+    return cfg;
+  });
+
+  // NATIVE CRASH REPORTER — MainApplication.onCreate memasang handler bawaan JVM
+  config = withMainApplication(config, (cfg) => {
+    if (!cfg.modResults.contents.includes(CRASH_MARKER)) {
+      cfg.modResults.contents = cfg.modResults.contents.replace(
+        /super\.onCreate\(\)/,
+        `super.onCreate()\n${CRASH_REPORTER_KT}`
       );
     }
     return cfg;

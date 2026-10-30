@@ -14,6 +14,7 @@ import VoicePlayer from './VoicePlayer';
 import LivePhotoBubble from './LivePhotoBubble';
 import { Ticks } from './ChatRow';
 import MentionText from './MentionText';
+import MdText from './MdText';
 import { useTheme, R } from '../lib/theme';
 import { resolveBubble } from '../lib/bubbles';
 import BubbleDecor from './BubbleDecor';
@@ -131,9 +132,9 @@ export default function MessageBubble({
           )}
           <Pressable onLongPress={onLongPress} delayLongPress={300} style={{ alignItems: 'center' }}>
             {m.type === 'brat' ? (
-              <BratView text={m.bratText ?? m.text ?? ''} size={150} />
+              <BratView text={m.bratText ?? m.text ?? ''} size={116} />
             ) : m.uri ? (
-              <Image source={{ uri: m.uri }} style={{ width: 128, height: 128 }} contentFit="contain" transition={150} />
+              <Image source={{ uri: m.uri }} style={{ width: 116, height: 116 }} contentFit="contain" transition={150} />
             ) : null}
           </Pressable>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingTop: 2 }}>
@@ -273,6 +274,7 @@ export default function MessageBubble({
             maxWidth: '82%',
             backgroundColor: bg,
             borderRadius: skin.borderRadius,
+            borderTopRightRadius: skin.borderTopRightRadius,
             borderBottomRightRadius: skin.borderBottomRightRadius,
             borderBottomLeftRadius: skin.borderBottomLeftRadius,
             padding: isMedia ? 4 : 10,
@@ -430,7 +432,17 @@ export default function MessageBubble({
               </Pressable>
             )}
             {!!m.text && (
-              m.mentions?.length ? (
+              m.type === 'text' && (m.text?.length ?? 0) > 2600 ? (
+                // ANTI-BUG / VIRTEX (v21): teks raksasa (bom karakter yang bisa
+                // membuat aplikasi lag/crash) DISEMBUNYIKAN oleh AI Guard — semua
+                // penerima melihat label rapi, bukan teks raksasanya.
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: isMedia ? 8 : 0, paddingTop: isMedia ? 6 : 0 }}>
+                  <Ionicons name="shield-checkmark" size={14} color={mine ? 'rgba(255,255,255,0.85)' : t.accent} />
+                  <T v="sub" color={mine ? 'rgba(255,255,255,0.85)' : t.sub} style={{ fontStyle: 'italic' }}>
+                    Pesan virtext/bombing diblokir AI Guard — konten disembunyikan demi keamanan.
+                  </T>
+                </View>
+              ) : m.mentions?.length && !/(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|~~[\s\S]+~~|`[^`\n]+`)/.test(m.text ?? '') ? (
                 <MentionText
                   text={m.text}
                   mentions={m.mentions}
@@ -439,9 +451,13 @@ export default function MessageBubble({
                   style={{ lineHeight: 21, paddingHorizontal: isMedia ? 8 : 0, paddingTop: isMedia ? 6 : 0, fontSize: 15, userSelect: 'none' } as any}
                 />
               ) : (
-                <T v="body" color={fg} style={{ lineHeight: 21, paddingHorizontal: isMedia ? 8 : 0, paddingTop: isMedia ? 6 : 0, userSelect: 'none' } as any}>
-                  {m.text}
-                </T>
+                <MdText
+                  text={m.text}
+                  mentions={m.mentions}
+                  color={fg}
+                  onOpenUser={onOpenUser}
+                  style={{ lineHeight: 21, paddingHorizontal: isMedia ? 8 : 0, paddingTop: isMedia ? 6 : 0, fontSize: 15, userSelect: 'none' } as any}
+                />
               )
             )}
           </>

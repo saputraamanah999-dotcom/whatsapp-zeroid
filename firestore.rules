@@ -1,5 +1,5 @@
 rules_version = '2';
-// ZEROID WHATSAPP — FIRESTORE RULES v20 (PUSH TOKEN LANGSUNG — IID/topic di-retire Google)
+// ZEROID WHATSAPP — FIRESTORE RULES v21 (anti-virtex cap 8000 + bot boleh ditambah admin grup)
 // v19: + vouchers (admin buat kode diskon; user HANYA bisa pola penukaran:
 //        usedCount+1 & usedBy+=me pada voucher aktif/belum kadaluarsa/kuota sisa)
 //      + guardconfig (skill AI Guard — read semua user login, write admin)
@@ -187,7 +187,10 @@ service cloud.firestore {
             || (k.hasAny(['createdBy'])
                 && request.resource.data.get('createdBy', '') != owner));
       return k.hasOnly(['members','admins','name','description','avatar','postPolicy','inviteCode','disappearing','createdBy'])
-        && (!addsBot || isAdmin())
+        // v21: bot resmi 'zeroid-bot' boleh ditambahkan oleh ADMIN GRUP juga
+        // (dulu hanya admin global — permintaan user: bot bisa dimasukkan ke
+        // grup/saluran sendiri lalu di-tag untuk jawaban otomatis)
+        && (!addsBot || isAdmin() || isChatAdmin(chatId))
         // transfer kepemilikan: hanya pemilik lama sendiri / admin global;
         // pemilik baru wajib anggota grup hasil perubahan
         && (!k.hasAny(['createdBy'])
@@ -336,6 +339,10 @@ service cloud.firestore {
                               && 'zeroid-bot' in chat(chatId).get('members', [])))
                       && isMemberOf(chatId)
                       && !peerBlocked(chatId)
+                      // v21 ANTI-VIRTEX: teks pesan maks 8000 karakter — bom karakter
+                      // raksasa (virtext) tidak pernah tersimpan; AI Guard server
+                      // menghapus + mensanksi bila ada yang lolos dari klien lawas.
+                      && request.resource.data.get('text', '').size() <= 8000
                       && (!chatBanned(chatId) || isAdmin()) // grup/saluran dibanned → hanya admin bisa mengirim
                       // AI Anti-Spam: user yang sedang dimute tidak bisa mengirim (admin tetap bebas)
                       && (isAdmin()

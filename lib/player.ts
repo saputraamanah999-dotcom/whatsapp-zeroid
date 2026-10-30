@@ -14,6 +14,7 @@
 import { Platform } from 'react-native';
 import { useSyncExternalStore } from 'react';
 import { MusicSong, musicStream } from './music';
+import { showMediaNotification, hideMediaNotification } from './notify';
 export type { MusicSong } from './music';
 
 export type PlayerState = {
@@ -171,6 +172,10 @@ async function getNative(): Promise<Backend | null> {
   try {
     const EA = require('expo-audio');
     if (!nativePlayer) {
+      // AUDIO BACKGROUND (v21) — dulu keluar aplikasi → musik langsung mati.
+      // shouldPlayInBackground memerintahkan Android membiarkan ExoPlayer tetap
+      // memutar audio saat aplikasi di background (aliran musik ala Spotify).
+      try { await EA.setAudioModeAsync({ shouldPlayInBackground: true, playsInSilentMode: true }); } catch {}
       nativePlayer = EA.createAudioPlayer({ uri: 'about:blank' });
       nativePlayer.addListener?.('playbackStatusUpdate', (st: any) => {
         if (st?.didJustFinish) next();
@@ -208,6 +213,7 @@ function embedPlay(song: MusicSong) {
     }
   } catch { /* iframe belum siap — src-nya sudah berisi videoId ini */ }
   mediaSession(song);
+  void showMediaNotification(song, true);
 }
 
 async function resolveAndPlay(song: MusicSong) {
@@ -237,6 +243,7 @@ async function resolveAndPlay(song: MusicSong) {
     set({ loading: false, playing: true, embed: false });
     startTicker();
     mediaSession(song);
+    void showMediaNotification(song, true);
   } catch {
     if (token !== resolveCount) return;
     embedPlay(song);
@@ -276,6 +283,7 @@ export function resume() {
   if (Platform.OS === 'web' && typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
     try { (navigator as any).mediaSession.playbackState = 'playing'; } catch {}
   }
+  if (state.current) void showMediaNotification(state.current, true);
 }
 
 export function pause() {
@@ -288,6 +296,7 @@ export function pause() {
   if (Platform.OS === 'web' && typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
     try { (navigator as any).mediaSession.playbackState = 'paused'; } catch {}
   }
+  if (state.current) void showMediaNotification(state.current, false);
 }
 
 export function toggle() { state.playing ? pause() : resume(); }
@@ -330,6 +339,22 @@ export function close() {
     } catch {}
   }
   set({ current: null, playing: false, position: 0, duration: 0, queue: [], fullOpen: false, embed: false, error: '' });
+  void hideMediaNotification();
+}
+
+// PENJAGA WEB (v21) — kalau tab sempat dibekukan sistem & audio berhenti
+// diam-diam, saat tab terlihat lagi lagu otomatis dilanjutkan (jangan biarkan
+// pengguna menekan play ulang).
+if (Platform.OS === 'web' && typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    try {
+      if (document.visibilityState === 'visible' && state.playing && !state.embed) {
+        setTimeout(() => {
+          if (state.playing && !state.embed && audio?.paused) webBackend.play();
+        }, 700);
+      }
+    } catch { /* ignore */ }
+  });
 }
 
 /** Sembunyikan/tampilkan mini-bar (lagu tetap bunyi). */

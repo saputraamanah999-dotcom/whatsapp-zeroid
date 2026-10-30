@@ -107,6 +107,18 @@ export default function ChatRoom() {
   useFocusEffect(
     useCallback(() => {
       setActiveChat(chatId);
+      // v21: buka chat → notifikasi sistem (push/lokal) milik chat ini langsung
+      // dibersihkan dari panel notifikasi Android + badge OS di-nol-kan. Dulu
+      // notifikasi menumpuk di tray walau pesannya sudah dibaca semua.
+      (async () => {
+        try {
+          const N = await import('expo-notifications');
+          const shown = await (N.default ?? N).getPresentedNotificationsAsync();
+          const mine = shown.filter((n: any) => n?.request?.content?.data?.chatId === chatId);
+          await Promise.all(mine.map((n: any) => (N.default ?? N).dismissNotificationAsync(n.request.identifier)));
+          await (N.default ?? N).setBadgeCountAsync(0);
+        } catch { /* web / tidak didukung — abaikan */ }
+      })();
       return () => setActiveChat(null);
     }, [chatId])
   );

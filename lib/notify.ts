@@ -9,6 +9,7 @@ export const CHANNELS = {
   stories: 'stories',
   calls: 'calls',
   announcements: 'announcements',
+  music: 'music',
 } as const;
 
 let setupDone = false;
@@ -45,6 +46,15 @@ export async function setupNotifications() {
         vibrationPattern: [0, 1000, 800, 1000, 800, 1000],
         enableVibrate: true,
       });
+      // NOTIFIKASI MUSIK — tanpa suara/getar, terus tampil selama lagu diputar
+      // (media notification ala Spotify) supaya lagu tetap jalan di luar aplikasi
+      await Notifications.setNotificationChannelAsync(CHANNELS.music, {
+        name: 'Musik',
+        importance: Notifications.AndroidImportance.LOW,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        enableVibrate: false,
+        showBadge: false,
+      });
     }
     await Notifications.setNotificationCategoryAsync('incoming_call', [
       { identifier: 'ACCEPT', buttonTitle: 'Terima', options: { opensAppToForeground: true } },
@@ -54,6 +64,26 @@ export async function setupNotifications() {
       { identifier: 'REPLY', buttonTitle: 'Balas', textInput: { submitButtonTitle: 'Kirim', placeholder: 'Ketik balasan…' } },
       { identifier: 'MARK_READ', buttonTitle: 'Tandai dibaca', options: { opensAppToForeground: false } },
     ]);
+    // KATEGORI MUSIK — tombol ⏮ ⏯ ⏭ di notifikasi; label tombol play/jeda
+    // diperbarui setiap status berubah (lihat showMediaNotification).
+    await Notifications.setNotificationCategoryAsync('music_ctrl', [
+      { identifier: 'MUSIC_PREV', buttonTitle: '⏮ Sebelumnya', options: { opensAppToForeground: false } },
+      { identifier: 'MUSIC_TOGGLE', buttonTitle: 'Jeda', options: { opensAppToForeground: false } },
+      { identifier: 'MUSIC_NEXT', buttonTitle: 'Berikutnya ⏭', options: { opensAppToForeground: false } },
+    ]);
+    // AKSI TOMBOL MUSIK — dijalankan tanpa membuka UI (dynamic import agar bebas
+    // circular import; player.ts memanggil showMediaNotification dari sini).
+    Notifications.addNotificationResponseReceivedListener((r) => {
+      const act = String((r as any)?.actionIdentifier ?? '');
+      if (!act.startsWith('MUSIC_')) return;
+      import('./player')
+        .then((p) => {
+          if (act === 'MUSIC_PREV') p.prev();
+          else if (act === 'MUSIC_TOGGLE') p.toggle();
+          else if (act === 'MUSIC_NEXT') p.next();
+        })
+        .catch(() => {});
+    });
   } catch (e) {
     console.warn('notif setup', e);
   }
@@ -90,6 +120,54 @@ export async function presentLocal(opts: {
     });
   } catch (e) {
     console.warn('presentLocal', e);
+  }
+}
+
+/**
+ * NOTIFIKASI MUSIK (media notification ala Spotify) — tampil terus selama lagu
+ * diputar, dengan tombol ⏮ ⏯ ⏭, dan TIDAK hilang saat aplikasi keluar/ke background
+ * (dulu: keluar aplikasi → musik mati + notifikasi kehapus).
+ */
+let mediaNotifId: string | null = null;
+let mediaLast: string | null = null;
+export async function showMediaNotification(song: { title: string; artist?: string | null; thumb?: string | null }, playing: boolean) {
+  if (Platform.OS === 'web') return;
+  try {
+    const perm = await Notifications.getPermissionsAsync();
+    if (!perm.granted) return;
+    // label tombol play/jeda sesuai status terbaru
+    await Notifications.setNotificationCategoryAsync('music_ctrl', [
+      { identifier: 'MUSIC_PREV', buttonTitle: '⏮ Sebelumnya', options: { opensAppToForeground: false } },
+      { identifier: 'MUSIC_TOGGLE', buttonTitle: playing ? 'Jeda' : 'Putar', options: { opensAppToForeground: false } },
+      { identifier: 'MUSIC_NEXT', buttonTitle: 'Berikutnya ⏭', options: { opensAppToForeground: false } },
+    ]);
+    const key = `${song.title}|${song.artist ?? ''}|${playing ? '1' : '0'}`;
+    if (mediaNotifId && mediaLast === key) return;
+    mediaLast = key;
+    if (mediaNotifId) {
+      try { await Notifications.dismissNotificationAsync(mediaNotifId); } catch {}
+      mediaNotifId = null;
+    }
+    mediaNotifId = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: song.title,
+        body: `${song.artist ?? 'ZEROID MUSIC'} · ${playing ? 'Memutar' : 'Dijeda'} · Zeroid Music`,
+        data: { kind: 'media' },
+        categoryIdentifier: 'music_ctrl',
+        sound: false,
+        sticky: true,
+        priority: Notifications.AndroidNotificationPriority.LOW,
+      },
+      trigger: Platform.OS === 'android' ? { channelId: CHANNELS.music } : null,
+    });
+  } catch { /* best effort */ }
+}
+
+export async function hideMediaNotification() {
+  mediaLast = null;
+  if (mediaNotifId) {
+    try { await Notifications.dismissNotificationAsync(mediaNotifId); } catch {}
+    mediaNotifId = null;
   }
 }
 

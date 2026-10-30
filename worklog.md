@@ -524,3 +524,79 @@
   call) — hanya pengumuman admin yang sampai. Klien kini selalu kirim header.
 - Rate limit subscribe per IP: 30/5 menit.
 - APK 1.6.2 (versionCode 9): client kirim ID token saat subscribe.
+
+## 2026-10-31 — BATCH 11 (v21): APK FC DIAGNOSA + 6 BUG + 3 FITUR BARU
+
+### APK FORCE CLOSE — AKAR & SOLUSI BERLAPIS (prioritas user)
+- Celah v1.6.2: handler galat ditulis di body index.ts, tapi `import App` di-hoist
+  ES → SELURUH pohon modul dievaluasi SEBELUM handler terpasang → galat saat
+  evaluasi modul tetap mematikan aplikasi diam-diam.
+- FIX 1: lib/crashguard.ts (BARU) dijadikan import PERTAMA index.ts — handler
+  terpasang sebelum modul lain; galat FATAL → Alert (aplikasi tidak ditutup) +
+  riwayat 10 galat terakhir di AsyncStorage.
+- FIX 2 (native crash): plugin Android kini menyuntik
+  Thread.setDefaultUncaughtExceptionHandler ke MainApplication — crash native
+  (JVM) menulis laporan ke file + menampilkan TOAST penyebab crash di layar →
+  force close tidak lagi "gak jelas kenapa": cukup screenshot.
+- FIX 3: buang paksaan compile/targetSdk 35 (di bawah standar RN 0.86/Expo 57 —
+  risiko crash native). Kini ikuti default Expo. R8 tetap MATI.
+- FIX 4: trigger build-apk.yml rusak sebelumnya (`branches: ain]` — tak pernah
+  auto-build) → dibetulkan `[main]`. APK 1.6.3 (versionCode 10).
+
+### NOTIFIKASI "2" GAK ILANG (screenshot user)
+- Akar: badge lonceng = jumlah dokumen notifications read:false; membuka chat
+  TIDAK menandai notifikasi chat itu terbaca (hanya halaman Notifikasi yang
+  menandai) → angka "2" nyangkut.
+- FIX: buka chat → markRead kini OPTIMIS (badge daftar hilang INSTAN, server
+  menyusul) + dokumen notifications milik chat itu dibacakan batch read:true +
+  notifikasi sistem Android milik chat didismis dari tray + badge OS di-nol-kan.
+
+### MUSIK MATI SAAT KELUAR APLIKASI + NOTIF KEHAPUS (bukti: rekaman user)
+- Native: setAudioModeAsync shouldPlayInBackground (ExoPlayer tetap bunyi saat
+  app background) + MEDIA NOTIFIKASI ala Spotify (channel 'Musik', sticky,
+  tombol ⏮ Putar/Jeda ⏭ yang berfungsi lewat category action, label tombol
+  mengikuti status). Notifikasi hilang hanya saat lagu ditutup.
+- Web: MediaSession sudah ada; tambah penjaga visibilitychange → lagu yang
+  dibekukan sistem otomatis dilanjutkan saat tab terlihat lagi.
+
+### ANTI-BUG / VIRTEX + AI GUARD (fitur baru)
+- lib/moderation.ts: virtexHit — teks ≥2600 kar, karakter kendali tersembunyi
+  ≥40, karakter berulang ≥180x, atau baris dump ≥900 kar = pelanggaran 'virtex'.
+- Pengirim: diblokir saat kirim (banner AI Guard). Penerima: teks raksasa
+  disembunyikan bubble (anti lag/crash render). Server (api/ai guard-enforce):
+  verifikasi ulang → PESAN DIHAPUS PERMANEN + pelanggar di-ban (skill 'virtex',
+  default 24 jam, bisa diatur admin) + guardlog + push admin. Rules v21:
+  teks pesan maks 8000 karakter (virtext tak pernah tersimpan).
+
+### BOT ZEROID DI GRUP & SALURAN + TAG AUTO-REPLY (fitur baru)
+- Rules v21: admin GRUP/SALURAN kini boleh menambah 'zeroid-bot' (dulu hanya
+  admin global). ChatInfo: tombol "Tambah Zeroid Bot" tampil untuk admin grup.
+- Sudah ada & diuji alurnya: sebut @zeroid → server menjawab otomatis
+  (api/ai bot-reply), bekerja di grup, saluran, dan obrolan global.
+
+### ANIME POSTER TAK KERENDERA (diuji produksi)
+- Akar TERVERIFIKASI: URL poster oploverz (assets/covers) REDIRECT ke HTML
+  (301→200 text/html) — bukan gambar, mustahil dirender.
+- FIX server (api/jere.ts): http→https + URL mati/kosong → poster asli dicari
+  via Jikan (MyAnimeList) berdasarkan judul, cache in-memory, batch 3 (aman
+  rate limit). Berlaku utk list & detail (poster+banner).
+
+### FORMAT TEKS CHAT + GAYA BALON + STREAK + BRAT + PREMIUM (rapi-2)
+- Markdown pesan: **tebal**, *miring*, _miring_, ~~coret~~, `kode` dirender
+  sungguhan (lib/md.ts + MdText — mention @username tetap jalan).
+- Balon: sudut "telinga" kini di sisi yang BENAR (dulu runcing selalu kanan
+  walau balon orang lain) + TR radius ikut dipakai.
+- FirePet di-redesign total: kucing chunky (blush, mata kilau, kumis, ekor
+  bergaris), api 3 lapis + percikan bintang + glow bernapas.
+- Stiker BRAT 150→116px & stiker 128→116px (keluhan "kegedean").
+- Sheet: teks opsi kini meliputi (dulu melewati tepi) + label koin Premium
+  dipendekkan (keluhan "teks kepanjangan sampe lewat").
+- Masukan: pesan galat diperjelas (rules/index/network).
+
+### AUDIT KEAMANAN (loop)
+- guard-enforce virtex: caller wajib anggota + pesan ≤10 menit + server
+  memverifikasi isi pesan sendiri; penghapusan hanya bila teks BENAR-benar
+  virtex → tidak bisa disalahgunakan utk hapus pesan orang yang sehat.
+- Tanpa kunci baru di repo (scan 0); rules hanya mengetat (cap 8000) & satu
+  pelebaran terkendali (bot oleh admin grup).
+- tsc 0 error; expo export web sukses; build APK 1.6.3 via CI.

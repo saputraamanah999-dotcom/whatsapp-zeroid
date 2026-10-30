@@ -42,7 +42,12 @@ export async function submitFeedback(input: { uid: string; name: string; text: s
     });
     return { ok: true };
   } catch (e: any) {
-    return { ok: false, error: String(e?.message ?? 'Gagal mengirim masukan.') };
+    const code = String(e?.code ?? '');
+    let error = String(e?.message ?? 'Gagal mengirim masukan.');
+    if (code.includes('permission-denied')) error = 'Server menolak pengiriman — pastikan kamu sudah masuk akun & tidak sedang diblokir. Rules terbaru dipasang otomatis lewat GitHub Actions.';
+    else if (code.includes('failed-precondition')) error = 'Index database sedang dibangun — coba lagi 1-2 menit lagi.';
+    else if (code.includes('unavailable') || code.includes('network')) error = 'Koneksi ke server terputus — periksa internet lalu coba lagi.';
+    return { ok: false, error };
   }
 }
 

@@ -314,6 +314,19 @@ const PROFANITY_SCAN = [
   'ngentot', 'pepek', 'pantek', 'sundala', 'fucking', 'bitch', 'asshole', 'bastard',
 ];
 
+// ANTI-BUG / VIRTEX (v21) — verifikasi ulang di server: bom karakter yang bisa
+// membuat aplikasi penerima lag/crash. Salinan heuristik lib/moderation.ts.
+const VIRTEX_CTRL = /[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g;
+function virtexServerCheck(text: string): boolean {
+  const t = String(text ?? '');
+  if (!t) return false;
+  if (t.length >= 2600) return true;
+  const ctrl = t.match(VIRTEX_CTRL);
+  if (ctrl && ctrl.length >= 40) return true;
+  if (/(.)\1{179,}/s.test(t)) return true;
+  return t.split('\n').some((line) => line.replace(/\s/g, '').length >= 900);
+}
+
 export default async function handler(req: any, res: any) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   if (req.method === 'GET') {
@@ -534,7 +547,7 @@ export default async function handler(req: any, res: any) {
       const kind = s(body?.kind, 24);
       if (!/^[A-Za-z0-9_-]{1,80}$/.test(chatId)) return bad(res, 400, 'Chat tidak valid.');
       if (!/^[A-Za-z0-9_-]{1,120}$/.test(messageId)) return bad(res, 400, 'Pesan tidak valid.');
-      if (!['porn', 'profanity', 'sticker_spam', 'media_bomb'].includes(kind)) return bad(res, 400, 'Jenis pelanggaran tidak dikenal.');
+      if (!['porn', 'profanity', 'sticker_spam', 'media_bomb', 'virtex'].includes(kind)) return bad(res, 400, 'Jenis pelanggaran tidak dikenal.');
 
       // anti spam eksekusi: 1 chat maks 1 eksekusi per 45 detik (per instance)
       const now = Date.now();
@@ -582,15 +595,24 @@ export default async function handler(req: any, res: any) {
           verified = cnt >= need;
           reason = verified ? (kind === 'sticker_spam' ? `spam stiker (${cnt} dalam 90 detik)` : `bom media (${cnt} dalam 90 detik)`) : '';
         }
+      } else if (kind === 'virtex') {
+        verified = virtexServerCheck(String(msg.text ?? ''));
+        reason = verified ? `virtext/bom karakter (${String(msg.text ?? '').length} karakter)` : '';
       }
       if (!verified) return res.status(200).json({ ok: true, skipped: 'bukti-tidak-cukup' });
       guardLast.set(chatId, now);
+
+      // VIRTEX — PESAN DIHAPUS PERMANEN (permintaan user: "langsung delete")
+      // dijalankan untuk SEMUA pelanggar (termasuk staff — kontennya tetap berbahaya).
+      if (kind === 'virtex') {
+        await fbDeleteDoc(project, `chats/${chatId}/messages/${messageId}`).catch(() => {});
+      }
 
       // konfigurasi skill (admin panel) — default aman bila belum diatur
       const cfg = (await fbGetDoc(project, 'guardconfig/main')) ?? {};
       const cfgOn = (k: string, dflt: boolean) => (cfg?.[k]?.on !== undefined ? !!cfg[k].on : dflt);
       const cfgHours = (k: string, dflt: number) => Math.max(1, Math.min(24 * 30, Number(cfg?.[k]?.hours ?? dflt) || dflt));
-      const enabled = kind === 'porn' ? cfgOn('porn', true) : kind === 'profanity' ? cfgOn('profanity', true) : cfgOn('spam', true);
+      const enabled = kind === 'porn' ? cfgOn('porn', true) : kind === 'profanity' ? cfgOn('profanity', true) : kind === 'virtex' ? cfgOn('virtex', true) : cfgOn('spam', true);
 
       const offender = (await fbGetDoc(project, `users/${offenderId}`)) ?? {};
       const offenderName = sanitizePersonaText(offender.name, 40) || offenderId.slice(0, 6);
@@ -613,6 +635,11 @@ export default async function handler(req: any, res: any) {
           action2 = `ban ${hours} jam`;
         } else {
           const hours = cfgHours('spam', 24);
+          until = now + hours * 3_600_000;
+          action2 = `ban ${hours} jam`;
+        }
+        if (kind === 'virtex') {
+          const hours = cfgHours('virtex', 24);
           until = now + hours * 3_600_000;
           action2 = `ban ${hours} jam`;
         }

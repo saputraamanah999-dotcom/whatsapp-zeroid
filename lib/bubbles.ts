@@ -160,6 +160,7 @@ export function resolveBubble(opts: {
   backgroundColor: string;
   color: string;
   borderRadius: number;
+  borderTopRightRadius: number;
   borderBottomRightRadius: number;
   borderBottomLeftRadius: number;
   borderWidth: number;
@@ -173,7 +174,10 @@ export function resolveBubble(opts: {
   const theme = chatThemeOf(themeId);
   const bg = skin.bg ? (mine ? skin.bg[0] : skin.bg[1]) : mine ? theme.mine : t.bubbleOther;
   const fg = skin.fg ? (mine ? skin.fg[0] : skin.fg[1]) : mine ? '#fff' : t.text;
-  const r = skin.radius ?? [20, 20, 6, 20];
+  // v21: radius 4-sudut penuh + TELINGA BALON di sisi yang BENAR — dulu sudut
+  // runcing selalu di kanan-bawah walau balonnya milik orang lain (kiri).
+  const r0 = skin.radius ?? [20, 20, 6, 20];
+  const r = mine ? r0 : [r0[0], r0[1], r0[3], r0[2]];
   let shadow: string;
   if (skin.shadow) shadow = skin.shadow;
   else if (skin.glowColor) shadow = `0px 0px 14px ${skin.glowColor}`;
@@ -183,6 +187,7 @@ export function resolveBubble(opts: {
     backgroundColor: bg,
     color: fg,
     borderRadius: r[0],
+    borderTopRightRadius: r[1],
     borderBottomRightRadius: r[2],
     borderBottomLeftRadius: r[3],
     borderWidth: skin.borderWidth ?? 0,

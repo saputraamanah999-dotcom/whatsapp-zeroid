@@ -154,6 +154,54 @@ function normYt(data: any): any[] {
  *  detail-chain bisa memilih scraper yang TEPAT; slug pendek dianggap otakudesu. */
 const slugify = (v: string) => (/^https?:\/\//.test(v) ? v : v.replace(/^https?:\/\/[^/]+\/anime\//, '').replace(/\/+$/, ''));
 
+/*
+ * PERBAIKAN POSTER ANIME (v21) — poster dari beberapa sumber (khususnya
+ * oploverz) berupa URL MATI (redirect ke HTML, bukan gambar) → aplikasi hanya
+ * menampilkan judul tanpa gambar. Solusi:
+ *  1. http → https (mixed content diblokir browser).
+ *  2. URL mati/kosong → cari poster asli via Jikan (MyAnimeList) berdasarkan
+ *     judul, dengan cache in-memory supaya hemat rate limit.
+ */
+const posterCache = new Map<string, string | null>();
+const DEAD_POSTER = /oploverz\.org\/assets\/covers\//i;
+
+async function jikanPosterByTitle(title: string): Promise<string | null> {
+  const key = title.toLowerCase().trim();
+  if (posterCache.has(key)) return posterCache.get(key) ?? null;
+  let found: string | null = null;
+  try {
+    const d = await jikan(`/anime?q=${encodeURIComponent(key.slice(0, 80))}&limit=1&sfw=true`, 7000);
+    const a = d?.data?.[0];
+    found = a?.images?.jpg?.large_image_url ?? a?.images?.jpg?.image_url ?? null;
+  } catch { found = null; }
+  if (posterCache.size > 800) posterCache.clear();
+  posterCache.set(key, found);
+  return found;
+}
+
+async function fixPoster(title: string, url?: string | null): Promise<string | undefined> {
+  const clean = String(url ?? '').trim();
+  const upgraded = clean.startsWith('http://') ? clean.replace('http://', 'https://') : clean;
+  if (upgraded && /^https:\/\//.test(upgraded) && !DEAD_POSTER.test(upgraded)) return upgraded;
+  return (await jikanPosterByTitle(title)) ?? undefined;
+}
+
+/** Perbaiki poster SELURUH list (batch 3 agar aman rate limit Jikan). */
+async function fixPosters(list: any[]): Promise<any[]> {
+  if (!Array.isArray(list)) return list;
+  const out = [...list];
+  for (let i = 0; i < out.length; i += 3) {
+    await Promise.all(out.slice(i, i + 3).map(async (item, j) => {
+      const idx = i + j;
+      if (!item?.title) return;
+      const fixed = await fixPoster(item.title, item.poster);
+      if (fixed && fixed !== item.poster) out[idx] = { ...item, poster: fixed };
+    }));
+    if (i + 3 < out.length) await new Promise((r) => setTimeout(r, 350));
+  }
+  return out;
+}
+
 function normAnimeList(data: any): any[] {
   const p = unwrap(data);
   const list = Array.isArray(p)
@@ -547,7 +595,7 @@ export default async function handler(req: any, res: any) {
           () => sipList('/api/anime/samehadaku/latest'),
           () => sipList('/api/anime/auratail-latest'),
         ], 20000);
-        if (list) return res.status(200).json({ ok: true, list, source: 'siputzx' });
+        if (list) return res.status(200).json({ ok: true, list: await fixPosters(list), source: 'siputzx' });
         try {
           const jk = action === 'anime_latest' ? await jikan('/top/anime?filter=airing&limit=24') : await jikan('/seasons/now?limit=24');
           const jl = (jk?.data ?? []).map(jikanCard);
@@ -566,7 +614,7 @@ export default async function handler(req: any, res: any) {
           () => sipList('/api/anime/komikindo-search', { query: q }),
           () => sipList('/api/anime/auratail-search', { query: q }),
         ], 20000);
-        if (list) return res.status(200).json({ ok: true, list, source: 'siputzx' });
+        if (list) return res.status(200).json({ ok: true, list: await fixPosters(list), source: 'siputzx' });
         try {
           const d = await jikan(`/anime?q=${encodeURIComponent(q)}&limit=24&sfw=true`);
           const jl = (d?.data ?? []).map(jikanCard);
@@ -589,7 +637,7 @@ export default async function handler(req: any, res: any) {
           () => sipList('/api/anime/auratail-schedule'),
           () => sipList('/api/anime/samehadaku/release'),
         ], 16000);
-        if (list) return res.status(200).json({ ok: true, list, source: 'siputzx' });
+        if (list) return res.status(200).json({ ok: true, list: await fixPosters(list), source: 'siputzx' });
         try {
           const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
           const day = days[new Date().getDay()];
@@ -652,7 +700,7 @@ export default async function handler(req: any, res: any) {
       case 'anime_hot':
       case 'anime_search':
       case 'anime_schedule':
-        return res.status(200).json({ ok: true, list: normAnimeList(r.data) });
+        return res.status(200).json({ ok: true, list: await fixPosters(normAnimeList(r.data)) });
       case 'anime_quotes': {
         const quotes = normQuotes(r.data);
         if (!quotes.length) return fail(res, 502, 'Kutipan tidak dapat dibaca dari layanan.');
@@ -663,6 +711,8 @@ export default async function handler(req: any, res: any) {
       case 'anime_detail': {
         const d = normAnimeDetail(r.data);
         if (!d.slug && !d.episodes.length && !d.synopsis) return fail(res, 502, 'Detail anime tidak dapat dibaca.');
+        d.poster = await fixPoster(d.title ?? 'Anime', d.poster);
+        d.banner = await fixPoster(`${d.title ?? 'Anime'} banner`, d.banner);
         return res.status(200).json({ ok: true, anime: d });
       }
       default:

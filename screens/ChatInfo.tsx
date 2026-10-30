@@ -252,13 +252,15 @@ export default function ChatInfo() {
                 onPress={() => setPostPolicy(chat.id, chat.postPolicy === 'admins' ? 'everyone' : 'admins')}
               />
             )}
-            {/* ZERoid BOT — HANYA admin Developer boleh memasukkan bot ke grup/saluran */}
-            {isFullAdmin(me) && !chat.members.includes(BOT_UID) && (
+            {/* ZERoid BOT — v21: admin GRUP/SALURAN juga boleh memasukkan bot
+                (dulu hanya admin Developer — permintaan user: bot bisa dimasukkan
+                ke grup & saluran sendiri, lalu di-tag untuk jawaban otomatis) */}
+            {(isFullAdmin(me) || isAdmin) && !chat.members.includes(BOT_UID) && (
               <Row
                 icon="sparkles"
                 iconColor="#7B61FF"
                 title="Tambah Zeroid Bot"
-                subtitle="Khusus admin Developer — bot menjawab lewat AI di sini (sebut @zeroid)"
+                subtitle="Bot AI menjawab otomatis di sini — sebut @zeroid (khusus admin)"
                 onPress={() => {
                   addMembers(chat.id, [BOT_UID]);
                   pushBanner({ title: 'Zeroid Bot ditambahkan', body: 'Bot siap — sebut @zeroid untuk bertanya.', icon: 'sparkles' });

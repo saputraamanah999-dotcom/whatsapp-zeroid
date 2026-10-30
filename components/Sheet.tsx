@@ -22,7 +22,7 @@ export function Sheet({ visible, onClose, title, children, options, header }: { 
           <View style={{ alignSelf: 'center', width: 44, height: 5, borderRadius: 3, backgroundColor: t.faint, opacity: 0.5, marginBottom: 12 }} />
           {header}
           {title && (
-            <T v="h3" style={{ marginBottom: 12, marginLeft: 4 }}>
+            <T v="h3" style={{ marginBottom: 12, marginLeft: 4, flexWrap: 'wrap' }}>
               {title}
             </T>
           )}
@@ -39,7 +39,8 @@ export function Sheet({ visible, onClose, title, children, options, header }: { 
                 <View style={{ width: 40, height: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: t.bg, boxShadow: t.raisedSm } as ViewStyle}>
                   <Ionicons name={o.icon} size={20} color={o.danger ? t.danger : o.color ?? t.accent} />
                 </View>
-                <T v="body" color={o.danger ? t.danger : t.text} style={{ fontWeight: '500' }}>
+                {/* v21: teks opsi boleh meliputi — dulu teks panjang melewati tepi layar */}
+                <T v="body" color={o.danger ? t.danger : t.text} style={{ flex: 1, flexWrap: 'wrap', fontWeight: '500' }}>
                   {o.label}
                 </T>
               </Pressable>

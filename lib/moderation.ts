@@ -16,7 +16,7 @@
  */
 import { Message } from './types';
 
-export type ViolationKind = 'porn' | 'profanity' | 'sticker_spam' | 'media_bomb';
+export type ViolationKind = 'porn' | 'profanity' | 'sticker_spam' | 'media_bomb' | 'virtex';
 
 export type Violation = {
   kind: ViolationKind;
@@ -60,6 +60,37 @@ export function pornHit(raw: string): Violation | null {
   return null;
 }
 
+/*
+ * ANTI-BUG / VIRTEX (v21 — permintaan user: "anti bug crash … orang yang nge
+ * virtex … langsung delete dan kena pelanggaran buat usernya").
+ * Virtex = bom karakter raksasa/berulang/karakter kendali tak terlihat yang
+ * membuat aplikasi penerima lag, overflow, atau crash.
+ */
+export const VIRTEX_MAX_LEN = 2600;      // ambang pesan dianggap virtex
+const ZWSP = /[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g; // zero-width & bidi
+
+/**
+ * Deteksi virtex / bom karakter pada satu teks. Null = aman.
+ * Heuristik server-friendly (dipakai ulang di api/ai.ts sebagai salinan ringkas):
+ *  - panjang >= 2600 karakter, ATAU
+ *  - karakter kendali tak terlihat >= 40, ATAU
+ *  - satu karakter sama berulang >= 180 kali, ATAU
+ *  - satu baris tanpa spasi >= 900 karakter (dump HEX/junk panjang).
+ */
+export function virtexHit(raw: string): Violation | null {
+  const t = String(raw ?? '');
+  if (!t) return null;
+  if (t.length >= VIRTEX_MAX_LEN) return { kind: 'virtex', reason: `teks raksasa (${t.length} karakter)`, label: 'virtext/bom teks' };
+  const ctrl = t.match(ZWSP);
+  if (ctrl && ctrl.length >= 40) return { kind: 'virtex', reason: `karakter kendali tersembunyi (${ctrl.length})`, label: 'karakter perusak' };
+  const run = t.match(/(.)\1{179,}/s);
+  if (run) return { kind: 'virtex', reason: `karakter berulang raksasa (${run[0].length}x "${run[1]}")`, label: 'spam karakter' };
+  for (const line of t.split('\n')) {
+    if (line.replace(/\s/g, '').length >= 900) return { kind: 'virtex', reason: 'baris dump tanpa spasi raksasa', label: 'dump teks' };
+  }
+  return null;
+}
+
 /** kata kasar (ID + EN) — AI Guard skill: ban berjam-jam otomatis */
 const PROFANITY_WORDS = [
   'anjing', 'bajingan', 'bangsat', 'bangke', 'bego', 'bodoh', 'brengsek', 'goblok',
@@ -91,6 +122,11 @@ function isMedia(m: Message): boolean {
  */
 export function detectViolation(msg: Message, recent: Message[]): Violation | null {
   if (msg.type === 'system' || msg.assistant) return null;
+
+  // 0) VIRTEX / BOM KARAKTER (anti bug crash) — dicek paling awal supaya
+  //    aplikasi penerima tidak sempat menggambar teks raksasanya
+  const vx = virtexHit(msg.text ?? '');
+  if (vx) return vx;
 
   // 1) konten 18+: teks langsung, caption media, maupun isi tautan
   const textHit = pornHit(msg.text ?? '');
