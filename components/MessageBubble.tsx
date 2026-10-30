@@ -16,6 +16,7 @@ import { Ticks } from './ChatRow';
 import MentionText from './MentionText';
 import { useTheme, R } from '../lib/theme';
 import { resolveBubble } from '../lib/bubbles';
+import BubbleDecor from './BubbleDecor';
 import { Chat, DB, Message, User } from '../lib/types';
 import { messageStatus, messagePreview } from '../lib/store';
 import { timeShort, bytes } from '../lib/format';
@@ -35,6 +36,8 @@ export default function MessageBubble({
   /** gaya balon & tema chat dari ChatRoom (wallpaper/tema + snapshot pengirim) */
   bubbleStyleId,
   themeId,
+  /** tap lencana centang biru → info verifikasi (versi Zeroid) */
+  onInfoBadge,
 }: {
   m: Message;
   chat: Chat;
@@ -50,6 +53,7 @@ export default function MessageBubble({
   onOpenUser?: (uid: string) => void;
   bubbleStyleId?: string | null;
   themeId?: string | null;
+  onInfoBadge?: () => void;
 }) {
   const t = useTheme();
   const mine = m.senderId === me.id && !m.assistant;
@@ -113,11 +117,13 @@ export default function MessageBubble({
           : `tersimpan ${Math.max(1, Math.round((m.mediaExpiresAt - Date.now()) / 3600000))} jam`)
       : null;
 
-  // STIKER & BRAT: TAMPIL DI TENGAH baris chat (bukan menempel kiri/kanan)
+  // STIKER & BRAT — gaya WhatsApp: TANPA balon, tanpa latar; milik rata KANAN,
+  // orang lain rata KIRI; jam kecil transparan di bawah (dulu di tengah + pill
+  // putih seperti pesan biasa — salah gaya).
   if ((m.type === 'sticker' || m.type === 'brat') && !m.deletedForAll) {
     return (
       <SwipeReply onReply={() => onReply?.()} color={t.accent} disabled={!onReply}>
-        <View style={{ paddingHorizontal: 12, marginVertical: 4, alignItems: 'center' }}>
+        <View style={{ paddingHorizontal: 14, marginVertical: 4, alignItems: mine ? 'flex-end' : 'flex-start' }}>
           {showName && !mine && (
             <T v="caption" color={senderColor} style={{ fontWeight: '700', marginBottom: 2 }}>
               {senderName}
@@ -125,13 +131,13 @@ export default function MessageBubble({
           )}
           <Pressable onLongPress={onLongPress} delayLongPress={300} style={{ alignItems: 'center' }}>
             {m.type === 'brat' ? (
-              <BratView text={m.bratText ?? m.text ?? ''} size={168} />
+              <BratView text={m.bratText ?? m.text ?? ''} size={150} />
             ) : m.uri ? (
-              <Image source={{ uri: m.uri }} style={{ width: 120, height: 120 }} contentFit="contain" transition={150} />
+              <Image source={{ uri: m.uri }} style={{ width: 128, height: 128 }} contentFit="contain" transition={150} />
             ) : null}
           </Pressable>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, backgroundColor: t.bg, boxShadow: t.raisedSm } as any}>
-            <T v="caption" style={{ fontSize: 11 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingTop: 2 }}>
+            <T v="caption" style={{ fontSize: 10.5, opacity: 0.65 }}>
               {timeShort(m.createdAt)}
             </T>
             {mine && <Ticks status={status} />}
@@ -279,13 +285,19 @@ export default function MessageBubble({
           } as any)
         }
       >
+        {/* HIASAN GAYA BALON — telinga kucing/kodok/beruang, mahkota diva, tanduk spider */}
+        {!!skin.decor && <BubbleDecor kind={skin.decor} bg={bg} mine={mine} />}
         {showName && !mine && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 3, paddingHorizontal: isMedia ? 8 : 0, paddingTop: isMedia ? 4 : 0 }}>
             <T v="caption" color={senderColor} style={{ fontWeight: '700' }}>
               {senderName ?? 'Pengguna'}
             </T>
-            {/* centang biru SVG resmi di samping nama (pembeli, developer, admin) */}
-            {(sender?.blueCheck || sender?.developer || sender?.role === 'admin' || sender?.role === 'developer') && <VerifiedBadge size={12} animate={false} />}
+            {/* centang biru SVG resmi di samping nama (pembeli, developer, admin) — ditekan → info */}
+            {(sender?.blueCheck || sender?.developer || sender?.role === 'admin' || sender?.role === 'developer') && (
+              <Pressable onPress={() => onInfoBadge?.()} hitSlop={8} accessibilityLabel="Info centang biru">
+                <VerifiedBadge size={12} animate={false} />
+              </Pressable>
+            )}
             {!m.assistant && chat.admins.includes(m.senderId) && chat.type !== 'direct' ? (
               <T v="caption" color={mine ? 'rgba(255,255,255,0.8)' : t.sub} style={{ fontSize: 11 }}>· admin</T>
             ) : null}

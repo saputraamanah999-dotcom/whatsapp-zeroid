@@ -65,8 +65,16 @@ export default function ChatRoom() {
   const chat = db.chats[chatId];
   // WALLPAPER chat: khusus chat ini → default semua chat (penyimpanan profil, real-time)
   const _wps = (me?.wallpapers ?? {}) as Record<string, string | null>;
+  const _wfx = (me?.wallpaperFx ?? {}) as Record<string, { opacity?: number } | null>;
   const wallpaper = _wps[chatId] ?? _wps['default'] ?? null;
+  // opasitas dari efek tersimpan (per chat → default), fallback 0.32 — angka AMAN
+  // (nilai aneh dari data lama dipaksa number supaya render tidak rusak)
+  const _wOpRaw = (_wfx[chatId] ?? _wfx['default'] ?? null)?.opacity;
+  const _wOp = Number.isFinite(Number(_wOpRaw)) ? Math.min(0.85, Math.max(0.05, Number(_wOpRaw))) : 0.32;
   const [sel, setSel] = useState<Message | null>(null);
+  // INFO CENTANG BIRU — dicet biru di nama pengirim ditekan → penjelasan versi Zeroid
+  const [badgeInfo, setBadgeInfo] = useState(false);
+  const openBadgeInfo = () => setBadgeInfo(true);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [aiPrefs, setAiPrefs] = useState<{ model: string; thinking: boolean; search: boolean }>({ model: '', thinking: false, search: false });
   const [aiSheet, setAiSheet] = useState(false);
@@ -264,7 +272,7 @@ export default function ChatRoom() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
         <View style={{ flex: 1, marginHorizontal: 8, borderRadius: R.xl, backgroundColor: wallpaper ? 'transparent' : t.bg, boxShadow: t.inset, overflow: 'hidden' } as any}>
           {!!wallpaper && (
-            <Image source={{ uri: wallpaper }} style={{ position: 'absolute', width: '100%', height: '100%', opacity: 0.32 }} contentFit="cover" transition={200} />
+            <Image source={{ uri: wallpaper }} style={{ position: 'absolute', width: '100%', height: '100%', opacity: _wOp }} contentFit="cover" transition={200} />
           )}
           <FlatList
             ref={listRef}
@@ -320,6 +328,7 @@ export default function ChatRoom() {
                   onReply={canPost && !blocked ? () => setReplyTo(item.m) : undefined}
                   onOpenUser={(uid) => uid && uid !== me.id && nav.navigate('UserProfile', { userId: uid })}
                   themeId={me.chatTheme ?? 'default'}
+                  onInfoBadge={openBadgeInfo}
                 />
               )
             }
@@ -510,11 +519,7 @@ export default function ChatRoom() {
         />
       </Sheet>
 
-      <Sheet
-        visible={petOpen}
-        onClose={() => setPetOpen(false)}
-        title="Api & kucing streak"
-      >
+      <Sheet visible={petOpen} onClose={() => setPetOpen(false)} title="Api & kucing streak">
         <View style={{ alignItems: 'center', gap: 10, paddingVertical: 8 }}>
           <FirePet count={st.count} color={st.color} lit={!st.dead} dimmed={st.dimmed} size={120} />
           <T v="h2" style={{ fontWeight: '900' }}>
@@ -549,6 +554,31 @@ export default function ChatRoom() {
               {st.dimmed ? 'Api melemah — 1 jam tanpa pesan. Kirim pesan sekarang!' : 'Api menyala penuh — pertahankan!'}
             </T>
           )}
+        </View>
+      </Sheet>
+
+      <Sheet visible={badgeInfo} onClose={() => setBadgeInfo(false)} title="Tentang centang biru">
+        <View style={{ gap: 12, paddingVertical: 6 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <VerifiedBadge size={30} animate />
+            <View style={{ flex: 1 }}>
+              <T v="h3" style={{ fontWeight: '900' }}>Akun resmi terverifikasi Zeroid</T>
+              <T v="caption" color={t.sub}>Sistem verifikasi milik Zeroid WhatsApp</T>
+            </View>
+          </View>
+          <T v="sub" color={t.sub} style={{ lineHeight: 20 }}>
+            Centang biru berarti akun ini sudah diperiksa dan dikonfirmasi ASLI oleh admin Zeroid —
+            bukan tiruan atau penipu yang menyamar pakai nama orang lain.
+          </T>
+          <T v="caption" color={t.faint} style={{ lineHeight: 19 }}>
+            Yang didapat: lencana centang biru di nama dan profil, prioritas dukungan dari developer,
+            serta status resmi di seluruh chat, grup, dan saluran. Centang biru grup berarti grup/saluran
+            itu juga terverifikasi resmi.
+          </T>
+          <T v="caption" color={t.faint}>
+            Ingin akunmu terverifikasi? Hubungi developer lewat menu Masukan &amp; bantuan, atau beli
+            paket centang biru di tab Saya.
+          </T>
         </View>
       </Sheet>
 

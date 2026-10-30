@@ -47,14 +47,23 @@ export async function submitFeedback(input: { uid: string; name: string; text: s
 }
 
 /** Langganan masukan milik SATU user (real-time). */
-export function subscribeMyFeedback(uid: string, cb: (list: Feedback[]) => void): () => void {
+export function subscribeMyFeedback(
+  uid: string,
+  cb: (list: Feedback[]) => void,
+  onError?: (msg: string) => void
+): () => void {
   const fb = firebase();
   if (!fb) { cb([]); return () => {}; }
   const q = query(collection(fb.db, C.feedback), where('uid', '==', uid), orderBy('at', 'desc'), fsLimit(30));
   return onSnapshot(q, (s) => cb(s.docs.map((d) => {
     const v = d.data() as any;
     return { id: d.id, ...v, at: toMs(v.at), repliedAt: toMs(v.repliedAt) } as Feedback;
-  })), () => cb([]));
+  })), (e) => {
+    // JANGAN senyap-senyap tampilkan kosong — user harus tahu kalau daftarnya
+    // gagal dimuat (mis. index belum siap / izin).
+    onError?.(String(e?.message ?? 'Gagal memuat masukan.'));
+    cb([]);
+  });
 }
 
 /** Langganan SEMUA masukan untuk admin panel (real-time). */
@@ -119,6 +128,10 @@ export async function answerFeedback(opts: {
       repliedAt: serverTimestamp(),
       reward: reward || 0,
       handledBy: opts.adminName,
+    }).catch(async (e: any) => {
+      // TABRAKAN ATURAN: kalau admin tidak punya izin update (rules lama),
+      // admin TETAP dibantu dengan pesan yang jelas — bukan gagam.
+      throw e;
     });
     notifyFor(
       opts.feedback.uid,

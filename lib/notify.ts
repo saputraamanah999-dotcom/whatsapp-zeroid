@@ -8,6 +8,7 @@ export const CHANNELS = {
   groups: 'groups',
   stories: 'stories',
   calls: 'calls',
+  announcements: 'announcements',
 } as const;
 
 let setupDone = false;
@@ -29,6 +30,13 @@ export async function setupNotifications() {
       });
       await Notifications.setNotificationChannelAsync(CHANNELS.groups, { name: 'Grup', importance: Notifications.AndroidImportance.HIGH });
       await Notifications.setNotificationChannelAsync(CHANNELS.stories, { name: 'Story', importance: Notifications.AndroidImportance.DEFAULT });
+      // PENGUMUMAN ADMIN — broadcast masuk juga sebagai popup di luar aplikasi
+      await Notifications.setNotificationChannelAsync(CHANNELS.announcements, {
+        name: 'Pengumuman admin',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 150, 250],
+        lightColor: '#1E6BFF',
+      });
       await Notifications.setNotificationChannelAsync(CHANNELS.calls, {
         name: 'Panggilan masuk',
         importance: Notifications.AndroidImportance.MAX,

@@ -6,15 +6,16 @@
  *    ChatRoom) + TEMA WARNA chat (warna balon milik + aksen).
  */
 import React, { useState } from 'react';
-import { View, ScrollView, Pressable } from 'react-native';
+import { View, ScrollView, Pressable, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useRoute } from '@react-navigation/native';
 import { Header, Screen, T, Card, Btn } from '../components/ui';
-import { useStore, updateMe } from '../lib/store';
+import { useStore, updateMe, patchMeLocal } from '../lib/store';
 import { pushBanner } from '../lib/bus';
 import { useTheme, R } from '../lib/theme';
 import { BUBBLE_STYLES, CHAT_THEMES, resolveBubble } from '../lib/bubbles';
+import BubbleDecor from '../components/BubbleDecor';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadMedia } from '../lib/media';
 
@@ -38,6 +39,7 @@ function MiniBubblePreview({ styleId, mine, label }: { styleId: string; mine: bo
           boxShadow: s.boxShadow,
         } as any}
       >
+        {!!s.decor && <BubbleDecor kind={s.decor} bg={s.backgroundColor} mine={mine} />}
         <T v="sub" color={s.color} style={{ fontSize: 12.5 }}>
           {label}
         </T>
@@ -54,10 +56,17 @@ export function ChatBubblesScreen() {
 
   const pick = async (id: string) => {
     setSaving(id);
+    // TERAPKAN LOKAL DETIK INI (optimis) — dulu harus nunggu Firestore balik,
+    // seakan "pencet gak muncul apa-apa". Kalau server gagal, dikembalikan.
+    const prev = me?.bubble ?? 'default';
+    patchMeLocal({ bubble: id as any });
     const r = await updateMe({ bubble: id as any });
     setSaving(null);
     if (r.ok) pushBanner({ title: 'Gaya balon dipasang', body: 'Semua chatmu sekarang pakai gaya ini — orang lain juga melihatnya real-time.', icon: 'checkmark-circle' });
-    else pushBanner({ title: 'Gagal menyimpan', body: r.error ?? 'Coba lagi.', icon: 'alert' });
+    else {
+      patchMeLocal({ bubble: prev as any });
+      pushBanner({ title: 'Gagal menyimpan', body: r.error ?? 'Coba lagi.', icon: 'alert' });
+    }
   };
 
   return (
@@ -116,22 +125,37 @@ export function WallpaperScreen({ chatId: chatIdProp }: { chatId?: string }) {
   const route = useRoute<any>();
   const chatId = chatIdProp ?? route.params?.chatId;
   const [busy, setBusy] = useState(false);
+  const [fxOpen, setFxOpen] = useState(false);
   const wallpapers = me?.wallpapers ?? {};
+  const wallpaperFx = me?.wallpaperFx ?? {};
   const scopeKey = chatId ?? 'default';
   const activeWallpaper = wallpapers[scopeKey] ?? null;
+  const activeFx = wallpaperFx[scopeKey] ?? null;
+  const _opRaw = activeFx?.opacity;
+  const activeOpacity = Number.isFinite(Number(_opRaw)) ? Math.min(0.85, Math.max(0.05, Number(_opRaw))) : 0.32;
   const activeTheme = me?.chatTheme ?? 'default';
 
   const pickWallpaper = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return pushBanner({ title: 'Izin galeri ditolak', body: 'Aktifkan izin galeri untuk memasang wallpaper.', icon: 'alert' });
-    const p = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.7, allowsEditing: false });
+    // ATUR/CROP: di Android/iOS picker sistem langsung menyediakan POTONG + ZOOM
+    // (allowsEditing). Di web crop sistem tidak ada — gambar dipasang utuh lalu
+    // bisa diatur OPACITY di bawah.
+    const p = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 0.8,
+      allowsEditing: Platform.OS !== 'web',
+    });
     if (p.canceled || !p.assets?.[0]) return;
     setBusy(true);
     try {
       const asset = p.assets[0];
       const r = await uploadMedia(asset.uri, `wallpapers/${me!.id}/${Date.now()}.jpg`, 'image/jpeg');
-      await updateMe({ wallpapers: { ...wallpapers, [scopeKey]: r.url } });
-      pushBanner({ title: 'Wallpaper terpasang', body: scopeKey === 'default' ? 'Dipakai di semua chat yang belum punya wallpaper sendiri.' : 'Wallpaper khusus chat ini terpasang.', icon: 'image' });
+      const rr = await updateMe({ wallpapers: { ...wallpapers, [scopeKey]: r.url } });
+      if (rr.ok) {
+        patchMeLocal({ wallpapers: { ...wallpapers, [scopeKey]: r.url } } as any);
+        pushBanner({ title: 'Wallpaper terpasang', body: scopeKey === 'default' ? 'Dipakai di semua chat yang belum punya wallpaper sendiri.' : 'Wallpaper khusus chat ini terpasang.', icon: 'image' });
+      } else pushBanner({ title: 'Gagal memasang wallpaper', body: rr.error ?? 'Coba lagi.', icon: 'alert' });
     } catch (e: any) {
       pushBanner({ title: 'Gagal memasang wallpaper', body: e?.message ?? 'Coba lagi.', icon: 'alert' });
     } finally {
@@ -140,8 +164,22 @@ export function WallpaperScreen({ chatId: chatIdProp }: { chatId?: string }) {
   };
 
   const clearWallpaper = async () => {
-    await updateMe({ wallpapers: { ...wallpapers, [scopeKey]: null } });
+    const next = { ...wallpapers, [scopeKey]: null };
+    const nextFx = { ...wallpaperFx, [scopeKey]: null };
+    const r = await updateMe({ wallpapers: next, wallpaperFx: nextFx } as any);
+    if (r.ok) patchMeLocal({ wallpapers: next, wallpaperFx: nextFx } as any);
     pushBanner({ title: 'Wallpaper dihapus', body: 'Kembali ke latar standar.', icon: 'trash' });
+  };
+
+  /** Geser OPASITAS wallpaper (redup ↔ jelas) — tersimpan per chat/default. */
+  const setOpacity = async (op: number) => {
+    const nextFx = { ...wallpaperFx, [scopeKey]: { ...(activeFx ?? {}), opacity: op } };
+    patchMeLocal({ wallpaperFx: nextFx } as any); // pratinjau real-time di slider
+    clearTimeout((setOpacity as any)._t);
+    (setOpacity as any)._t = setTimeout(async () => {
+      const r = await updateMe({ wallpaperFx: nextFx } as any);
+      if (!r.ok) pushBanner({ title: 'Gagal menyimpan efek', body: r.error ?? 'Coba lagi.', icon: 'alert' });
+    }, 600);
   };
 
   return (
@@ -152,7 +190,7 @@ export function WallpaperScreen({ chatId: chatIdProp }: { chatId?: string }) {
           <View style={{ gap: 10 }}>
             <View style={{ height: 150, borderRadius: R.md, overflow: 'hidden', backgroundColor: t.bg2, alignItems: 'center', justifyContent: 'center' }}>
               {activeWallpaper ? (
-                <Image source={{ uri: activeWallpaper }} style={{ width: '100%', height: '100%' }} contentFit="cover" transition={150} />
+                <Image source={{ uri: activeWallpaper }} style={{ width: '100%', height: '100%', opacity: activeOpacity }} contentFit="cover" transition={150} />
               ) : (
                 <View style={{ alignItems: 'center', gap: 6 }}>
                   <Ionicons name="image-outline" size={30} color={t.faint} />
@@ -165,8 +203,36 @@ export function WallpaperScreen({ chatId: chatIdProp }: { chatId?: string }) {
             </View>
             <View style={{ flexDirection: 'row', gap: 8 }}>
               <Btn small icon="image" title="Pilih dari galeri" loading={busy} onPress={pickWallpaper} style={{ flex: 1 }} />
+              {!!activeWallpaper && <Btn small variant="neu" icon="color-filter" title={fxOpen ? 'Tutup' : 'Atur'} onPress={() => setFxOpen((v) => !v)} />}
               {!!activeWallpaper && <Btn small variant="neu" icon="trash" title="Hapus" onPress={clearWallpaper} />}
             </View>
+            {fxOpen && !!activeWallpaper && (
+              <View style={{ gap: 8, backgroundColor: t.bg2, borderRadius: R.md, padding: 12 }}>
+                <T v="caption" color={t.sub}>Opasitas — geser: makin kiri makin redup (teks tetap mudah dibaca)</T>
+                <View style={{ height: 26, justifyContent: 'center' }}>
+                  <View style={{ height: 8, borderRadius: 4, backgroundColor: t.bg, overflow: 'hidden' }}>
+                    <View style={{ height: 8, borderRadius: 4, width: `${Math.round(activeOpacity * 100)}%`, backgroundColor: t.accent }} />
+                  </View>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 6 }}>
+                  {[0.15, 0.25, 0.32, 0.45, 0.6].map((v) => (
+                    <Pressable
+                      key={v}
+                      onPress={() => void setOpacity(v)}
+                      style={({ pressed }) => ({
+                        flex: 1, alignItems: 'center', paddingVertical: 7, borderRadius: 10,
+                        backgroundColor: Math.abs(activeOpacity - v) < 0.01 ? t.accent : pressed ? t.accentSoft : t.bg,
+                      })}
+                    >
+                      <T v="caption" color={Math.abs(activeOpacity - v) < 0.01 ? '#fff' : t.sub} style={{ fontWeight: '700' }}>{Math.round(v * 100)}%</T>
+                    </Pressable>
+                  ))}
+                </View>
+                <T v="caption" color={t.faint}>
+                  {Platform.OS === 'web' ? 'Crop/potong memakai alat galeri sebelum unggah — di HP, potong langsung muncul saat memilih foto.' : 'Saat memilih foto kamu bisa potong (crop) & atur dulu di layar galeri.'}
+                </T>
+              </View>
+            )}
             {!chatId && (
               <T v="caption" color={t.faint}>
                 Untuk wallpaper KHUSUS satu chat: buka chat itu → menu ⋮ → "Wallpaper & tema".
@@ -182,11 +248,23 @@ export function WallpaperScreen({ chatId: chatIdProp }: { chatId?: string }) {
               return (
                 <Pressable
                   key={th.id}
-                  onPress={() => updateMe({ chatTheme: th.id })}
+                  onPress={async () => {
+                    // BALASAN INSTAN: warna aktif langsung pindah detik ini, lalu
+                    // disimpan ke profil (real-time ke perangkat lain). Gagal → dikembalikan.
+                    if (active) return;
+                    const prev = activeTheme;
+                    patchMeLocal({ chatTheme: th.id } as any);
+                    const r = await updateMe({ chatTheme: th.id } as any);
+                    if (!r.ok) {
+                      patchMeLocal({ chatTheme: prev } as any);
+                      pushBanner({ title: 'Gagal menyimpan tema', body: r.error ?? 'Coba lagi.', icon: 'alert' });
+                    }
+                  }}
                   style={({ pressed }) => ({
                     width: 104, borderRadius: R.md, padding: 10, gap: 6, alignItems: 'center',
                     borderWidth: 2, borderColor: active ? t.accent : 'transparent',
-                    backgroundColor: pressed ? t.bg2 : t.bg,
+                    backgroundColor: pressed ? t.accentSoft : t.bg,
+                    opacity: pressed ? 0.9 : 1,
                   })}
                 >
                   <View style={{ width: 74, height: 30, borderRadius: 12, backgroundColor: th.mine }} />

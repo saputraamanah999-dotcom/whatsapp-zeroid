@@ -13,7 +13,7 @@
  *  - EXPO_PUBLIC_SUPABASE_URL      (public, aman)
  *  - EXPO_PUBLIC_SUPABASE_ANON_KEY (public by design, dilindungi policy bucket)
  */
-import { proxyGet } from './proxy';
+import { proxyGet, proxyPost } from './proxy';
 
 const SB_URL = String(process.env.EXPO_PUBLIC_SUPABASE_URL ?? '').replace(/\/+$/, '');
 const SB_ANON = String(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '');
@@ -77,4 +77,41 @@ export async function tiktokDownload(url: string, ms = 55000): Promise<TikTokRes
   );
   if (r.ok && (r.data?.nowm || r.data?.wm || r.data?.mp3)) return r.data as TikTokResult;
   throw new Error(r.data?.error ?? `Gagal mengunduh TikTok (HTTP ${r.status}).`);
+}
+
+// ================= CADANGAN TAUTAN PROFIL (Supabase) =================
+/**
+ * Tautan profil TERSIMPAN DI DUA TEMPAT: Firestore (utama, real-time) dan
+ * Supabase Postgres (cadangan permanen). Kalau Firestore bermasalah, tautan
+ * bisa dipulihkan dari cadangan — tidak hilang lagi "pas dibuka kosong".
+ * Token Firebase ID token user dipakai server memastikan uid pemilik —
+ * user hanya bisa menyimpan/membaca MILIKNYA SENDIRI.
+ */
+export type ProfileLinkBasic = { label: string; url: string };
+
+export async function backupProfileLinks(token: string, links: ProfileLinkBasic[]): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const r = await proxyPost('/api/supabase-seed', { action: 'link-save', token, links: links.slice(0, 5) }, 20000);
+    return !!r?.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Pulihkan tautan dari cadangan Supabase — null bila tidak ada / gagal. */
+export async function restoreProfileLinks(token: string): Promise<ProfileLinkBasic[] | null> {
+  if (!token) return null;
+  try {
+    const r = await proxyPost('/api/supabase-seed', { action: 'link-get', token }, 20000);
+    if (r?.ok && Array.isArray(r.links)) {
+      return r.links
+        .filter((l: any) => l && typeof l.url === 'string' && l.url.length > 3)
+        .slice(0, 5)
+        .map((l: any) => ({ label: String(l.label ?? '').slice(0, 40), url: String(l.url).slice(0, 256) }));
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

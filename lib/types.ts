@@ -70,6 +70,8 @@ export type User = {
   links?: ProfileLink[];
   /** Wallpaper chat: { default: url } + per chat: { [chatId]: url } */
   wallpapers?: Record<string, string | null>;
+  /** Efek wallpaper per scope: { [chatId|'default']: { opacity?: number } } */
+  wallpaperFx?: Record<string, { opacity?: number } | null>;
   /** Tema warna chat */
   chatTheme?: ChatThemeId;
   /** Akun bot resmi (zeroid-bot) */
@@ -197,7 +199,8 @@ export type ProfileLink = { label: string; url: string };
 /** Gaya balon obrolan — dipilih user, tampil real-time ke semua orang */
 export type BubbleStyleId =
   | 'default' | 'sketch' | 'ghost' | 'pumpkin' | 'spider' | 'otter'
-  | 'diva' | 'crocodile' | 'frog' | 'cat' | 'capybara' | 'neon';
+  | 'diva' | 'crocodile' | 'frog' | 'cat' | 'capybara' | 'neon'
+  | 'bunny' | 'panda' | 'fox' | 'bear';
 
 /** Tema warna chat — mengganti warna balon sendiri + aksen */
 export type ChatThemeId = 'default' | 'ocean' | 'sunset' | 'forest' | 'candy' | 'mono';

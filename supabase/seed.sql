@@ -83,3 +83,24 @@ drop policy if exists "zeroid_bans read" on public.zeroid_bans;
 create policy "zeroid_bans read" on public.zeroid_bans for select using (true);
 -- Tulis/ubah/hapus ketiga tabel ini TIDAK diberi policy publik → hanya service
 -- role key (dipakai server Vercel) yang bisa menulis. Aman secara default.
+
+-- ============ v18: cadangan tautan profil + arsip masukan ============
+create table if not exists public.zeroid_profile_links (
+  uid text primary key,
+  links jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now()
+);
+create index if not exists zeroid_profile_links_updated_idx on public.zeroid_profile_links (updated_at desc);
+create table if not exists public.zeroid_feedback (
+  id uuid primary key default gen_random_uuid(),
+  fid text not null,
+  uid text not null,
+  name text,
+  kind text,
+  text text,
+  status text not null default 'open',
+  reply text,
+  reward bigint not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists zeroid_feedback_uid_idx on public.zeroid_feedback (uid);

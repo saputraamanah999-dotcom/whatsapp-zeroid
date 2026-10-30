@@ -56,12 +56,12 @@ async function failMessage(res: Response | null, e: any): Promise<Error> {
 }
 
 /** POST JSON ke proxy dengan penanganan error yang bisa dipahami pengguna. */
-export async function proxyPost<T = any>(path: string, body: any, ms = 45000): Promise<T> {
+export async function proxyPost<T = any>(path: string, body: any, ms = 45000, headers?: Record<string, string>): Promise<T> {
   const { signal, clear } = timeout(ms);
   try {
     const res = await fetch(proxyUrl(path), {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...(headers ?? {}) },
       body: JSON.stringify(body),
       signal,
     });

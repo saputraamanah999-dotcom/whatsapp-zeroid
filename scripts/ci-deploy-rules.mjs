@@ -59,3 +59,42 @@ async function publish(token, project, release, fileName, filePath) {
   }
   console.log('✅ DEPLOY RULES SELESAI.');
 })().catch((e) => { console.error('FATAL:', e?.message ?? e); process.exit(1); });
+
+/**
+ * COMPOSITE INDEX — dibuat otomatis di langkah yang sama (token cloud-platform
+ * mencakup datastore). Index yang hilang = query user SELALU error diam-diam
+ * (contoh nyata: feedback "Masukan saya (0)" karena index uid+at tidak ada).
+ */
+async function ensureIndex(token, project, spec) {
+  const base = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/indexes`;
+  const list = await fetch(base, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json());
+  const same = (a, b) => a.length === b.length && a.every((f, i) => f.fieldPath === b[i].fieldPath && (f.order ?? 'ASCENDING') === (b[i].order ?? 'ASCENDING'));
+  const exists = (list.indexes ?? []).some((ix) => ix.collectionGroup === spec.collectionGroup && same(ix.fields ?? [], spec.fields));
+  if (exists) { console.log(`↷ index ${spec.collectionGroup} (${spec.fields.map((f) => f.fieldPath).join(',')}) sudah ada.`); return; }
+  const r = await fetch(base, {
+    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(spec),
+  });
+  if (r.ok) console.log(`✅ index ${spec.collectionGroup} dibuat (menyiapkan 1-2 menit).`);
+  else console.log(`⚠️ index ${spec.collectionGroup} gagal: ${JSON.stringify(await r.json()).slice(0, 200)}`);
+}
+
+// tambahan opsional — dijalankan hanya bila dipanggil sebagai bagian deploy
+if (process.env.CREATE_INDEXES !== '0' && (process.env.FIREBASE_SERVICE_ACCOUNT ?? '').trim()) {
+  (async () => {
+    try {
+      const SA = loadSA();
+      const token = await accessToken(SA);
+      await ensureIndex(token, SA.project_id, {
+        collectionGroup: 'feedback',
+        queryScope: 'COLLECTION',
+        fields: [
+          { fieldPath: 'uid', order: 'ASCENDING' },
+          { fieldPath: 'at', order: 'DESCENDING' },
+        ],
+      });
+    } catch (e) {
+      console.log('⚠️ langkah index dilewati:', String(e?.message ?? e).slice(0, 160));
+    }
+  })();
+}

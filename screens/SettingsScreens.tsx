@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, ScrollView, Pressable, FlatList, RefreshControl, Platform } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
@@ -14,6 +14,8 @@ import { pushBanner } from '../lib/bus';
 import { ago, chatTime } from '../lib/format';
 import { getPermission, ensurePermission, PERM_INFO, PermKind, PermState, openAppSettings } from '../lib/permissions';
 import { registerPushToken } from '../lib/notify';
+import { backupProfileLinks, restoreProfileLinks } from '../lib/supabase';
+import { firebase } from '../lib/firebase';
 
 // ---------------- Edit profile ----------------
 export function EditProfile() {
@@ -29,19 +31,47 @@ export function EditProfile() {
   const [oldPw, setOldPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [pwErr, setPwErr] = useState('');
-  // TAUTAN PROFIL (ala WhatsApp Business) — maksimal 5 tautan
+  // TAUTAN PROFIL — website / toko / sosial media (maksimal 5 tautan)
   const [links, setLinks] = useState<{ label: string; url: string }[]>(me?.links ?? []);
   const setLink = (i: number, patch: Partial<{ label: string; url: string }>) =>
     setLinks((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+
+  // PULIHKAN DARI CADANGAN SUPABASE — kalau profilmemang belum punya tautan
+  // (mis. Firestore sempat bermasalah) tapi cadangannya ada, tautan otomatis
+  // dikembalikan & disimpan ulang ke Firestore sekali.
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current) return;
+    if (me?.links?.length) { restoredRef.current = true; return; }
+    const fb = firebase();
+    const cu = fb?.auth.currentUser;
+    if (!cu) return;
+    restoredRef.current = true;
+    (async () => {
+      const token = await cu.getIdToken().catch(() => null);
+      if (!token) return;
+      const bak = await restoreProfileLinks(token);
+      if (bak && bak.length) {
+        setLinks(bak);
+        updateMe({ links: bak }).catch(() => {});
+        pushBanner({ title: 'Tautan dipulihkan', body: `${bak.length} tautan dikembalikan dari cadangan.`, icon: 'link' });
+      }
+    })();
+  }, [me?.id, me?.links?.length]);
+
   const saveLinks = async () => {
     const clean = links
       .map((l) => ({ label: (l.label ?? '').trim().slice(0, 40), url: (l.url ?? '').trim().slice(0, 256) }))
       .filter((l) => l.url.length > 3)
       .slice(0, 5);
+    if (!clean.length) return pushBanner({ title: 'Tautan masih kosong', body: 'Isi alamat URL dulu (harus diawali https://).', icon: 'alert' });
     const r = await updateMe({ links: clean });
     if (r.ok) {
       setLinks(clean);
       pushBanner({ title: 'Tautan tersimpan', body: `${clean.length} tautan tampil di profilmu.`, icon: 'link' });
+      // CADANGAN SUPABASE — dual-write permanen (best effort, tak mengganggu simpan utama)
+      const fb = firebase();
+      fb?.auth.currentUser?.getIdToken().then((tok) => backupProfileLinks(tok, clean)).catch(() => {});
     } else pushBanner({ title: 'Gagal menyimpan tautan', body: r.error ?? 'Coba lagi.', icon: 'alert' });
   };
   if (!me) return null;
@@ -137,7 +167,7 @@ export function EditProfile() {
         <Card title={`Tautan profil (${links.length}/5)`}>
           <View style={{ padding: 8, gap: 12 }}>
             <T v="caption" color={t.faint}>
-              Tautan tampil di profilmu — website, toko, Instagram, YouTube, dll (ala WhatsApp Business).
+              Tautan tampil di profilmu — website, toko, Instagram, YouTube, dll. Semua orang yang membuka profilmu bisa mengetuknya.
             </T>
             {links.map((l, i) => (
               <View key={i} style={{ gap: 8 }}>

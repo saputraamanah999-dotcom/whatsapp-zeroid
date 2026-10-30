@@ -19,13 +19,14 @@ export default function FeedbackScreen() {
   const t = useTheme();
   const { me } = useStore();
   const [list, setList] = useState<Feedback[]>([]);
+  const [loadErr, setLoadErr] = useState('');
   const [kind, setKind] = useState<Feedback['kind']>('ide');
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
     if (!me?.id) return;
-    const unsub = subscribeMyFeedback(me.id, setList);
+    const unsub = subscribeMyFeedback(me.id, setList, (msg) => setLoadErr(msg.slice(0, 120)));
     return () => unsub();
   }, [me?.id]);
 
@@ -82,7 +83,12 @@ export default function FeedbackScreen() {
         </Card>
 
         <T v="label" style={{ marginLeft: 4 }}>Masukanku ({list.length})</T>
-        {list.length === 0 && (
+        {!!loadErr && (
+          <View style={{ borderRadius: R.md, padding: 10, backgroundColor: 'rgba(255,90,95,0.1)', borderLeftWidth: 3, borderLeftColor: t.danger }}>
+            <T v="caption" color={t.danger}>Daftar masukan gagal dimuat: {loadErr}</T>
+          </View>
+        )}
+        {list.length === 0 && !loadErr && (
           <View style={{ alignItems: 'center', gap: 8, paddingVertical: 24 }}>
             <Ionicons name="chatbubbles-outline" size={40} color={t.faint} />
             <T v="sub" color={t.faint}>Belum ada masukan — jadilah yang pertama!</T>

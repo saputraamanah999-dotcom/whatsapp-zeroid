@@ -87,11 +87,16 @@ export default async function handler(req: any, res: any) {
         } catch { return null; }
       };
 
-      // 1) SIPUTZX GET — https://api.siputzx.my.id/api/m/brat?text=...&delay=500 (tanpa key)
-      // 2) SIPUTZX POST — body JSON { text, isAnimated: false, delay: 500 } (tanpa key)
-      // 3) SYLVATICA — /api/maker/brat?text=&apikey= (cadangan bila siputzx limit)
+      // 1) VEXO — /api/maker/brat?key=&text= (penyedia baru, terverifikasi hidup)
+      // 2) SIPUTZX GET — https://api.siputzx.my.id/api/m/brat?text=...&delay=500 (tanpa key)
+      // 3) SIPUTZX POST — body JSON { text, isAnimated: false, delay: 500 } (tanpa key)
+      // 4) SYLVATICA — /api/maker/brat?text=&apikey= (cadangan bila lainnya limit)
+      const vexoKey = process.env.VEXO_APIKEY ?? '';
       let buf: Buffer | null =
-        (await png(`https://api.siputzx.my.id/api/m/brat?text=${encodeURIComponent(text)}&delay=${delay}`))
+        (vexoKey
+          ? await png(`https://vexoapi.site/api/maker/brat?key=${encodeURIComponent(vexoKey)}&text=${encodeURIComponent(text)}`)
+          : null)
+        ?? (await png(`https://api.siputzx.my.id/api/m/brat?text=${encodeURIComponent(text)}&delay=${delay}`))
         ?? (await png('https://api.siputzx.my.id/api/m/brat', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },

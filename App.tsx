@@ -46,7 +46,6 @@ import SearchScreen from './screens/SearchScreen';
 import AuditScreen from './screens/AuditScreen';
 import { RewardsScreen, LeaderboardScreen } from './screens/RewardsScreens';
 import DevGuard from './components/DevGuard';
-import BotHost from './components/BotHost';
 import { captureRefFromUrl } from './lib/points';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -488,7 +487,6 @@ export default function App() {
           <PermissionHost />
           <BannerHost />
           <DevGuard />
-          <BotHost />
           <InstallBanner />
           <StatusBar style={t.dark ? 'light' : 'dark'} />
         </NavigationContainer>

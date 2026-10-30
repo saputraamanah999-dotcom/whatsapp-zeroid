@@ -399,6 +399,38 @@ async function firstNonEmpty<T>(makers: Array<() => Promise<T | null>>): Promise
   return null;
 }
 
+/**
+ * PARALEL RACE — jalankan SEMUA sumber sekaligus, ambil hasil non-kosong TERCEPAT.
+ * FIX TIMEOUT ANIME: dulu antrean berurutan (6-7 sumber × 20-40 dtk) bisa melebihi
+ * 60 detik → Vercel membunuh fungsi → anime SELALU timeout. Sekarang semua sumber
+ * dilombakan dengan batas waktu per-sumber pendek + batas total, lalu Jikan
+ * dikejar cepat. Satu-duanya pasti selesai jauh di bawah maxDuration.
+ */
+async function raceNonEmpty<T>(makers: Array<() => Promise<T | null>>, totalMs = 24000): Promise<T | null> {
+  return await new Promise((resolve) => {
+    let done = false;
+    let pending = makers.length;
+    if (!pending) return resolve(null);
+    const finish = (v: T | null) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(v);
+    };
+    const timer = setTimeout(() => finish(null), totalMs);
+    makers.forEach((mk) => {
+      mk()
+        .then((v) => {
+          if (v && (!Array.isArray(v) || v.length)) finish(v);
+          else if (--pending <= 0) finish(null);
+        })
+        .catch(() => {
+          if (--pending <= 0) finish(null);
+        });
+    });
+  });
+}
+
 const sipList = async (path: string, params: Record<string, string> = {}): Promise<any[] | null> => {
   const d = await sipGet(path, params);
   const list = normAnimeList(d);
@@ -424,29 +456,31 @@ async function sipAnimeDetail(url: string): Promise<any | null> {
     : u.includes('komikindo')
     ? ['/api/anime/komikindo-detail', 'url', '/api/anime/otakudesu/detail', 'url', '/api/anime/anichin-detail', 'url', '/api/anime/samehadaku/detail', 'link', '/api/anime/auratail-detail', 'url']
     : ['/api/anime/otakudesu/detail', 'url', '/api/anime/anichin-detail', 'url', '/api/anime/samehadaku/detail', 'link', '/api/anime/komikindo-detail', 'url', '/api/anime/auratail-detail', 'url'];
-  const detail = await firstNonEmpty<any>([
+  // PARALEL: semua scraper detail dilombakan (dulu berurutan 5×40 dtk = 200 dtk
+  // di atas limit Vercel → "nonton anime" selalu gagal)
+  const detail = await raceNonEmpty<any>([
     () => sipDetail(chain[0], chain[1], url),
     () => sipDetail(chain[2], chain[3], url),
     () => sipDetail(chain[4], chain[5], url),
     () => sipDetail(chain[6], chain[7], url),
     () => sipDetail(chain[8], chain[9], url),
-  ]);
+  ], 32000);
   // episode list & unduhan dilengkapi dari endpoint khusus bila detail kurang
   if (detail && !detail.episodes.length) {
-    const eps = await firstNonEmpty<any[]>([
+    const eps = await raceNonEmpty<any[]>([
       () => sipList('/api/anime/anichin-episode', { url }),
       () => sipList('/api/anime/oploverz-episode', { url }),
-    ]);
+    ], 12000);
     if (eps) detail.episodes = eps.map((e: any) => ({ slug: e.slug || e.url, title: e.title, poster: e.poster }));
   }
   if (detail && !detail.downloads.length) {
-    const raw = await firstNonEmpty<any>([
-      () => sipGet('/api/anime/otakudesu/download', { url }, 40000),
-      () => sipGet('/api/anime/anichin-download', { url }, 40000),
-      () => sipGet('/api/anime/oploverz-download', { url }, 40000),
-      () => sipGet('/api/anime/samehadaku/download', { url }, 40000),
-      () => sipGet('/api/anime/komikindo-download', { url }, 40000),
-    ]);
+    const raw = await raceNonEmpty<any>([
+      () => sipGet('/api/anime/otakudesu/download', { url }, 14000),
+      () => sipGet('/api/anime/anichin-download', { url }, 14000),
+      () => sipGet('/api/anime/oploverz-download', { url }, 14000),
+      () => sipGet('/api/anime/samehadaku/download', { url }, 14000),
+      () => sipGet('/api/anime/komikindo-download', { url }, 14000),
+    ], 16000);
     const nd = raw ? normAnimeDetail({ download: raw }) : null;
     if (nd?.downloads?.length) detail.downloads = nd.downloads;
   }
@@ -491,13 +525,13 @@ export default async function handler(req: any, res: any) {
   if (isAnime) {
     try {
       if (action === 'anime_latest' || action === 'anime_hot') {
-        const list = await firstNonEmpty<any[]>([
+        const list = await raceNonEmpty<any[]>([
           () => sipList('/api/anime/otakudesu/ongoing'),
           () => sipList('/api/anime/oploverz-ongoing'),
           action === 'anime_latest' ? () => sipList('/api/anime/anichin-latest') : () => sipList('/api/anime/anichin-popular'),
           () => sipList('/api/anime/samehadaku/latest'),
           () => sipList('/api/anime/auratail-latest'),
-        ]);
+        ], 20000);
         if (list) return res.status(200).json({ ok: true, list, source: 'siputzx' });
         const jk = action === 'anime_latest' ? await jikan('/top/anime?filter=airing&limit=24') : await jikan('/seasons/now?limit=24');
         const jl = (jk?.data ?? []).map(jikanCard);
@@ -507,14 +541,14 @@ export default async function handler(req: any, res: any) {
       if (action === 'anime_search') {
         const q = s(body.query, 120);
         if (!q) return fail(res, 400, 'Kata kunci pencarian kosong.');
-        const list = await firstNonEmpty<any[]>([
+        const list = await raceNonEmpty<any[]>([
           () => sipList('/api/anime/otakudesu/search', { s: q }),
           () => sipList('/api/anime/anichin-search', { query: q }),
           () => sipList('/api/anime/oploverz-search', { query: q }),
           () => sipList('/api/anime/samehadaku/search', { query: q }),
           () => sipList('/api/anime/komikindo-search', { query: q }),
           () => sipList('/api/anime/auratail-search', { query: q }),
-        ]);
+        ], 20000);
         if (list) return res.status(200).json({ ok: true, list, source: 'siputzx' });
         const d = await jikan(`/anime?q=${encodeURIComponent(q)}&limit=24&sfw=true`);
         const jl = (d?.data ?? []).map(jikanCard);
@@ -532,10 +566,10 @@ export default async function handler(req: any, res: any) {
         return fail(res, 502, 'Detail anime tidak dapat dibaca — coba judul lain.');
       }
       if (action === 'anime_schedule') {
-        const list = await firstNonEmpty<any[]>([
+        const list = await raceNonEmpty<any[]>([
           () => sipList('/api/anime/auratail-schedule'),
           () => sipList('/api/anime/samehadaku/release'),
-        ]);
+        ], 16000);
         if (list) return res.status(200).json({ ok: true, list, source: 'siputzx' });
         const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
         const day = days[new Date().getDay()];

@@ -97,9 +97,13 @@ export type FcmPushInput = {
 /**
  * Kirim push FCM via /api/notify (server kita). Best-effort: error di-swallow
  * supaya alur chat tidak pernah gagal gara-gara push.
+ * AUDIT: endpoint kini WAJIB sesi — ID token user dikirim sebagai Bearer.
  */
 export async function fcmPush(input: FcmPushInput): Promise<void> {
   try {
+    const { firebase } = await import('./firebase');
+    const cu = firebase()?.auth.currentUser;
+    const token = cu ? await cu.getIdToken().catch(() => '') : '';
     await proxyPost('/api/notify', {
       uids: input.uids,
       topic: input.topic,
@@ -112,7 +116,7 @@ export async function fcmPush(input: FcmPushInput): Promise<void> {
         callId: input.callId ?? '',
         kind: input.kind ?? 'message',
       },
-    }, 12000);
+    }, 12000, token ? { authorization: `Bearer ${token}` } : undefined);
   } catch {
     // push tidak wajib — chat tetap realtime via Firestore snapshot
   }

@@ -32,6 +32,8 @@ export type BubbleSkin = {
   opacity?: number;
   /** glow neon */
   glowColor?: string;
+  /** hiasan SVG (telinga hewan/mahkota/tanduk) di pojok balon */
+  decor?: 'cat' | 'frog' | 'bear' | 'bunny' | 'panda' | 'fox' | 'crown' | 'horns';
 };
 
 export const BUBBLE_STYLES: BubbleSkin[] = [
@@ -54,20 +56,20 @@ export const BUBBLE_STYLES: BubbleSkin[] = [
     radius: [20, 20, 20, 20], borderColor: '#E1670C', borderWidth: 2,
   },
   {
-    id: 'spider', label: 'Spider', tag: '🕷️', desc: 'Gelap misterius (terbatas)',
+    id: 'spider', label: 'Spider', tag: '🕷️', desc: 'Gelap misterius bertanduk',
     bg: ['#241B2E', '#EDE7F6'], fg: ['#E6DFF6', '#2A1F38'],
-    radius: [6, 18, 6, 18], borderColor: '#7B4DFF', borderWidth: 1.4,
+    radius: [6, 18, 6, 18], borderColor: '#7B4DFF', borderWidth: 1.4, decor: 'horns',
   },
   {
     id: 'otter', label: 'Otter ceria', tag: '🦦', desc: 'Cokelat krem beruang air',
     bg: ['#A9714B', '#F3E3D3'], fg: ['#FFFFFF', '#5C3A22'],
-    radius: [24, 24, 8, 24],
+    radius: [24, 24, 8, 24], decor: 'bear',
   },
   {
     id: 'diva', label: 'Diva glamor', tag: '💅', desc: 'Pink megah berkilau',
     bg: ['#FF4F9A', '#FFE0EE'], fg: ['#FFFFFF', '#8C1D54'],
     radius: [26, 26, 26, 6], borderColor: '#FFC1DD', borderWidth: 1.4,
-    shadow: '0px 8px 20px rgba(255,79,154,0.35)',
+    shadow: '0px 8px 20px rgba(255,79,154,0.35)', decor: 'crown',
   },
   {
     id: 'crocodile', label: 'Buaya santai', tag: '🐊', desc: 'Hijau sisik santai',
@@ -75,19 +77,39 @@ export const BUBBLE_STYLES: BubbleSkin[] = [
     radius: [10, 22, 10, 22], borderColor: '#1E7A36', borderWidth: 2,
   },
   {
-    id: 'frog', label: 'Kodok', tag: '🐸', desc: 'Hijau katak lucu',
+    id: 'frog', label: 'Kodok', tag: '🐸', desc: 'Hijau katak mata gembul',
     bg: ['#7ED957', '#EAFBE0'], fg: ['#FFFFFF', '#2C6B1F'],
-    radius: [18, 18, 18, 18], borderColor: '#4CA636', borderWidth: 1.6,
+    radius: [18, 18, 18, 18], borderColor: '#4CA636', borderWidth: 1.6, decor: 'frog',
+  },
+  {
+    id: 'bunny', label: 'Kelinci', tag: '🐰', desc: 'Putih lembut telinga panjang',
+    bg: ['#F7F4EF', '#FFFFFF'], fg: ['#FFFFFF', '#5B4632'],
+    radius: [24, 24, 24, 8], borderColor: '#E4D9C8', borderWidth: 1.4, decor: 'bunny',
+  },
+  {
+    id: 'panda', label: 'Panda', tag: '🐼', desc: 'Hitam putih gempal menggemaskan',
+    bg: ['#FFFFFF', '#FFFFFF'], fg: ['#111111', '#111111'],
+    radius: [22, 22, 22, 8], borderColor: '#111111', borderWidth: 1.6, decor: 'panda',
+  },
+  {
+    id: 'fox', label: 'Rubah', tag: '🦊', desc: 'Oranye rubah lincah',
+    bg: ['#F07F2E', '#FFE9D6'], fg: ['#FFFFFF', '#7A3D0E'],
+    radius: [16, 16, 4, 16], decor: 'fox',
+  },
+  {
+    id: 'bear', label: 'Beruang', tag: '🐻', desc: 'Cokelat beruang hangat',
+    bg: ['#9C6B43', '#F1E3D3'], fg: ['#FFFFFF', '#4E3421'],
+    radius: [20, 20, 20, 8], decor: 'bear',
   },
   {
     id: 'cat', label: 'Kucing', tag: '🐱', desc: 'Abu lembut telinga kucing',
     bg: ['#8E8E9A', '#F1F0F4'], fg: ['#FFFFFF', '#3E3E48'],
-    radius: [20, 20, 4, 20], accentCorner: '🐱',
+    radius: [20, 20, 4, 20], decor: 'cat',
   },
   {
     id: 'capybara', label: 'Kapibara', tag: '🦫', desc: 'Cokelat pasir santai maksimal',
     bg: ['#B08968', '#F5EBDD'], fg: ['#FFFFFF', '#5A4326'],
-    radius: [28, 28, 28, 28], borderColor: '#8B6B4A', borderWidth: 1.4,
+    radius: [28, 28, 28, 28], borderColor: '#8B6B4A', borderWidth: 1.4, decor: 'bear',
   },
   {
     id: 'neon', label: 'Neon malam', tag: '🌃', desc: 'Glow cyan khas gamer',
@@ -134,6 +156,7 @@ export function resolveBubble(opts: {
   borderColor: string;
   opacity: number;
   boxShadow: string;
+  decor?: 'cat' | 'frog' | 'bear' | 'bunny' | 'panda' | 'fox' | 'crown' | 'horns';
 } {
   const { styleId, themeId, mine, t } = opts;
   const skin = bubbleStyleOf(styleId);
@@ -156,5 +179,6 @@ export function resolveBubble(opts: {
     borderColor: skin.borderColor ?? 'transparent',
     opacity: skin.opacity ?? 1,
     boxShadow: shadow,
+    decor: skin.decor,
   };
 }

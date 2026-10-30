@@ -47,7 +47,7 @@ import { AVATAR_COLORS, setThemeMode, ThemeMode } from './theme';
 import { pushBanner, activeChatId, navRef } from './bus';
 import { presentLocal } from './notify';
 import { resolveMentions, MentionResolution } from './mentions';
-import { askAI, thinkAI, analyzeImage, AI_PROVIDERS } from './ai';
+import { askAI, thinkAI, analyzeImage, AI_PROVIDERS, askBotReply, webSearch } from './ai';
 import { firebase, isFirebaseConfigured, COLLECTIONS as C, firebaseConfig } from './firebase';
 import { fcmPush } from './fcm';
 import { recordFbError } from './health';
@@ -274,6 +274,16 @@ function mapUser(id: string, d: DocumentData): User {
     privacy: { lastSeen: 'everyone', profilePhoto: 'everyone', about: 'everyone', groups: 'everyone', readReceipts: true, storyReplies: true, ...(d.privacy ?? {}) },
     notif: { messages: true, groups: true, stories: true, calls: true, preview: true, sound: true, ...(d.notif ?? {}) },
     blocked: d.blocked ?? [], contacts: d.contacts ?? [],
+    // TAMPILAN PERSONAL (v18) — TANPA INI SEMUA YANG DISIMPAN HILANG SAAT SNAPSHOT:
+    // tautan profil, gaya balon, wallpaper chat & efeknya, tema warna chat.
+    // Dulu mapUser membuang field ini → tiap snapshot Firestore mengosongkannya
+    // lagi → "simpan tautan sukses tapi pas dibuka kosong", gaya balon/tema/wallpaper
+    // "gak tersimpan & gak real-time". Sekarang ikut dimapping.
+    links: Array.isArray(d.links) ? d.links.filter((x: any) => x && typeof x.url === 'string') : [],
+    bubble: (d.bubble ?? 'default') as User['bubble'],
+    wallpapers: d.wallpapers && typeof d.wallpapers === 'object' && !Array.isArray(d.wallpapers) ? d.wallpapers : {},
+    wallpaperFx: d.wallpaperFx && typeof d.wallpaperFx === 'object' && !Array.isArray(d.wallpaperFx) ? d.wallpaperFx : {},
+    chatTheme: (d.chatTheme ?? 'default') as User['chatTheme'],
   };
 }
 
@@ -341,6 +351,11 @@ function mapMessage(id: string, d: DocumentData): Message {
     expiresAt: ts(d.expiresAt) || undefined, mediaExpiresAt: ts(d.mediaExpiresAt) || undefined, reasoning: d.reasoning,
     mentions: Array.isArray(d.mentions) ? d.mentions.filter((x: any) => x && x.uid) : undefined,
     mentionsAll: !!d.mentionsAll, verified: !!d.verified,
+    // v18 — snapshot tampilan ikut pesan (dulu DIBUANG → Foto Live "gak kekirim"
+    // karena videoUri hilang, stiker kehilangan gaya balon, Brat kehilangan teks)
+    bubble: d.bubble ?? undefined,
+    bratText: d.bratText ?? undefined,
+    videoUri: d.videoUri ?? undefined,
   };
 }
 
@@ -1774,6 +1789,14 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
       return null;
     }
   }
+  // "cari + topik" di chat AI → PENCARIAN WEB GOOGLE: hasil + ringkasan AI + sumber
+  if (chat.type === 'ai' && !routingKe && !payload.assistant && !payload.uri) {
+    const mC = /^cari(?:\s+(?:di\s+)?(?:google|web|internet))?\s+([\s\S]{2,200})$/i.exec(payload.text?.trim() ?? '');
+    if (mC) {
+      void askSearchAssistant(chatId, mC[1].trim());
+      return null;
+    }
+  }
   // channels may restrict posting
   if (chat.type === 'channel' && chat.postPolicy === 'admins' && !chat.admins.includes(sender) && !['admin', 'developer'].includes(db.users[sender]?.role ?? '')) {
     pushBanner({ title: 'Tidak diizinkan', body: 'Hanya admin yang bisa mengirim pesan di channel ini.', icon: 'ban' });
@@ -1830,6 +1853,17 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     const pv = messagePreview({ ...local, status: undefined } as Message);
     const cur = db.chats[chatId] ?? chat;
     updateDoc(doc(fb.db, C.chats, chatId), { lastMsg: { text: pv.slice(0, 120), type: local.type, senderId: sender, createdAt: local.createdAt }, typing: { ...(cur.typing ?? {}), [sender]: 0 } }).catch(() => {});
+    // BOT ZEROID SERVER-SIDE — sebut @zeroid di grup/global/saluran → bot menjawab
+    // lewat server (tanpa tergantung perangkat developer yang online).
+    // AUDIT: hanya chat BERSAMA — chat pribadi AI memakai jalur askAssistant.
+    if (
+      local.type === 'text' && !payload.assistant
+      && (chat.type === 'group' || chat.type === 'global' || chat.type === 'channel')
+      && !chatBannedNow(chat) && mentionsBot(local.text, local.mentions)
+    ) {
+      const persona = { aiName: db.aiProfile?.name?.trim() || 'Zeroid Bot', aiBio: db.aiProfile?.bio?.trim() || '' };
+      void askBotReply(chatId, local.text ?? '', getMe()?.name ?? 'Seseorang', persona).catch(() => {});
+    }
     // STREAK API: rawat api + kucing chat (hanya pesan sungguhan, bukan sistem/AI)
     if (!payload.assistant && payload.type !== 'system') void applyStreak(db.chats[chatId] ?? chat, getMe()!);
     // mention notifications: @username / @semua di grup & global (realtime ke yang disebut)
@@ -2032,6 +2066,50 @@ export async function askAssistant(chatId: string, prompt: string, opts: AskOpts
 export function aiTypingIn(chatId: string, d: DB = db): boolean {
   const t = d.aiTyping?.[chatId] ?? 0;
   return t > 0 && Date.now() - t < 120000;
+}
+
+/**
+ * PENCARIAN WEB di chat AI — "cari <topik>" / "cari google <topik>".
+ * Hasil pencarian (judul + tautan + cuplikan) + ringkasan AI + daftar sumber,
+ * dikirim sebagai satu pesan asisten. Fitur baru Zeroid (endpoint search).
+ */
+export async function askSearchAssistant(chatId: string, query: string) {
+  const setAiTyping = (on: boolean) => {
+    const next = { ...(db.aiTyping ?? {}) };
+    if (on) next[chatId] = Date.now(); else delete next[chatId];
+    db.aiTyping = next;
+    bump();
+  };
+  setAiTyping(true);
+  routingKe = true;
+  try {
+    await sendMessage(chatId, { text: `cari ${query}` });
+  } finally {
+    routingKe = false;
+  }
+  try {
+    const results = await webSearch(query);
+    if (!results.length) throw new Error('Pencarian tidak menghasilkan apa pun. Coba kata kunci lain.');
+    const list = results
+      .slice(0, 6)
+      .map((r, i) => `${i + 1}. ${r.title}\n${r.url}${r.snippet ? `\n${r.snippet}` : ''}`)
+      .join('\n\n');
+    let summary = '';
+    try {
+      const persona = { aiName: db.aiProfile?.name?.trim() || 'Zeroid AI', aiBio: db.aiProfile?.bio?.trim() || '' };
+      const ai = await askAI(
+        `Ringkas hasil pencarian web berikut untuk pertanyaan "${query}" dalam 3-4 kalimat Bahasa Indonesia yang padu. Sebutkan situs sumber utamanya secara alami.\n\n${list}`,
+        { sessionId: chatId, ...persona }
+      );
+      summary = ai.text;
+    } catch { /* ringkasan gagal → tetap tampilkan hasil mentah */ }
+    const text = `${summary ? `${summary}\n\n` : ''}Sumber:\n\n${list}`;
+    await sendMessage(chatId, { text, assistant: true });
+  } catch (e: any) {
+    await sendMessage(chatId, { text: `Pencarian gagal: ${String(e?.message ?? 'coba lagi nanti.').slice(0, 160)}`, assistant: true });
+  } finally {
+    setAiTyping(false);
+  }
 }
 
 // ============================ anime favourites ============================
@@ -2442,6 +2520,12 @@ export const isFullAdmin = (u: User | null) => !!u && (u.role === 'admin' || u.r
 /** UID akun BOT resmi Zeroid — hanya admin Developer boleh memasukkannya ke grup/saluran. */
 export const BOT_UID = 'zeroid-bot';
 export const isBot = (uid?: string | null) => uid === BOT_UID;
+
+/** Pesan menyebut bot Zeroid? (@zeroid / @zeroidbot / "zeroid" / mention resmi bot) */
+export function mentionsBot(text?: string | null, mentions?: { uid: string }[] | null): boolean {
+  if (mentions?.some((x) => x?.uid === BOT_UID)) return true;
+  return /(^|\s)@?(zeroidbot|zeroid\s?bot|zeroid)\b/i.test(String(text ?? ''));
+}
 
 /** Apakah akun sedang terkena sanksi (ban permanen / sampai waktu tertentu)? */
 export function bannedNow(u: User | null | undefined): boolean {

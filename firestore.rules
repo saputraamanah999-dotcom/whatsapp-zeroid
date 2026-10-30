@@ -1,5 +1,12 @@
 rules_version = '2';
-// ZEROID WHATSAPP — FIRESTORE RULES v17 (GRUP: KEPEMILIKAN & KELUAR MASUK)
+// ZEROID WHATSAPP — FIRESTORE RULES v18 (WALLPAPER FX + TAMPILAN PERSONAL)
+// v18: + 'wallpaperFx' (efek wallpaper chat: opasitas per chat/default) di
+//       whitelist profil sendiri. Perbaikan tampilan pribadi v16 (links/bubble/
+//       wallpapers/chatTheme) tetap. Semua field ini HANYA bisa diubah oleh
+//       PEMILIK profil sendiri — tidak bisa disuntik dari akun lain.
+// v17: GRUP — kepemilikan & keluar masuk (pemilik dilindungi, transfer otomatis).
+// v16: links/bubble/wallpapers/chatTheme, feedback, bot guard (zeroid-bot).
+// v15: ekonomi check-in berbasis affectedKeys.
 //  1. PEMILIK GRUP (createdBy = admin utama) DilindUNGI: admin kedua/user lain
 //     TIDAK bisa menendang, menurunkan, atau mengalihkan kepemilikan pemilik —
 //     hanya pemilik sendiri (atau admin global) yang bisa.
@@ -63,12 +70,13 @@ service cloud.firestore {
     // Which user fields a normal user may touch on their own profile.
     // v16: + links (tautan profil), bubble (gaya balon), wallpapers (wallpaper chat),
     //       chatTheme (tema warna chat) — semua data tampilan pribadi.
+    // v18: + wallpaperFx (opasitas/efek wallpaper per chat atau default).
     function selfProfileUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(['name','about','avatar','banner','bannerType','color','phone','username','pin','spotify',
                   'privacy','notif','blocked','contacts','lastSeen','otpCode','otpExpires',
                   'otpVerified','verified','fcmToken','mutedUntil','orderAttempts','lastCallsSeenAt',
-                  'links','bubble','wallpapers','chatTheme']);
+                  'links','bubble','wallpapers','wallpaperFx','chatTheme']);
     }
 
     // EKONOMI KOIN (v15 — FIX CHECK-IN DITOLAK UNTUK SEMUA USER BIASA):
