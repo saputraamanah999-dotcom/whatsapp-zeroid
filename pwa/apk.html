@@ -67,7 +67,7 @@
   <h1>Unduh APK Zeroid</h1>
   <p class="tagline">Aplikasi Android <b>asli</b> Zeroid WhatsApp — notifikasi push <b>FCM native</b> masuk walau aplikasi ditutup, panggilan lebih stabil, dan buka lebih cepat dari web.</p>
 
-  <a class="btn btn-primary" id="dl" href="/api/apk-dl" download="zeroid-apk.apk">
+  <a class="btn btn-primary" id="dl" href="/api/version?action=apk-dl" download="zeroid-apk.apk">
     <svg width="21" height="21" viewBox="0 0 24 24" fill="none"><path d="M12 3v11m0 0 4.2-4.2M12 14l-4.2-4.2M4.5 17.5v1a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-1" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
     <span id="dl-text">Unduh APK Terbaru</span>
   </a>
@@ -144,7 +144,7 @@
   <div class="toast" id="toast">Tautan unduh disalin</div>
 
   <script>
-    // Semua lewat server sendiri (/api/apk/*) — tidak ada pihak ketiga yang
+    // Semua lewat server sendiri (/api/version?action=apk-*) — tidak ada pihak ketiga yang
     // ditampilkan ke pengguna di halaman ini.
     var $ = function (id) { return document.getElementById(id); };
     function toast(msg) {
@@ -154,7 +154,7 @@
       setTimeout(function () { t.classList.remove('show'); }, 2200);
     }
     $('copy').addEventListener('click', function () {
-      var url = location.origin + '/api/apk-dl';
+      var url = location.origin + '/api/version?action=apk-dl';
       var done = function () { toast('Tautan unduh disalin'); };
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(url).then(done, function () { fallback(); });
@@ -166,7 +166,7 @@
         document.body.removeChild(i);
       }
     });
-    fetch('/api/apk-info', { cache: 'no-store' })
+    fetch('/api/version?action=apk-info', { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (d) {
         if (!d) return;
