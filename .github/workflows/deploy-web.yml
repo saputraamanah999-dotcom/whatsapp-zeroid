@@ -1,0 +1,80 @@
+name: Deploy Web ke Vercel
+
+# DEPLOY WEB OTOMATIS dari CI — tidak lagi bergantung webhook GitHub↔Vercel
+# yang bisa macet. Aktif SEKALI Anda menambahkan 1 secret:
+#
+#   GitHub repo → Settings → Secrets and variables → Actions → New repository secret
+#     Name  : VERCEL_TOKEN
+#     Value : (dari https://vercel.com/account/tokens → Create Token)
+#
+# Sebelum token ada: langkah dilewati dengan pesan jelas (build APK & rules tetap jalan).
+# Setelah token ada: setiap push ke main → build web (expo export + PWA) → deploy --prod.
+# Token disimpan terenkripsi GitHub & tidak pernah tampil di log.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Cek token Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "↷ secret VERCEL_TOKEN belum dipasang — deploy web dilewati."
+            echo "   Pasang sekali di: Settings → Secrets → Actions → VERCEL_TOKEN"
+            echo "   (token dari https://vercel.com/account/tokens) — setelah itu"
+            echo "   setiap push otomatis deploy ke Vercel lewat CI ini."
+          else
+            echo "✅ VERCEL_TOKEN ada — deploy web jalan."
+            echo "DEPLOY_WEB=1" >> "$GITHUB_ENV"
+          fi
+
+      - name: Install dependencies
+        if: env.DEPLOY_WEB == '1'
+        run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+
+      # EXPO_PUBLIC_* untuk bundling web — sama sumbernya dengan build APK
+      # (secret ZEROID_WEB_ENV berisi baris env publik, base64).
+      - name: Tulis .env (EXPO_PUBLIC_* publik)
+        if: env.DEPLOY_WEB == '1'
+        env:
+          ZEROID_WEB_ENV: ${{ secrets.ZEROID_WEB_ENV }}
+        run: |
+          if [ -z "$ZEROID_WEB_ENV" ]; then
+            echo "⚠️ ZEROID_WEB_ENV kosong — build lanjut tanpa .env (config required bisa muncul)"
+          else
+            echo "$ZEROID_WEB_ENV" | base64 -d > .env
+            echo "env ditulis: $(wc -l < .env) baris (isi tidak dicetak ke log)"
+          fi
+
+      - name: Link project Vercel (idempoten)
+        if: env.DEPLOY_WEB == '1'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          npx vercel link --yes --project whatsapp-zeroid --token "$VERCEL_TOKEN" 2>&1 | tail -2
+          npx vercel whoami --token "$VERCEL_TOKEN"
+
+      - name: Deploy production
+        if: env.DEPLOY_WEB == '1'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          URL=$(npx vercel deploy --prod --yes --token "$VERCEL_TOKEN" 2>&1 | tail -1)
+          echo "Hasil deploy: $URL"
+          case "$URL" in
+            https://*) echo "✅ Web live: $URL" ;;
+            *) echo "⚠️ Output tidak berupa URL — periksa log di atas."; exit 1 ;;
+          esac

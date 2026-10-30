@@ -409,3 +409,35 @@
 - Seed otomatis: guardconfig/main (skill default), vouchers/_schema,
   config/ai (status 3 penyedia), secrets/ai (kunci server).
 - Versi 1.6.0 / versionCode 7.
+
+## 2026-10-30 — AUDIT DEPLOY + SECRETS (ronde verifikasi penuh)
+
+### FAKTA TERVERIFIKASI (bukan catatan, diuji langsung)
+- Push GitHub: HEAD == origin/main (e79e206). Rules v19 LIVE (ruleset 3d31f6f8,
+  CI sukses). Seed guardconfig/main + vouchers/_schema + config/ai ADA di Firestore.
+- secrets/ai: 4 kunci (SYLVATICA/JEREXD/VEXO/IMGBB) TERISI — CI kini pemelihara
+  (field kosong diisi otomatis dari GitHub Actions secrets; terisi dibiarkan).
+- Supabase: DIUJI LIVE — POST /api/sylvatica (brat) → URL
+  supabase.co/storage/v1/object/public/zeroid/sticker/... provider:supabase.
+  Bucket + env Vercel aktif.
+- APK release apk-latest = v1.6.0 (79MB) dari commit batch 9 a695835.
+- Typecheck tsc --noEmit: 0 error.
+
+### BOCAH KEAMANAN DITUTUP (repo ini PUBLIK)
+- docs/VEXO_SETUP.md + docs/SUPABASE_SETUP.md memuat kunci API asli dalam teks
+  jelas → SEMUA diganti placeholder + peringatan. Grep repo-wide kini 0 match.
+  ⚠️ Riwayat git masih memuat kunci lama — saran rotasi kunci penyedia bila
+  ingin paripurna (kunci milik pengguna; tidak diblokir bila tidak dirotasi).
+- scripts/set_gh_secrets.py (berisi kunci) DIBUAT lalu DIHAPUS sebelum commit —
+  kunci hanya lewat sealed-box GitHub API, tidak pernah masuk git.
+
+### AKAR "Vercel masih versi lama" + SOLUSI PERMANEN
+- /api/version live = commit 4bf0ebe (SEBELUM batch 9 a695835) — webhook
+  GitHub↔Vercel macet, jadi SEMUA fitur batch 9 belum hidup di web sampai
+  redeploy. vexo:false di /api/ai adalah gejala ini (kode lama tak baca
+  secrets/ai), bukan kunci hilang.
+- Solusi permanen: workflow BARU deploy-web.yml — begitu secret VERCEL_TOKEN
+  dipasang (sekali), SETIAP push deploy web via CI (tanpa webhook). Tanpa
+  token: dilewati rapi dengan petunjuk pemasangan.
+- Langkah user (1x): pasang VERCEL_TOKEN dari vercel.com/account/tokens ATAU
+  tekan Redeploy sekali di dashboard → batch 9 langsung hidup.
