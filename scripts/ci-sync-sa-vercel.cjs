@@ -26,10 +26,11 @@
   const cur = (lj.envs ?? []).find((e) => e.key === 'FIREBASE_SERVICE_ACCOUNT');
   if (!cur) throw new Error('env FIREBASE_SERVICE_ACCOUNT tidak ditemukan di Vercel');
 
-  // 2) PATCH nilai env berdasarkan id
+  // 2) PATCH nilai env berdasarkan id — TANPA field type (env lama = Sensitive;
+  //    mengubah type ditolak Vercel: "cannot change the type of a Sensitive env")
   const pr = await fetch(`https://api.vercel.com/v9/projects/${PROJ}/env/${cur.id}${qs}`, {
     method: 'PATCH', headers: H,
-    body: JSON.stringify({ value: compact, type: 'encrypted', target: cur.target ?? ['production', 'preview'] }),
+    body: JSON.stringify({ value: compact, target: cur.target ?? ['production', 'preview'] }),
   });
   if (!pr.ok) throw new Error(`env patch gagal: HTTP ${pr.status} ${(await pr.text()).slice(0, 200)}`);
   console.log('✅ env FIREBASE_SERVICE_ACCOUNT diperbarui (PATCH id ' + cur.id + ')');
