@@ -21,17 +21,18 @@ export const config = { runtime: 'nodejs' };
 export const maxDuration = 60;
 
 import { upStorage, supabaseEnv, logMedia } from './_supabase';
+import { apiKey } from './_fbrest';
 
 const BASE = 'https://sylvatica.my.id/api';
 
-function key(): string {
-  return process.env.SYLVATICA_APIKEY ?? '';
+async function key(): Promise<string> {
+  return apiKey('SYLVATICA_APIKEY'); // env Vercel dulu, cadangan: secrets/ai (Firestore SA)
 }
 
 const bad = (res: any, status: number, error: string) => res.status(status).json({ error });
 
 async function sylvGet(path: string, timeoutMs = 30000): Promise<{ ok: boolean; status: number; data: any; buf?: Buffer }> {
-  const k = key();
+  const k = await key();
   const r = await fetch(`${BASE}${path}${path.includes('?') ? '&' : '?'}apikey=${encodeURIComponent(k)}`, {
     headers: { accept: 'application/json, image/png, */*' },
     signal: AbortSignal.timeout(timeoutMs),
@@ -47,7 +48,7 @@ async function sylvGet(path: string, timeoutMs = 30000): Promise<{ ok: boolean; 
 
 /** Chat fallback — dipanggil api/ai.ts saat Jerexd limit/gagal. */
 export async function sylvaticaAI(prompt: string, timeoutMs = 45000): Promise<string | null> {
-  if (!key()) return null;
+  if (!(await key())) return null;
   try {
     const r = await sylvGet(`/ai/chatgpt?prompt=${encodeURIComponent(prompt.slice(0, 3000))}`, timeoutMs);
     const out = r.data?.result?.response ?? r.data?.result ?? r.data?.message;
@@ -62,7 +63,7 @@ export default async function handler(req: any, res: any) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'GET' && req.method !== 'POST') return bad(res, 405, 'Method not allowed');
-  if (!key()) return bad(res, 503, 'Layanan stiker belum dikonfigurasi (SYLVATICA_APIKEY tidak ada di server).');
+  if (!(await key())) return bad(res, 503, 'Layanan stiker belum dikonfigurasi (SYLVATICA_APIKEY tidak ada di server).');
 
   const q = req.query ?? {};
   const action = String(q.action ?? 'brat');
@@ -91,7 +92,7 @@ export default async function handler(req: any, res: any) {
       // 2) SIPUTZX GET — https://api.siputzx.my.id/api/m/brat?text=...&delay=500 (tanpa key)
       // 3) SIPUTZX POST — body JSON { text, isAnimated: false, delay: 500 } (tanpa key)
       // 4) SYLVATICA — /api/maker/brat?text=&apikey= (cadangan bila lainnya limit)
-      const vexoKey = process.env.VEXO_APIKEY ?? '';
+      const vexoKey = await apiKey('VEXO_APIKEY');
       let buf: Buffer | null =
         (vexoKey
           ? await png(`https://vexoapi.site/api/maker/brat?key=${encodeURIComponent(vexoKey)}&text=${encodeURIComponent(text)}`)
@@ -103,7 +104,7 @@ export default async function handler(req: any, res: any) {
           body: JSON.stringify({ text, isAnimated: false, delay: Number(delay) || 500 }),
         }))
         ?? (await (async () => {
-          if (!key()) return null;
+          if (!(await key())) return null;
           const r = await sylvGet(`/maker/brat?text=${encodeURIComponent(text)}`, 35000);
           return r.ok && r.buf && r.buf.length > 100 ? r.buf : null;
         })());

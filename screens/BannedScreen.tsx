@@ -1,13 +1,21 @@
 /**
- * BannedScreen — layar penuh saat akun diblokir admin (seperti WhatsApp):
- * alasan ban, sisa durasi (hitung mundur untuk ban berwaktu), dan form
- * keterangan banding yang dikirim ke admin. Pengguna tetap bisa logout.
+ * BannedScreen — layar penuh saat akun diblokir admin (versi SVG Zeroid).
+ *
+ * Desain mengikuti gaya layar blokir klasik: avatar + ikon LARANGAN merah
+ * (lingkaran + garis miring) di atasnya, judul tegas, daftar keterangan dengan
+ * ikon SVG, lalu form banding. Semua teks Bahasa Indonesia.
+ *
+ *  - BAN SEMENTARA: hitung mundur langsung di layar (jam → menit → detik),
+ *    akses kembali OTOMATIS saat waktu habis.
+ *  - BAN PERMANEN: akun tidak bisa dipakai lagi; membuat akun baru di
+ *    perangkat/IP yang sama juga DITOLAK server (anti evasi) — satu-satunya
+ *    jalan minta bantuan admin lewat banding.
+ *  - Banding 1x per masa ban (dijaga store + status real-time).
  */
 import React, { useEffect, useState } from 'react';
 import { View, TextInput, Pressable, Platform } from 'react-native';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { ZeroidLogo } from '../lib/icons';
-import { T, Btn } from '../components/ui';
+import Svg, { Circle, Line, Path, G } from 'react-native-svg';
+import { Avatar, T, Btn } from '../components/ui';
 import { useTheme, R } from '../lib/theme';
 import { User, Appeal } from '../lib/types';
 import { banRemaining, submitAppeal, logout } from '../lib/store';
@@ -25,16 +33,69 @@ function dur(ms: number): string {
   return `${sec} detik`;
 }
 
+/** Ikon LARANGAN merah (lingkaran + garis miring) — digambar di atas avatar. */
+function ProhibitionOverlay({ size = 96 }: { size?: number }) {
+  const red = '#EA4335';
+  return (
+    <Svg width={size} height={size} viewBox="0 0 96 96" fill="none">
+      {/* lingkaran larangan */}
+      <Circle cx="48" cy="48" r="40" stroke={red} strokeWidth="9" />
+      <Line x1="20" y1="20" x2="76" y2="76" stroke={red} strokeWidth="9" strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+/** Ikon perisai (keamanan) untuk baris keterangan. */
+function ShieldIcon({ size = 20, color = '#1E6BFF' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 2.5 20 6v5.2c0 5-3.4 9-8 10.3-4.6-1.3-8-5.3-8-10.3V6l8-3.5Z" stroke={color} strokeWidth="1.8" strokeLinejoin="round" />
+      <Path d="m8.6 12 2.4 2.4 4.4-4.8" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+/** Ikon jam untuk blokir berwaktu. */
+function ClockIcon({ size = 20, color = '#F5A700' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx="12" cy="12" r="9" stroke={color} strokeWidth="1.8" />
+      <Path d="M12 7v5.2l3.4 2" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+/** Ikon gembok untuk blokir permanen. */
+function LockIcon({ size = 20, color = '#EA4335' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <G stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <Path d="M6.5 10.5h11a1.5 1.5 0 0 1 1.5 1.5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19v-7a1.5 1.5 0 0 1 1.5-1.5Z" />
+        <Path d="M8.5 10.5V7.8a3.5 3.5 0 0 1 7 0v2.7" />
+        <Path d="M12 14.2v2.6" />
+      </G>
+    </Svg>
+  );
+}
+
+/** Ikon obrolan untuk banding. */
+function ChatIcon({ size = 20, color = '#14C47A' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M4 6.8A2.8 2.8 0 0 1 6.8 4h10.4A2.8 2.8 0 0 1 20 6.8v7.4a2.8 2.8 0 0 1-2.8 2.8H9.6L5.4 20v-3.2A2.8 2.8 0 0 1 4 14.2V6.8Z" stroke={color} strokeWidth="1.8" strokeLinejoin="round" />
+      <Path d="M8 9.5h8M8 12.5h5" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 export default function BannedScreen({ me, appeal }: { me: User; appeal?: Appeal }) {
   const t = useTheme();
   const remain = banRemaining(me);
   const temporary = remain > 0;
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
-  // FIX SPAM PENINJAUAN — dulu: appeal pending membuat `sent` null saat buka ulang
-  // → form banding tampil LAGI dan bisa dikirim berkali-kali. Sekarang: status
-  // apa pun (pending/approved/rejected) langsung tampil, form hanya untuk
-  // kasus BELUM PERNAH mengirim (1x kirim per masa ban, dijaga juga di store).
+  // FIX SPAM PENINJAUAN — status apa pun (pending/approved/rejected) langsung
+  // tampil; form hanya untuk kasus BELUM PERNAH mengirim (1x per masa ban).
   const [sent, setSent] = useState<string | null>(appeal?.status ?? null);
   const [note, setNote] = useState<string | null>(appeal?.adminNote ?? null);
   const [err, setErr] = useState('');
@@ -60,43 +121,68 @@ export default function BannedScreen({ me, appeal }: { me: User; appeal?: Appeal
   const isPermanent = !!me.banned && !temporary;
 
   return (
-    <View style={{ flex: 1, backgroundColor: t.bg, padding: 26, paddingTop: Platform.OS === 'web' ? 40 : 70, alignItems: 'center' }}>
-      <View style={{ width: '100%', maxWidth: 520, gap: 16, alignItems: 'center', flexShrink: 1 }}>
-        <View style={{ width: 92, height: 92, borderRadius: 30, backgroundColor: t.dangerSoft, alignItems: 'center', justifyContent: 'center' }}>
-          <Ionicons name="ban" size={44} color={t.danger} />
+    <View style={{ flex: 1, backgroundColor: t.bg, padding: 24, paddingTop: Platform.OS === 'web' ? 44 : 72, alignItems: 'center' }}>
+      <View style={{ width: '100%', maxWidth: 520, gap: 18, alignItems: 'center', flexShrink: 1 }}>
+        {/* AVATAR + LARANGAN MERAH (SVG, gaya layar blokir) */}
+        <View style={{ alignItems: 'center', gap: 14 }}>
+          <View style={{ width: 104, height: 104, alignItems: 'center', justifyContent: 'center' }}>
+            <Avatar uri={me.avatar} name={me.name} color={me.color} size={78} />
+            <View style={{ position: 'absolute' }} pointerEvents="none">
+              <ProhibitionOverlay size={104} />
+            </View>
+          </View>
+          <T v="h1" style={{ textAlign: 'center', fontSize: 24 }}>Akun ini tidak bisa menggunakan Zeroid</T>
+          <T v="sub" color={t.sub} style={{ textAlign: 'center', lineHeight: 21 }}>
+            {temporary
+              ? 'Sebagian aktivitas akunmu tidak sesuai aturan Zeroid. Kamu bisa memakai akun ini lagi setelah masa blokir selesai.'
+              : 'Sebagian aktivitas akunmu tidak sesuai aturan Zeroid, dan akun ini sudah diblokir permanen.'}
+          </T>
         </View>
-        <T v="h1" style={{ textAlign: 'center' }}>Akun kamu diblokir</T>
 
-        <View style={{ width: '100%', borderRadius: R.lg, padding: 18, gap: 10, backgroundColor: t.bg, boxShadow: t.raisedSm } as any}>
-          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
-            <Ionicons name="alert-circle" size={18} color={t.warning} style={{ marginTop: 2 }} />
-            <View style={{ flex: 1 }}>
-              <T v="label" style={{ fontWeight: '800' }}>Alasan</T>
-              <T v="sub" style={{ marginTop: 2 }}>{me.banReason || 'Pelanggaran aturan komunitas.'}</T>
+        {/* DAFTAR KETERANGAN (ikon SVG) */}
+        <View style={{ width: '100%', borderRadius: R.lg, padding: 16, gap: 14, backgroundColor: t.bg, boxShadow: t.raisedSm } as any}>
+          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+            <ShieldIcon size={21} color={t.accent} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <T v="label" style={{ fontWeight: '800' }}>Alasan pemblokiran</T>
+              <T v="sub" color={t.sub}>{me.banReason || 'Pelanggaran aturan komunitas Zeroid.'}</T>
             </View>
           </View>
-          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
-            <Ionicons name={temporary ? 'time' : 'lock-closed'} size={18} color={temporary ? t.accent : t.danger} style={{ marginTop: 2 }} />
-            <View style={{ flex: 1 }}>
-              <T v="label" style={{ fontWeight: '800' }}>Durasi</T>
-              <T v="sub" style={{ marginTop: 2 }}>
-                {temporary ? `Aktif selama ${dur(banRemaining(me))} — akses otomatis kembali setelah waktu habis.` : 'Blokir permanen dari admin.'}
-              </T>
+          {temporary && (
+            <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+              <ClockIcon size={21} color="#F5A700" />
+              <View style={{ flex: 1, gap: 2 }}>
+                <T v="label" style={{ fontWeight: '800' }}>Blokir sementara</T>
+                <T v="sub" color={t.sub}>Sisa waktu {dur(banRemaining(me))}. Akses kembali OTOMATIS begitu waktu habis — tidak perlu buat akun baru.</T>
+              </View>
             </View>
-          </View>
+          )}
+          {isPermanent && (
+            <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-start' }}>
+              <LockIcon size={21} color="#EA4335" />
+              <View style={{ flex: 1, gap: 2 }}>
+                <T v="label" style={{ fontWeight: '800' }}>Blokir permanen</T>
+                <T v="sub" color={t.sub}>Akun ini tidak bisa dipakai lagi. Membuat akun baru di perangkat/internet yang sama juga diblokir server — hanya admin yang bisa membukanya.</T>
+              </View>
+            </View>
+          )}
         </View>
 
         {temporary && (
           <T v="caption" color={t.faint} style={{ textAlign: 'center' }}>
-            {(banRemaining(me) / 1000) | 0}s tersisa
+            {(banRemaining(me) / 1000) | 0} detik tersisa
           </T>
         )}
 
-        {/* form banding — seperti WhatsApp: tulis masalahmu */}
+        {/* BANDING — tulis keterangan ke admin (SVG ikon obrolan) */}
         {!sent && (
           <View style={{ width: '100%', gap: 10 }}>
-            <T v="sub" style={{ textAlign: 'center', fontWeight: '600' }}>
-              Merasa ini keliru? Tulis masalahmu — admin akan meninjaunya.
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'center' }}>
+              <ChatIcon size={19} color={t.success} />
+              <T v="sub" style={{ fontWeight: '700' }}>Merasa ini keliru?</T>
+            </View>
+            <T v="caption" color={t.sub} style={{ textAlign: 'center' }}>
+              Tulis keteranganmu — hanya admin yang membacanya, dan cukup dikirim satu kali.
             </T>
             <TextInput
               value={text}
@@ -117,7 +203,7 @@ export default function BannedScreen({ me, appeal }: { me: User; appeal?: Appeal
 
         {sent === 'pending' && (
           <View style={{ width: '100%', borderRadius: R.lg, padding: 16, gap: 8, alignItems: 'center', backgroundColor: t.accentSoft }} pointerEvents="none">
-            <Ionicons name="hourglass" size={22} color={t.accent} />
+            <ChatIcon size={22} color={t.accent} />
             <T v="sub" style={{ textAlign: 'center', fontWeight: '700' }}>Keterangan terkirim</T>
             <T v="caption" color={t.sub} style={{ textAlign: 'center' }}>
               Admin sedang meninjaunya. Kamu akan diberi tahu lewat notifikasi setelah ada keputusan.
@@ -126,7 +212,7 @@ export default function BannedScreen({ me, appeal }: { me: User; appeal?: Appeal
         )}
         {sent === 'approved' && (
           <View style={{ width: '100%', borderRadius: R.lg, padding: 16, gap: 8, alignItems: 'center', backgroundColor: 'rgba(20,196,122,0.12)' }} pointerEvents="none">
-            <Ionicons name="checkmark-circle" size={22} color={t.success} />
+            <ShieldIcon size={22} color={t.success} />
             <T v="sub" style={{ textAlign: 'center', fontWeight: '700', color: t.success }}>Banding diterima</T>
             {!!note && <T v="caption" color={t.sub} style={{ textAlign: 'center' }}>{note}</T>}
             <T v="caption" color={t.faint}>Keluar lalu masuk lagi jika layar ini belum hilang.</T>
@@ -134,16 +220,16 @@ export default function BannedScreen({ me, appeal }: { me: User; appeal?: Appeal
         )}
         {sent === 'rejected' && (
           <View style={{ width: '100%', borderRadius: R.lg, padding: 16, gap: 8, alignItems: 'center', backgroundColor: t.dangerSoft }} pointerEvents="none">
-            <Ionicons name="close-circle" size={22} color={t.danger} />
+            <LockIcon size={22} color={t.danger} />
             <T v="sub" style={{ textAlign: 'center', fontWeight: '700', color: t.danger }}>Banding ditolak</T>
             {!!note && <T v="caption" color={t.sub} style={{ textAlign: 'center' }}>{note}</T>}
-            <T v="caption" color={t.faint} style={{ textAlign: 'center' }}>Banding cukup 1x per masa ban — hubungi admin lewat Obrolan global bila perlu.</T>
+            <T v="caption" color={t.faint} style={{ textAlign: 'center' }}>Banding cukup 1x per masa blokir — minta bantuan admin lewat banding baru bila keadaan berubah.</T>
           </View>
         )}
 
         <Btn small variant="ghost" title="Keluar dari akun" icon="log-out" onPress={() => void logout()} />
         <T v="caption" color={t.faint} style={{ textAlign: 'center' }}>
-          Zeroid WhatsApp · moderasi oleh tim admin
+          Zeroid WhatsApp · moderasi oleh tim admin & AI Guard
         </T>
       </View>
     </View>

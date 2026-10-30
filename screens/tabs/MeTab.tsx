@@ -4,6 +4,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, Avatar, Neu, Row, Card, Segmented, UserBadges } from '../../components/ui';
+import { ProductIcon } from '../../lib/icons';
 import MediaPlayer from '../../components/MediaPlayer';
 import { Confirm } from '../../components/Sheet';
 import { useTheme, useThemeMode, R, ThemeMode } from '../../lib/theme';
@@ -76,30 +77,31 @@ export default function MeTab() {
       )}
 
       {me.role !== 'admin' && (
-        <Pressable onPress={() => nav.navigate('Premium')} style={({ pressed }) => ({ marginBottom: 14, borderRadius: R.xl, padding: 18, backgroundColor: t.accent, transform: [{ scale: pressed ? 0.98 : 1 }], boxShadow: '0px 12px 26px rgba(30,107,255,0.35)' } as any)}>
-          <T v="h3" color="#fff" style={{ fontSize: 18 }}>
-            Zeroid Premium
-          </T>
-          <T v="sub" color="rgba(255,255,255,0.9)" style={{ marginTop: 4 }}>
-            VIP · Member · Centang biru · Keamanan — mulai Rp10.000
-          </T>
-        </Pressable>
-      )}
-
-      {/* KOIN & REFERRAL: share web ke teman → koin otomatis → bayar premium */}
-      <Pressable onPress={() => nav.navigate('Rewards')} style={({ pressed }) => ({ marginBottom: 22, borderRadius: R.xl, padding: 18, backgroundColor: t.success, transform: [{ scale: pressed ? 0.98 : 1 }], boxShadow: '0px 12px 26px rgba(20,196,122,0.32)' } as any)}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <View style={{ flex: 1 }}>
-            <T v="h3" color="#fff" style={{ fontSize: 18 }}>
-              Koin & Ajak Teman
-            </T>
-            <T v="sub" color="rgba(255,255,255,0.92)" style={{ marginTop: 4 }}>
-              {(me.points ?? 0).toLocaleString('id-ID')} koin · check-in harian + ajak teman = koin buat bayar centang biru
-            </T>
-          </View>
-          <Ionicons name="flame" size={26} color="#fff" />
+        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
+          {/* PREMIUM — kartu KECIL & KALEM (tanpa harga, badge SVG) */}
+          <Pressable onPress={() => nav.navigate('Premium')} style={({ pressed }) => ({ flex: 1, borderRadius: R.lg, padding: 12, backgroundColor: t.bg, boxShadow: pressed ? t.insetSm : t.raisedSm, flexDirection: 'row', alignItems: 'center', gap: 10 } as any)}>
+            <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(30,107,255,0.10)', alignItems: 'center', justifyContent: 'center' }}>
+              <ProductIcon k="bluecheck" size={20} />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <T v="body" numberOfLines={1} style={{ fontWeight: '700' }}>Zeroid Premium</T>
+              <T v="caption" color={t.sub} numberOfLines={1}>VIP · Member · Centang biru</T>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={t.faint} />
+          </Pressable>
+          {/* KOIN — kartu KECIL & KALEM, angka koin jelas */}
+          <Pressable onPress={() => nav.navigate('Rewards')} style={({ pressed }) => ({ flex: 1, borderRadius: R.lg, padding: 12, backgroundColor: t.bg, boxShadow: pressed ? t.insetSm : t.raisedSm, flexDirection: 'row', alignItems: 'center', gap: 10 } as any)}>
+            <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: 'rgba(255,179,0,0.12)', alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="sparkles" size={19} color="#F5A700" />
+            </View>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <T v="body" numberOfLines={1} style={{ fontWeight: '700' }}>{(me.points ?? 0).toLocaleString('id-ID')} koin</T>
+              <T v="caption" color={t.sub} numberOfLines={1}>Check-in & ajak teman</T>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={t.faint} />
+          </Pressable>
         </View>
-      </Pressable>
+      )}
 
       <Card title="Akun">
         <Row icon="person-circle" title="Lihat profil saya" subtitle="Lencana, username, lagu Spotify" onPress={() => nav.navigate('UserProfile', { userId: me.id })} />

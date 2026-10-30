@@ -5,7 +5,7 @@ import * as Clipboard from 'expo-clipboard';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
-import { Header, Screen, IconBtn, Avatar, T, Btn, Empty, Toggle } from '../components/ui';
+import { Header, Screen, IconBtn, Avatar, T, Btn, Empty, Toggle, UserBadges } from '../components/ui';
 import MessageBubble from '../components/MessageBubble';
 import Composer from '../components/Composer';
 import { Sheet } from '../components/Sheet';
@@ -210,6 +210,17 @@ export default function ChatRoom() {
         title={title}
         subtitle={subtitle}
         subtitleNode={anyoneTyping ? <TypingSubtitle name={chat.type === 'direct' || chat.type === 'ai' ? undefined : db.users[typing[0]]?.name.split(' ')[0]} /> : undefined}
+        titleNode={
+          // CENTANG BIRU DI SAMPING NAMA — semua akun terverifikasi (termasuk
+          // developer & admin) menunjukkan lencananya langsung di kepala chat.
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+            <T v="h3" numberOfLines={1} style={{ fontSize: 18, flexShrink: 1 }}>{title}</T>
+            {chat.type === 'direct'
+              ? (peer && (peer.blueCheck || peer.developer || peer.role === 'admin' || peer.role === 'developer')) && <VerifiedBadge size={15} animate={false} />
+              : chatBadge(chat, db) ? <VerifiedBadge size={15} animate={false} /> : null}
+            {chat.type === 'direct' && peer && <UserBadges user={peer} size={14} />}
+          </View>
+        }
         onTitlePress={() => nav.navigate('ChatInfo', { chatId })}
         left={
           <Pressable onPress={() => (chat.type === 'direct' && peer ? nav.navigate('UserProfile', { userId: peer.id }) : nav.navigate('ChatInfo', { chatId }))}>
@@ -265,7 +276,7 @@ export default function ChatRoom() {
           <T v="caption" color={t.accent} style={{ flex: 1, fontWeight: '700' }}>
             {chat.type === 'direct'
               ? `${title} terverifikasi centang biru — akun resmi, aman untuk chat dan transaksi.`
-              : `${title} terverifikasi centang biru${chatBadge(chat, db) && !chatVerified(chat) ? ' (ikut dari pemilik)' : ''}${chat.type === 'channel' ? ' — saluran resmi, aman diikuti' : ' — grup resmi, aman untuk chat'}${(chat.verifiedUntil ?? 0) > Date.now() ? ` (masa aktif ${Math.ceil(((chat.verifiedUntil ?? 0) - Date.now()) / 86400000)} hari lagi)` : ''}.`}
+              : `${title} terverifikasi centang biru${chat.type === 'channel' ? ' — saluran resmi, aman diikuti' : ' — grup resmi, aman untuk chat'}${(chat.verifiedUntil ?? 0) > Date.now() ? ` (masa aktif ${Math.ceil(((chat.verifiedUntil ?? 0) - Date.now()) / 86400000)} hari lagi)` : ''}.`}
           </T>
         </View>
       )}

@@ -33,9 +33,10 @@ export const maxDuration = 60;
 
 import { sylvaticaAI } from './sylvatica';
 import {
-  verifyIdToken, fbGetDoc, fbCreateDoc, fbPatchDoc,
+  verifyIdToken, fbGetDoc, fbCreateDoc, fbPatchDoc, fbQuery, fbDeleteDoc, apiKey,
   fsStr, fsInt, fsBool, fsNull, fsArr, fsMap, fsServerTime,
 } from './_fbrest';
+import { fcmAccessToken, serviceAccountProject } from './_fcmAuth';
 
 const JEREXD_BASE = 'https://api.jerexd.my.id';
 const VEXO_BASE = 'https://vexoapi.site';
@@ -168,7 +169,7 @@ function pickThinking(data: any): string {
 }
 
 async function jerePost(path: string, payload: Record<string, any>, timeoutMs: number): Promise<{ ok: boolean; status: number; data: any }> {
-  const key = process.env.JEREXD_APIKEY ?? '';
+  const key = await apiKey('JEREXD_APIKEY'); // env Vercel dulu, cadangan: secrets/ai (Firestore SA)
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
@@ -195,7 +196,7 @@ const VEXO_MODELS = [
 ];
 
 async function vexoChat(messages: { role: string; content: string }[], timeoutMs: number): Promise<{ ok: boolean; text: string }> {
-  const key = process.env.VEXO_APIKEY ?? '';
+  const key = await apiKey('VEXO_APIKEY'); // env Vercel dulu, cadangan: secrets/ai (Firestore SA)
   if (!key) return { ok: false, text: '' };
   for (const model of VEXO_MODELS) {
     const ctl = new AbortController();
@@ -290,16 +291,39 @@ function botStamp(chatId: string, uid: string) {
 
 export const BOT_UID = 'zeroid-bot';
 
+// AI Guard: cooldown eksekusi per chat (per instance)
+const guardLast = new Map<string, number>();
+
+/**
+ * Kata kunci yang diverifikasi ULANG di server untuk guard-enforce —
+ * klien TIDAK BISA memaksa ban tanpa bukti nyata di isi pesan.
+ * (salinan ringkas dari lib/moderation.ts — file server tidak boleh
+ * mengimpor kode klien.)
+ */
+const PORN_SCAN = [
+  'bokep', 'porn', 'porno', 'pornhub', 'xvideos', 'xnxx', 'xhamster', 'xxx',
+  'ngentot', 'bugil', 'telanjang', 'memek', 'kontol', 'titit', 'toket',
+  'colmek', 'jilboob', 'hentai', 'onlyfans', 'nudes', 'nude', 'video syur', 'foto syur',
+  'link bokep', 'film bokep', 'video bokep', 'situs sex', 'sex video',
+];
+const PROFANITY_SCAN = [
+  // v19 AUDIT: hanya makian KERAS utk ban otomatis (bukan kata sehari-hari yang
+  // sering murni bercanda — 'anjing', 'babi', 'bodoh', 'tolol', dst tetap
+  // menangguhkan grup 60 menit lewat klien, tapi tidak langsung mem-ban akun).
+  'bajingan', 'bangsat', 'brengsek', 'goblok', 'kampret', 'kontol', 'memek',
+  'ngentot', 'pepek', 'pantek', 'sundala', 'fucking', 'bitch', 'asshole', 'bastard',
+];
+
 export default async function handler(req: any, res: any) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   if (req.method === 'GET') {
     return res.status(200).json({
       ok: true,
-      configured: !!(process.env.JEREXD_APIKEY || process.env.SYLVATICA_APIKEY || process.env.VEXO_APIKEY),
+      configured: !!(await apiKey('JEREXD_APIKEY')) || !!(await apiKey('SYLVATICA_APIKEY')) || !!(await apiKey('VEXO_APIKEY')),
       providers: {
-        sylvatica: !!process.env.SYLVATICA_APIKEY,
-        jerexd: !!process.env.JEREXD_APIKEY,
-        vexo: !!process.env.VEXO_APIKEY,
+        sylvatica: !!(await apiKey('SYLVATICA_APIKEY')),
+        jerexd: !!(await apiKey('JEREXD_APIKEY')),
+        vexo: !!(await apiKey('VEXO_APIKEY')),
       },
       service: 'zeroid-ai-proxy',
     });
@@ -493,6 +517,219 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ ok: true, provider: out?.provider ?? '', len: answer.length });
     }
 
+    // ---------------- AI GUARD — eksekusi sanksi otomatis (server-first) ----------------
+    // Klien anggota mana pun melaporkan pelanggaran; SERVER memverifikasi ulang
+    // buktinya (bukan percaya kata klien) sebelum memberikan sanksi sesuai
+    // konfigurasi skill di guardconfig/main. Admin/developer tidak pernah dibanned.
+    if (action === 'guard-enforce') {
+      const project = process.env.FIREBASE_PROJECT_ID ?? process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? '';
+      if (!project) return bad(res, 503, 'Konfigurasi server belum lengkap (project id).');
+      const auth = String(req.headers.authorization ?? '');
+      const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+      const caller = await verifyIdToken(token);
+      if (!caller) return bad(res, 401, 'Sesi tidak valid — masuk ulang.');
+
+      const chatId = s(body?.chatId, 80);
+      const messageId = s(body?.messageId, 120);
+      const kind = s(body?.kind, 24);
+      if (!/^[A-Za-z0-9_-]{1,80}$/.test(chatId)) return bad(res, 400, 'Chat tidak valid.');
+      if (!/^[A-Za-z0-9_-]{1,120}$/.test(messageId)) return bad(res, 400, 'Pesan tidak valid.');
+      if (!['porn', 'profanity', 'sticker_spam', 'media_bomb'].includes(kind)) return bad(res, 400, 'Jenis pelanggaran tidak dikenal.');
+
+      // anti spam eksekusi: 1 chat maks 1 eksekusi per 45 detik (per instance)
+      const now = Date.now();
+      if (guardLast.size > 5000) guardLast.clear(); // jaga memori instance
+      if (now - (guardLast.get(chatId) ?? 0) < 45_000) return res.status(200).json({ ok: true, skipped: 'cooldown' });
+
+      const chat = await fbGetDoc(project, `chats/${chatId}`);
+      if (!chat) return bad(res, 404, 'Chat tidak ditemukan.');
+      const members: string[] = Array.isArray(chat.members) ? chat.members.map(String) : [];
+      if (!members.includes(caller.uid)) return bad(res, 403, 'Kamu bukan anggota chat ini.');
+
+      const msg = await fbGetDoc(project, `chats/${chatId}/messages/${messageId}`);
+      if (!msg || !msg.senderId) return bad(res, 404, 'Pesan tidak ditemukan.');
+      const offenderId = String(msg.senderId);
+      if (offenderId === BOT_UID) return res.status(200).json({ ok: true, skipped: 'bot' });
+      // v19 AUDIT: pelapor tidak boleh menghukum dirinya sendiri (pakai akun lain)
+      if (offenderId === caller.uid) return res.status(200).json({ ok: true, skipped: 'pesan-sendiri' });
+      // v19 AUDIT: pesan wajib SEGAR (≤10 menit) — pesan lama tidak bisa dipakai
+      // untuk menghukum orang di kemudian hari (anti penyalahgunaan).
+      const msgAt = Number(msg.createdAt ?? 0) || 0;
+      if (!msgAt || now - msgAt > 10 * 60_000) return res.status(200).json({ ok: true, skipped: 'pesan-lama' });
+
+      // VERIFIKASI ULANG SERVER — bukti harus nyata di isi pesan
+      const textBlob = `${msg.text ?? ''} ${msg.fileName ?? ''}`.toLowerCase();
+      let verified = false;
+      let reason = '';
+      if (kind === 'porn') {
+        verified = PORN_SCAN.some((w) => textBlob.includes(w));
+        reason = verified ? 'konten 18+/porno terdeteksi' : '';
+      } else if (kind === 'profanity') {
+        verified = PROFANITY_SCAN.some((w) => new RegExp(`(^|\\s)${w}(\\s|$)`).test(textBlob));
+        reason = verified ? 'kata kasar terdeteksi' : '';
+      } else if (kind === 'sticker_spam' || kind === 'media_bomb') {
+        const wantType = kind === 'sticker_spam' ? 'sticker' : 'image|video';
+        verified = new RegExp(`^(${wantType})$`).test(String(msg.type ?? ''));
+        if (verified) {
+          // hitung pesan media pengirim sama dalam 90 detik terakhir (minimal 8/15)
+          const since = new Date(now - 90_000).toISOString();
+          const recent = await fbQuery(project, `chats/${chatId}/messages`, [
+            { field: 'senderId', op: 'EQUAL', value: { stringValue: offenderId } },
+            { field: 'createdAt', op: 'GREATER_THAN', value: { timestampValue: since } },
+          ], 40);
+          const need = kind === 'sticker_spam' ? 8 : 15;
+          const cnt = recent.filter((r) => kind === 'sticker_spam' ? r.fields.type === 'sticker' : ['image', 'video'].includes(String(r.fields.type ?? ''))).length;
+          verified = cnt >= need;
+          reason = verified ? (kind === 'sticker_spam' ? `spam stiker (${cnt} dalam 90 detik)` : `bom media (${cnt} dalam 90 detik)`) : '';
+        }
+      }
+      if (!verified) return res.status(200).json({ ok: true, skipped: 'bukti-tidak-cukup' });
+      guardLast.set(chatId, now);
+
+      // konfigurasi skill (admin panel) — default aman bila belum diatur
+      const cfg = (await fbGetDoc(project, 'guardconfig/main')) ?? {};
+      const cfgOn = (k: string, dflt: boolean) => (cfg?.[k]?.on !== undefined ? !!cfg[k].on : dflt);
+      const cfgHours = (k: string, dflt: number) => Math.max(1, Math.min(24 * 30, Number(cfg?.[k]?.hours ?? dflt) || dflt));
+      const enabled = kind === 'porn' ? cfgOn('porn', true) : kind === 'profanity' ? cfgOn('profanity', true) : cfgOn('spam', true);
+
+      const offender = (await fbGetDoc(project, `users/${offenderId}`)) ?? {};
+      const offenderName = sanitizePersonaText(offender.name, 40) || offenderId.slice(0, 6);
+      const offenderRole = String(offender.role ?? 'user');
+      const chatLabel = chat.type === 'global' ? 'Obrolan global' : chat.type === 'channel' ? 'Saluran' : 'Grup';
+      const logId = `g_${now}_${Math.random().toString(36).slice(2, 7)}`;
+
+      // staff tidak pernah dibanned — cukup dicatat + dilaporkan ke developer
+      const staff = offenderRole === 'admin' || offenderRole === 'developer' || offenderRole === 'moderator';
+      let until = 0;
+      let action2 = 'dilaporkan';
+      if (!staff && enabled) {
+        if (kind === 'porn') {
+          const days = Math.max(1, Math.min(60, Number(cfg?.porn?.days ?? 7) || 7));
+          until = now + days * 86_400_000;
+          action2 = `ban ${days} hari`;
+        } else if (kind === 'profanity') {
+          const hours = cfgHours('profanity', 2);
+          until = now + hours * 3_600_000;
+          action2 = `ban ${hours} jam`;
+        } else {
+          const hours = cfgHours('spam', 24);
+          until = now + hours * 3_600_000;
+          action2 = `ban ${hours} jam`;
+        }
+        const permanent = until === 0;
+        await fbPatchDoc(project, `users/${offenderId}`, {
+          banned: fsBool(permanent), banReason: fsStr(`[AI GUARD] ${reason} di ${chatLabel}`),
+          suspendedUntil: fsInt(permanent ? 0 : until), banUntil: fsInt(permanent ? 0 : until),
+        });
+        await fbCreateDoc(project, 'bans', offenderId, {
+          uid: fsStr(offenderId), name: fsStr(offenderName), reason: fsStr(`[AI GUARD] ${reason}`),
+          bannedBy: fsStr('ai-guard'), bannedByName: fsStr('AI Guard'), bannedAt: fsInt(now), until: fsInt(until), active: fsBool(true),
+        });
+        // v19 AUDIT: banding lama TIDAK dihapus — user tetap bisa banding ban AI Guard.
+        // kunci IP + perangkat pelanggar (anti evasi) untuk porn & spam
+        if (kind !== 'profanity') {
+          const meta = await fbGetDoc(project, `usermeta/${offenderId}`);
+          const lockRec = () => ({
+            uid: fsStr(offenderId), email: fsStr(String(offender.email ?? '').toLowerCase()),
+            until: fsInt(until || now + 3650 * 86_400_000), reason: fsStr(`[AI GUARD] ${reason}`), at: fsInt(now),
+          });
+          // v19 AUDIT: hash wajib berformat hex valid — usermeta ditulis user
+          // sendiri; tanpa validasi, pelanggar bisa menyetel hash palsu dan
+          // mengunci IP/perangkat ORANG LAIN (collateral ban).
+          const ipHashOk = /^[a-f0-9]{16,64}$/.test(String(meta?.lastIpHash ?? ''));
+          const devHashOk = /^[a-f0-9]{40,64}$/.test(String(meta?.lastDeviceHash ?? ''));
+          if (ipHashOk) await fbPatchDoc(project, `banips/${String(meta!.lastIpHash).slice(0, 80)}`, lockRec());
+          if (devHashOk) await fbPatchDoc(project, `devices/${String(meta!.lastDeviceHash).slice(0, 100)}`, lockRec());
+        }
+        // tangguhkan grup (bukan global) supaya ruang lain tenang dulu
+        if (chat.type === 'group' || chat.type === 'channel') {
+          await fbPatchDoc(project, `chats/${chatId}`, {
+            banUntil: fsInt(now + 60 * 60_000), banReason: fsStr(`[AI GUARD] ${reason} — ${offenderName}`), suspendedAuto: fsBool(true), autoBanAt: fsInt(now),
+          }).catch(() => {});
+        }
+        // pesan sistem di chat
+        await fbCreateDoc(project, `chats/${chatId}/messages`, `guard_${now}_${Math.random().toString(36).slice(2, 6)}`, {
+          chatId: fsStr(chatId), senderId: fsStr(BOT_UID), type: fsStr('system'),
+          text: fsStr(`AI Guard: ${offenderName} di-sanksi (${action2}) — ${reason}. Banding bisa dikirim admin.`),
+          clientTime: fsInt(now), createdAt: fsServerTime(),
+        });
+      }
+
+      // catatan log + laporan ke admin panel (SELALU, termasuk staff)
+      await fbCreateDoc(project, 'guardlog', logId, {
+        uid: fsStr(offenderId), name: fsStr(offenderName), role: fsStr(offenderRole),
+        chatId: fsStr(chatId), chatName: fsStr(sanitizePersonaText(chat.name, 60) || chatLabel), chatType: fsStr(String(chat.type ?? 'group')),
+        kind: fsStr(kind), reason: fsStr(reason), excerpt: fsStr(String(msg.text ?? '').slice(0, 90)),
+        action: fsStr(staff ? 'dilaporkan ke developer (staff)' : enabled ? action2 : 'dimatikan oleh config'),
+        until: fsInt(until), byCaller: fsStr(caller.uid), msgId: fsStr(messageId), at: fsInt(now),
+      });
+
+      // notifikasi FCM ke semua admin + developer (langsung dari server)
+      try {
+        const admins = await fbQuery(project, 'users', [
+          { field: 'role', op: 'IN', value: { arrayValue: { values: [{ stringValue: 'admin' }, { stringValue: 'developer' }] } } },
+        ], 20);
+        const accTok = await fcmAccessToken();
+        const fproj = serviceAccountProject();
+        if (accTok && fproj) {
+          await Promise.all(admins.map((a) => fetch(`https://fcm.googleapis.com/v1/projects/${fproj}/messages:send`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${accTok}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: { topic: `user_${a.id}`, notification: { title: `AI Guard · ${chatLabel}`, body: `${offenderName}: ${reason} → ${staff ? 'dilaporkan (staff)' : action2}` }, data: { chatId, kind }, android: { priority: 'high', notification: { channel_id: 'admin', visibility: 'PUBLIC' } } } }),
+            signal: AbortSignal.timeout(8000),
+          }).catch(() => null)));
+        }
+      } catch { /* notif best effort */ }
+
+      return res.status(200).json({ ok: true, enforced: !staff && enabled, action: staff ? 'reported' : enabled ? action2 : 'disabled' });
+    }
+
+    // ---------------- BOT WELCOME — panduan otomatis untuk user baru ----------------
+    // Dipanggil klien SATU kali setelah profil baru dibuat. Server membuat chat AI
+    // + menulis SATU pesan panduan lengkap dari Zeroid AI (idempoten: docId tetap).
+    if (action === 'bot-welcome') {
+      const project = process.env.FIREBASE_PROJECT_ID ?? process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? '';
+      if (!project) return bad(res, 503, 'Konfigurasi server belum lengkap (project id).');
+      const auth = String(req.headers.authorization ?? '');
+      const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+      const caller = await verifyIdToken(token);
+      if (!caller) return bad(res, 401, 'Sesi tidak valid — masuk ulang.');
+      const uid = caller.uid;
+      const chatId = `ai_${uid}`.slice(0, 80);
+      const exist = await fbGetDoc(project, `chats/${chatId}`);
+      if (!exist) {
+        await fbCreateDoc(project, 'chats', chatId, {
+          id: fsStr(chatId), type: fsStr('ai'), name: fsStr('Zeroid AI'),
+          members: fsArr([fsStr(uid), fsStr(BOT_UID)]), admins: fsArr([fsStr(uid)]), createdBy: fsStr(uid),
+          createdAt: fsServerTime(), postPolicy: fsStr('everyone'),
+          pinnedBy: fsArr([]), mutedBy: fsArr([]), archivedBy: fsArr([]),
+        });
+      }
+      const welcomeText = [
+        `Halo${caller.email ? '' : ''}! Selamat datang di ZEROID WhatsApp 🎉 Aku Zeroid AI — panduan cepat biar kamu langsung jago:`,
+        '1. CHAT — mulai chat pribadi, bikin grup/saluran, story 24 jam, dan Obrolan Global untuk kenalan sama semua orang.',
+        '2. PANGGILAN — telepon & video call langsung dari chat pribadi (ikon telepon di atas).',
+        '3. MUSIK & ANIME — menu Musik: cari lagu, lirik, putar MP3 di latar belakang. Menu Anime: cari, tonton, favorit.',
+        '4. KOIN & CHECK-IN — check-in harian (+1.000 koin), ajak teman pakai link referral-mu di menu Saya → Koin & Ajak Teman. Koin bisa bayar VIP/Member/Centang biru.',
+        '5. PREMIUM — VIP, Member, Centang biru, Keamanan (PIN + OTP). Punya kode voucher? Tukarkan di halaman Premium.',
+        '6. KEAMANAN — aktifkan PIN & verifikasi OTP Gmail di Saya → Keamanan. Jangan bagikan password ke siapa pun.',
+        '7. GAYA CHAT — ganti wallpaper, tema warna, dan gaya balon obrolan (ada gaya kucing, panda, kodok, dll) di menu Saya.',
+        '8. STIKER & BRAT — buat stiker sendiri dan kirim stiker gaya WhatsApp.',
+        'Akunmu dilindungi AI Guard — kata kasar, konten 18+, dan spam otomatis kena sanksi. Kalau butuh bantuan, tulis aja di sini — aku jawab kapan pun!',
+      ].join('\n');
+      const okW = await fbCreateDoc(project, `chats/${chatId}/messages`, 'bot_welcome', {
+        chatId: fsStr(chatId), senderId: fsStr(BOT_UID), type: fsStr('text'), text: fsStr(welcomeText),
+        assistant: fsBool(false), bubble: fsStr('default'), clientTime: fsInt(Date.now()), createdAt: fsServerTime(),
+        deletedFor: fsArr([]), reactions: fsMap({}), starredBy: fsArr([]),
+        viewOnce: fsBool(false), viewedBy: fsArr([]), mentions: fsArr([]), mentionsAll: fsBool(false),
+      });
+      if (!okW) return res.status(200).json({ ok: true, already: true });
+      await fbPatchDoc(project, `chats/${chatId}`, {
+        lastMsg: fsMap({ text: fsStr(welcomeText.slice(0, 120)), type: fsStr('text'), senderId: fsStr(BOT_UID), createdAt: fsInt(Date.now()) }),
+      }).catch(() => {});
+      return res.status(200).json({ ok: true });
+    }
+
     return bad(res, 400, 'Aksi tidak dikenal.');
   } catch (e: any) {
     const msg = e?.name === 'AbortError' ? 'Waktu tunggu AI habis.' : 'Gagal menghubungi layanan AI.';
@@ -523,7 +760,7 @@ function stripTags(s: string): string {
 }
 
 async function vexoSearch(path: string, query: string, timeoutMs: number): Promise<SearchResult[]> {
-  const key = process.env.VEXO_APIKEY ?? '';
+  const key = await apiKey('VEXO_APIKEY');
   if (!key) return [];
   try {
     const r = await fetch(`${VEXO_BASE}${path}?key=${encodeURIComponent(key)}&query=${encodeURIComponent(query)}`, {

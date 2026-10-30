@@ -23,6 +23,7 @@ import crypto from 'node:crypto';
 import { supabaseEnv, upStorage, logMedia } from './_supabase';
 
 export const config = { runtime: 'nodejs' };
+import { apiKey } from './_fbrest';
 export const maxDuration = 60;
 
 const MAX_BYTES = Math.floor(3.2 * 1024 * 1024);
@@ -159,7 +160,7 @@ async function upSupabase(buf: Buffer, name: string, mime: string, kind: string,
 }
 
 async function upImgbb(buf: Buffer, mime: string): Promise<{ url: string } | null> {
-  const key = process.env.IMGBB_KEY ?? '';
+  const key = await apiKey('IMGBB_KEY');
   if (!key || !mime.startsWith('image/')) return null;
   const fd = new FormData();
   fd.append('image', new Blob([new Uint8Array(buf)], { type: mime }), 'image');

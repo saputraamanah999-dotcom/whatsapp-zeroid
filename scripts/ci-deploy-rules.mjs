@@ -57,8 +57,45 @@ async function publish(token, project, release, fileName, filePath) {
   } catch (e) {
     console.log('⚠️ Storage rules dilewati (SA belum berizin membuat release storage) — upload tetap aman:', String(e.message).slice(0, 160));
   }
-  console.log('✅ DEPLOY RULES SELESAI.');
+  // ---- SEED OTOMATIS (idempoten — hanya buat bila BELUM ada) ----
+  await seedIfMissing(token, proj, 'guardconfig/main', {
+    profanity: { mapValue: { fields: { on: { booleanValue: true }, hours: { integerValue: '2' } } } },
+    porn: { mapValue: { fields: { on: { booleanValue: true }, days: { integerValue: '7' } } } },
+    spam: { mapValue: { fields: { on: { booleanValue: true }, hours: { integerValue: '24' } } } },
+    note: { stringValue: 'Skill AI Guard — diatur ulang dari Admin Panel kapan pun.' },
+  });
+  await seedIfMissing(token, proj, 'vouchers/_schema', {
+    code: { stringValue: 'CONTOH10' }, percent: { integerValue: '10' },
+    maxUses: { integerValue: '50' }, usedCount: { integerValue: '0' },
+    usedBy: { arrayValue: {} }, expiresAt: { integerValue: '0' }, active: { booleanValue: false },
+    note: { stringValue: 'Penanda skema koleksi voucher — voucher asli dibuat dari Admin Panel.' },
+  });
+  await seedIfMissing(token, proj, 'config/ai', {
+    providers: { stringValue: 'sylvatica,jerexd,vexo' },
+    order: { stringValue: 'sylvatica (utama) → jerexd (cadangan) → vexo (ketiga)' },
+    failover: { stringValue: 'otomatis, senyap, sticky-provider' },
+    search: { stringValue: 'vexo-google → vexo-ddg → ddg-langsung' },
+    prompt: { stringValue: 'Zeroid persona v3 — manusiawi, berpikir, analisis web, akurat, sebut sumber' },
+  });
+  console.log('✅ DEPLOY RULES + SEED SELESAI.');
 })().catch((e) => { console.error('FATAL:', e?.message ?? e); process.exit(1); });
+
+/** Buat dokumen seed HANYA bila BELUM ada (GET dulu — jangan pernah menimpa
+ *  pengaturan yang sudah diubah admin dari panel, mis. guardconfig). */
+async function seedIfMissing(token, project, path, fields) {
+  try {
+    const g = await fetch(`https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/${path}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (g.ok) { console.log(`↷ seed ${path} sudah ada — dilewati (tidak menimpa).`); return; }
+  } catch { /* lanjut coba buat */ }
+  const r = await fetch(`https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/${path}`, {
+    method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields }),
+  });
+  if (r.ok) console.log(`✅ seed ${path} dibuat.`);
+  else console.log(`↷ seed ${path} gagal dibuat (HTTP ${r.status}).`);
+}
 
 /**
  * COMPOSITE INDEX — dibuat otomatis di langkah yang sama (token cloud-platform

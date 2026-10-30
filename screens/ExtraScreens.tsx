@@ -35,6 +35,7 @@ import {
   orderLimitRemaining,
 } from '../lib/store';
 import { spendKoin } from '../lib/points';
+import { getVoucher, voucherUsable, redeemVoucher, priceWithDiscount, Voucher } from '../lib/vouchers';
 import { PRODUCTS, PAYMENT_METHODS, rupiah, productOf, productSafe } from '../lib/products';
 import { resolveMedia } from '../lib/spotify';
 import { pickGallery, uploadMedia, pickVideo, uploadMediaDirect } from '../lib/media';
@@ -210,14 +211,87 @@ export function PremiumScreen() {
   const nav = useNavigation<any>();
   const { db, me } = useStore();
   const [buy, setBuy] = useState<{ product: ProductKey; plan: number } | null>(null);
+  // VOUCHER DISKON — kode ditukar di sini, harga semua paket langsung berkurang
+  const [vCode, setVCode] = useState('');
+  const [vBusy, setVBusy] = useState(false);
+  const [voucher, setVoucher] = useState<Voucher | null>(null);
+  const [vMsg, setVMsg] = useState<{ ok: boolean; text: string } | null>(null);
   if (!me) return null;
   const myOrders = db.orders.filter((o) => o.userId === me.id);
   const active = (k: ProductKey) => planActive(k, me);
   const limit = orderLimitRemaining(me);
+  const priceOf = (k: ProductKey, plan: number) => (voucher ? priceWithDiscount(productOf(k).plans[plan].price, voucher.percent) : productOf(k).plans[plan].price);
+
+  const applyVoucher = async () => {
+    if (vBusy || !me) return;
+    const c = vCode.trim();
+    if (!c) { setVMsg({ ok: false, text: 'Tulis kode voucher-nya dulu.' }); return; }
+    setVBusy(true); setVMsg(null);
+    const v = await getVoucher(c);
+    const u = voucherUsable(v, me);
+    setVBusy(false);
+    if (!u.ok) { setVoucher(null); setVMsg({ ok: false, text: u.why ?? 'Voucher tidak bisa dipakai.' }); return; }
+    setVoucher(v);
+    setVMsg({ ok: true, text: `Voucher ${v!.code} aktif — diskon ${v!.percent}% untuk semua paket!` });
+  };
+
+  const buyWithVoucher = async (product: ProductKey, plan: number, method: string) => {
+    const p = productOf(product);
+    const original = p.plans[plan].price;
+    // v19 AUDIT (anti hangus): order DIBUAT DULU dengan harga diskon + kode
+    // voucher tercatat; voucher BARU ditukarkan SETELAH order sukses. Kalau
+    // order gagal → kuota voucher tidak hangus; kalau penukaran kalah race →
+    // admin melihat kode di pesanan dan memverifikasi daftar pemakai.
+    if (voucher) {
+      const paid = priceWithDiscount(original, voucher.percent);
+      const r = createOrder(product, plan, method, undefined, paid, voucher.code);
+      if (r && 'error' in r) { pushBanner({ title: 'Pembelian dibatasi', body: r.error, icon: 'alert' }); return; }
+      const rd = await redeemVoucher(voucher.code, me);
+      if (!rd.ok || !rd.voucher) {
+        pushBanner({ title: 'Voucher belum tercatat', body: `${rd.error ?? 'Kuota mungkin habis'} — tunjukkan kode ${voucher.code} ke admin agar pesananmu disesuaikan.`, icon: 'alert' });
+      } else {
+        pushBanner({ title: `Voucher ${rd.voucher.code} terpakai`, body: `Diskon ${rd.voucher.percent}% — kamu bayar ${rupiah(paid)} (normal ${rupiah(original)}).`, icon: 'ticket' });
+      }
+      setVoucher(null); setVCode(''); setVMsg(null);
+      if (r && 'chatId' in r) nav.navigate('ChatRoom', { chatId: r.chatId });
+      return;
+    }
+    const r = createOrder(product, plan, method);
+    if (r && 'error' in r) { pushBanner({ title: 'Pembelian dibatasi', body: r.error, icon: 'alert' }); return; }
+    if (r && 'chatId' in r) nav.navigate('ChatRoom', { chatId: r.chatId });
+  };
+
   return (
     <Screen>
       <Header title="Zeroid Premium" subtitle="VIP · Member · Centang biru · Keamanan" />
       <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 40, maxWidth: 720, width: '100%', alignSelf: 'center', gap: 18 }}>
+        {/* VOUCHER DISKON — dari admin panel */}
+        <Neu radius={R.xl} style={{ padding: 16, gap: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ width: 42, height: 42, borderRadius: 13, backgroundColor: t.success + '22', alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="ticket" size={22} color={t.success} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <T v="h3" style={{ fontSize: 16 }}>Punya kode voucher?</T>
+              <T v="caption" color={t.sub}>Tukarkan untuk potongan harga semua paket di bawah.</T>
+            </View>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+            <View style={{ flex: 1 }}>
+              <NeuInput
+                icon="ticket"
+                placeholder="Tulis kode voucher (mis. ZERoid10)"
+                value={vCode}
+                onChangeText={(x: string) => { setVCode(x.toUpperCase()); setVMsg(null); }}
+                autoCapitalize="characters"
+                right={voucher ? <Ionicons name="checkmark-circle" size={20} color={t.success} onPress={() => { setVoucher(null); setVMsg(null); }} /> : undefined}
+              />
+            </View>
+            <Btn small title="Tukar" icon="gift" loading={vBusy} onPress={applyVoucher} />
+          </View>
+          {!!vMsg && <T v="caption" color={vMsg.ok ? t.success : t.danger} style={{ fontWeight: '700' }}>{vMsg.text}</T>}
+          {!!voucher && <T v="caption" color={t.sub}>Harga di bawah sudah termasuk diskon {voucher.percent}%. Diskon dipakai otomatis saat checkout.</T>}
+        </Neu>
         {/* INFO RAPI: konfirmasi manual + limit beli — satu kartu, baris rapi */}
         <Neu radius={R.xl} style={{ padding: 16, gap: 12 }}>
           <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
@@ -292,9 +366,14 @@ export function PremiumScreen() {
                     style={({ pressed }) => ({ flexGrow: 1, flexBasis: '30%', padding: 12, borderRadius: R.md, backgroundColor: t.bg, boxShadow: pressed ? t.insetSm : t.raisedSm, alignItems: 'center', opacity: isActive ? 0.5 : 1 } as any)}
                   >
                     <T v="caption">{pl.label}</T>
-                    <T v="h3" color={p.color}>
-                      {rupiah(pl.price)}
-                    </T>
+                    {voucher ? (
+                      <>
+                        <T v="caption" color={t.faint} style={{ textDecorationLine: 'line-through' }}>{rupiah(pl.price)}</T>
+                        <T v="h3" color={p.color}>{rupiah(priceOf(p.key, i))}</T>
+                      </>
+                    ) : (
+                      <T v="h3" color={p.color}>{rupiah(pl.price)}</T>
+                    )}
                     {isActive && <T v="caption" color={t.success} style={{ fontSize: 10, fontWeight: '700' }}>TIDAK BISA BELI LAGI</T>}
                   </Pressable>
                 );
@@ -330,33 +409,42 @@ export function PremiumScreen() {
             label: m.label,
             onPress: () => {
               if (!buy) return;
-              const r = createOrder(buy.product, buy.plan, m.key);
-              if (r && 'error' in r) {
-                pushBanner({ title: 'Pembelian dibatasi', body: r.error, icon: 'alert' });
-                return;
-              }
-              if (r && 'chatId' in r) nav.navigate('ChatRoom', { chatId: r.chatId });
+              void buyWithVoucher(buy.product, buy.plan, m.key);
             },
           })),
           // BAYAR DENGAN KOIN: potong saldo koin langsung (1 koin = Rp1 → harga = jumlah koin)
           {
             icon: 'sparkles' as const,
-            label: `Koin Zeroid (${(me.points ?? 0).toLocaleString('id-ID')} koin · butuh ${Math.ceil(productOf(buy?.product ?? 'vip').plans[buy?.plan ?? 0].price).toLocaleString('id-ID')})`,
+            label: `Koin Zeroid (${(me.points ?? 0).toLocaleString('id-ID')} koin · butuh ${Math.ceil(priceOf(buy?.product ?? 'vip', buy?.plan ?? 0)).toLocaleString('id-ID')}${voucher ? ` · diskon ${voucher.percent}%` : ''})`,
             onPress: async () => {
               if (!buy) return;
-              const price = productOf(buy.product).plans[buy.plan].price;
-              const need = Math.ceil(price);
-              const spent = await spendKoin(me, need, `beli ${productOf(buy.product).title}`);
+              const p = productOf(buy.product);
+              const original = p.plans[buy.plan].price;
+              let need = Math.ceil(original);
+              // voucher: TUKARKAN dulu (kuota terpakai) lalu bayar harga diskon
+              if (voucher) {
+                const rd = await redeemVoucher(voucher.code, me);
+                if (!rd.ok || !rd.voucher) {
+                  pushBanner({ title: 'Voucher gagal dipakai', body: rd.error ?? 'Coba lagi.', icon: 'alert' });
+                  setVoucher(null);
+                  return;
+                }
+                need = priceWithDiscount(original, rd.voucher.percent);
+              }
+              const spent = await spendKoin(me, need, `beli ${p.title}`);
               if (!spent.ok) {
                 pushBanner({ title: 'Koin belum cukup', body: spent.error ?? `Butuh ${need.toLocaleString('id-ID')} koin — ajak teman / check-in harian untuk nambah.`, icon: 'alert' });
                 return;
               }
-              const r = createOrder(buy.product, buy.plan, 'koin');
+              const r = createOrder(buy.product, buy.plan, 'koin', undefined, voucher ? need : undefined, voucher?.code);
               if (r && 'error' in r) {
-                pushBanner({ title: 'Pembelian dibatasi', body: r.error, icon: 'alert' });
+                // v19 AUDIT (anti hangus): order gagal setelah koin dipotong → koin dikembalikan penuh
+                await spendKoin(me, -need, `refund gagal order ${p.title}`).catch(() => {});
+                pushBanner({ title: 'Pembelian dibatasi — koin dikembalikan', body: r.error, icon: 'alert' });
                 return;
               }
-              pushBanner({ title: 'Dibayar dengan koin', body: `${need.toLocaleString('id-ID')} koin terpakai — menunggu konfirmasi admin.`, icon: 'checkmark-circle' });
+              pushBanner({ title: 'Dibayar dengan koin', body: `${need.toLocaleString('id-ID')} koin terpakai${voucher ? ` (diskon ${voucher.percent}%)` : ''} — menunggu konfirmasi admin.`, icon: 'checkmark-circle' });
+              setVoucher(null); setVCode(''); setVMsg(null);
               if (r && 'chatId' in r) nav.navigate('ChatRoom', { chatId: r.chatId });
             },
           },

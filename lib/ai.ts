@@ -150,6 +150,24 @@ export async function askBotReply(
   );
 }
 
+/**
+ * AI GUARD — laporkan pelanggaran ke server untuk DIEKSEKUSI otomatis.
+ * Server memverifikasi ulang buktinya (isi pesan asli), lalu memberi sanksi
+ * sesuai konfigurasi skill di admin panel (ban jam/hari, lock IP/perangkat,
+ * log guardlog + push ke admin). Fire-and-forget — hasil tidak menunggu.
+ */
+export async function guardEnforce(chatId: string, messageId: string, kind: 'porn' | 'profanity' | 'sticker_spam' | 'media_bomb'): Promise<void> {
+  const cu = firebase()?.auth.currentUser;
+  if (!cu || !chatId || !messageId) return;
+  const token = await cu.getIdToken().catch(() => '');
+  if (!token) return;
+  await post(
+    { action: 'guard-enforce', chatId: String(chatId).slice(0, 80), messageId: String(messageId).slice(0, 120), kind },
+    30000,
+    { authorization: `Bearer ${token}` }
+  ).catch(() => {});
+}
+
 /** Quick actions for the AI panel. */
 export const AI_ACTIONS = [
   { key: 'translate', label: 'Terjemahkan ke Inggris', build: (t: string) => `Terjemahkan teks berikut ke bahasa Inggris, jawab hanya hasil terjemahannya:\n\n${t}` },

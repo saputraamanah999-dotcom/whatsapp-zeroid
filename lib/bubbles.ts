@@ -32,8 +32,8 @@ export type BubbleSkin = {
   opacity?: number;
   /** glow neon */
   glowColor?: string;
-  /** hiasan SVG (telinga hewan/mahkota/tanduk) di pojok balon */
-  decor?: 'cat' | 'frog' | 'bear' | 'bunny' | 'panda' | 'fox' | 'crown' | 'horns';
+  /** hiasan SVG (telinga hewan/mahkota/tanduk/antena/hati) di pojok balon */
+  decor?: 'cat' | 'frog' | 'bear' | 'bunny' | 'panda' | 'fox' | 'crown' | 'horns' | 'alien' | 'love';
 };
 
 export const BUBBLE_STYLES: BubbleSkin[] = [
@@ -107,6 +107,16 @@ export const BUBBLE_STYLES: BubbleSkin[] = [
     radius: [20, 20, 4, 20], decor: 'cat',
   },
   {
+    id: 'alien', label: 'Alien', tag: '👽', desc: 'Antena bercahaya hijau luar angkasa',
+    bg: ['#173B2E', '#E3F8EC'], fg: ['#C9FFE2', '#12402F'],
+    radius: [22, 22, 6, 22], borderColor: '#2FBF71', borderWidth: 1.5, decor: 'alien',
+  },
+  {
+    id: 'love', label: 'Cinta', tag: '💗', desc: 'Hati melayang pink mengembang',
+    bg: ['#FF5C8A', '#FFE9F1'], fg: ['#FFFFFF', '#A3134B'],
+    radius: [26, 26, 26, 8], borderColor: '#FFB7CD', borderWidth: 1.4, decor: 'love',
+  },
+  {
     id: 'capybara', label: 'Kapibara', tag: '🦫', desc: 'Cokelat pasir santai maksimal',
     bg: ['#B08968', '#F5EBDD'], fg: ['#FFFFFF', '#5A4326'],
     radius: [28, 28, 28, 28], borderColor: '#8B6B4A', borderWidth: 1.4, decor: 'bear',
@@ -156,7 +166,7 @@ export function resolveBubble(opts: {
   borderColor: string;
   opacity: number;
   boxShadow: string;
-  decor?: 'cat' | 'frog' | 'bear' | 'bunny' | 'panda' | 'fox' | 'crown' | 'horns';
+  decor?: 'cat' | 'frog' | 'bear' | 'bunny' | 'panda' | 'fox' | 'crown' | 'horns' | 'alien' | 'love';
 } {
   const { styleId, themeId, mine, t } = opts;
   const skin = bubbleStyleOf(styleId);

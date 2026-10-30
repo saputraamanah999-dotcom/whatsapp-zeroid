@@ -16,7 +16,7 @@ import {
   isOnline, activeStories, messagePreview, backendMode, adminDecideAppeal, bannedNow, banRemaining, mutedRemaining,
   adminBanChat, adminUnbanChat, adminDecideChatAppeal, adminVerifyChat, adminUnverifyChat,
   adminSetMuteOff, adminMessageAll, adminBotBroadcast, chatBannedNow, chatBanRemaining, chatVerified, chatBadge,
-  updateAiProfile,
+  updateAiProfile, adminDeleteChat,
 } from '../lib/store';
 import { useBackendHealth, healthLabel, supabaseStatus } from '../lib/health';
 import { firebase, firebaseConfig } from '../lib/firebase';
@@ -27,6 +27,246 @@ import { checkServerRules, rulesBanner, type RuleProbe } from '../lib/rulescheck
 import { pickGallery, uploadMedia, uploadMediaDirect } from '../lib/media';
 import { subscribeAllFeedback, answerFeedback, deleteFeedback } from '../lib/feedback';
 import { Feedback as FeedbackType } from '../lib/types';
+import { subscribeVouchers, adminVoucherCreate, adminVoucherToggle, adminVoucherDelete, Voucher } from '../lib/vouchers';
+import { onSnapshot, doc as fsDoc, setDoc as fsSetDoc, collection as fsCol, getFirestore } from 'firebase/firestore';
+
+type GuardLog = {
+  id: string; uid: string; name: string; role: string; chatId: string; chatName: string;
+  kind: string; reason: string; excerpt: string; action: string; until: number; at: number;
+};
+
+type GuardConfig = {
+  profanity: { on: boolean; hours: number };
+  porn: { on: boolean; days: number };
+  spam: { on: boolean; hours: number };
+};
+
+const GUARD_DEFAULTS: GuardConfig = {
+  profanity: { on: true, hours: 2 },
+  porn: { on: true, days: 7 },
+  spam: { on: true, hours: 24 },
+};
+
+const KIND_LABEL: Record<string, string> = {
+  porn: 'Konten 18+', profanity: 'Kata kasar', sticker_spam: 'Spam stiker',
+  media_bomb: 'Bom media', login_attempt: 'Coba login admin', login_ban: 'Ban penyerang',
+};
+
+/**
+ * AI GUARD — panel monitoring + atur skill moderator AI:
+ *  - kata kasar  → on/off + durasi ban (jam)
+ *  - konten 18+  → on/off + durasi ban (hari)
+ *  - spam        → on/off + durasi ban (jam)
+ * Eksekusi dilakukan SERVER (guard-enforce) sehingga sanksi tetap jalan walau
+ * tak ada admin online; semua laporan (termasuk percobaan bobol akun admin dari
+ * login-guard) tampil real-time di bawah.
+ */
+function GuardPanel() {
+  const t = useTheme();
+  const { me, db } = useStore();
+  const [cfg, setCfg] = useState<GuardConfig>(GUARD_DEFAULTS);
+  const [logs, setLogs] = useState<GuardLog[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  React.useEffect(() => {
+    const fdb = getFirestore();
+    const un1 = onSnapshot(fsDoc(fdb, 'guardconfig', 'main'), (s) => {
+      const d = s.data() as any;
+      if (d) setCfg({
+        profanity: { on: d.profanity?.on !== false, hours: Number(d.profanity?.hours ?? 2) },
+        porn: { on: d.porn?.on !== false, days: Number(d.porn?.days ?? 7) },
+        spam: { on: d.spam?.on !== false, hours: Number(d.spam?.hours ?? 24) },
+      });
+      setLoaded(true);
+    }, () => setLoaded(true));
+    const un2 = onSnapshot(fsCol(fdb, 'guardlog'), (s) => {
+      const list = s.docs.map((d) => ({ id: d.id, ...(d.data() as any) })) as GuardLog[];
+      list.sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
+      setLogs(list.slice(0, 40));
+    }, () => setLogs([]));
+    return () => { un1(); un2(); };
+  }, []);
+
+  const save = async (next: GuardConfig) => {
+    setCfg(next);
+    try {
+      const fdb = getFirestore();
+      await fsSetDoc(fsDoc(fdb, 'guardconfig', 'main'), {
+        profanity: next.profanity, porn: next.porn, spam: next.spam,
+        updatedAt: Date.now(), updatedBy: me?.name ?? 'admin',
+      }, { merge: true });
+    } catch { /* rules admin-only — abaikan */ }
+  };
+
+  const num = (v: string, dflt: number) => Math.max(1, Math.min(720, parseInt(v, 10) || dflt));
+
+  return (
+    <View style={{ gap: 16 }}>
+      <Card title="Skill AI Guard (moderator otomatis)">
+        <View style={{ padding: 12, gap: 14 }}>
+          <T v="caption" color={t.sub}>
+            AI Guard memeriksa SEMUA pesan grup/global/saluran. Yang aneh/berbahaya otomatis kena sanksi oleh SERVER, dicatat di log bawah, dan dilaporkan ke developer — termasuk percobaan bobol akun admin (ban keras IP + perangkat setelah 3x gagal).
+          </T>
+          {/* KATA KASAR */}
+          <View style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Ionicons name="chatbox-ellipses" size={18} color={t.warning} />
+              <T v="body" style={{ flex: 1, fontWeight: '700' }}>Filter kata kasar</T>
+              <Btn small variant={cfg.profanity.on ? 'primary' : 'neu'} icon={cfg.profanity.on ? 'checkmark' : 'close'} title={cfg.profanity.on ? 'Aktif' : 'Mati'} onPress={() => save({ ...cfg, profanity: { ...cfg.profanity, on: !cfg.profanity.on } })} />
+            </View>
+            {cfg.profanity.on && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <T v="caption" color={t.sub}>Ban otomatis (jam):</T>
+                <View style={{ width: 90 }}>
+                  <NeuInput value={String(cfg.profanity.hours)} onChangeText={(v: string) => save({ ...cfg, profanity: { ...cfg.profanity, hours: num(v, 2) } })} keyboardType="number-pad" />
+                </View>
+                <T v="caption" color={t.faint}>aneh dikit langsung dibanned beberapa jam</T>
+              </View>
+            )}
+          </View>
+          {/* PORNO */}
+          <View style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Ionicons name="alert-circle" size={18} color={t.danger} />
+              <T v="body" style={{ flex: 1, fontWeight: '700' }}>Konten 18+ / porno</T>
+              <Btn small variant={cfg.porn.on ? 'primary' : 'neu'} icon={cfg.porn.on ? 'checkmark' : 'close'} title={cfg.porn.on ? 'Aktif' : 'Mati'} onPress={() => save({ ...cfg, porn: { ...cfg.porn, on: !cfg.porn.on } })} />
+            </View>
+            {cfg.porn.on && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <T v="caption" color={t.sub}>Ban otomatis (hari):</T>
+                <View style={{ width: 90 }}>
+                  <NeuInput value={String(cfg.porn.days)} onChangeText={(v: string) => save({ ...cfg, porn: { ...cfg.porn, days: num(v, 7) } })} keyboardType="number-pad" />
+                </View>
+                <T v="caption" color={t.faint}>+ IP & perangkat pelanggar ikut dikunci</T>
+              </View>
+            )}
+          </View>
+          {/* SPAM */}
+          <View style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Ionicons name="sparkles" size={18} color="#7B61FF" />
+              <T v="body" style={{ flex: 1, fontWeight: '700' }}>Spam (stiker/media beruntun)</T>
+              <Btn small variant={cfg.spam.on ? 'primary' : 'neu'} icon={cfg.spam.on ? 'checkmark' : 'close'} title={cfg.spam.on ? 'Aktif' : 'Mati'} onPress={() => save({ ...cfg, spam: { ...cfg.spam, on: !cfg.spam.on } })} />
+            </View>
+            {cfg.spam.on && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <T v="caption" color={t.sub}>Ban otomatis (jam):</T>
+                <View style={{ width: 90 }}>
+                  <NeuInput value={String(cfg.spam.hours)} onChangeText={(v: string) => save({ ...cfg, spam: { ...cfg.spam, hours: num(v, 24) } })} keyboardType="number-pad" />
+                </View>
+                <T v="caption" color={t.faint}>deteksi macem-macem → eksekusi + IP ban</T>
+              </View>
+            )}
+          </View>
+          {!loaded && <T v="caption" color={t.faint}>Memuat pengaturan…</T>}
+        </View>
+      </Card>
+
+      <Card title={`Laporan & eksekusi AI Guard · ${logs.length}`}>
+        {logs.length === 0 && <Empty icon="shield-checkmark-outline" title="Belum ada laporan" body="Pelanggaran yang terdeteksi AI Guard dan percobaan bobol akun admin akan muncul di sini real-time." />}
+        {logs.map((l) => {
+          const target = l.uid ? db.users[l.uid] : null;
+          return (
+            <Neu key={l.id} inset radius={R.md} style={{ padding: 12, marginTop: 10, gap: 6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: l.kind === 'login_attempt' || l.kind === 'login_ban' ? 'rgba(255,90,95,0.14)' : 'rgba(255,159,10,0.16)' }}>
+                  <T v="caption" style={{ fontWeight: '800' }}>{KIND_LABEL[l.kind] ?? l.kind}</T>
+                </View>
+                <T v="label" style={{ flexShrink: 1 }}>{l.name}{l.role && l.role !== 'user' ? ` (${l.role})` : ''}</T>
+                <T v="caption" color={t.faint} style={{ flex: 1, textAlign: 'right' }}>{l.at ? ago(l.at) : ''}</T>
+              </View>
+              <T v="caption" color={t.sub}>{l.chatName ? `di ${l.chatName} — ` : ''}{l.reason}{l.excerpt ? ` · "${l.excerpt}"` : ''}</T>
+              <T v="caption" style={{ fontWeight: '700', color: String(l.action ?? '').includes('ban') ? t.danger : t.accent }}>Tindakan: {l.action}</T>
+              {!!l.uid && l.kind !== 'login_attempt' && l.kind !== 'login_ban' && (
+                <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                  {!bannedNow(target) && <Btn small variant="danger" icon="ban" title={`Ban ${l.name}`} onPress={() => adminBan(l.uid, `[AI GUARD] ${l.reason}`, 7 * 86400_000)} style={{ height: 32 }} />}
+                  {bannedNow(target) && <Btn small icon="lock-open" title="Cabut sanksi" onPress={() => adminUnban(l.uid)} style={{ height: 32 }} />}
+                </View>
+              )}
+            </Neu>
+          );
+        })}
+      </Card>
+    </View>
+  );
+}
+
+/** VOUCHER — buat kode diskon untuk VIP/Member/Centang biru/Keamanan. */
+function VoucherPanel() {
+  const t = useTheme();
+  const [list, setList] = useState<Voucher[]>([]);
+  const [code, setCode] = useState('');
+  const [percent, setPercent] = useState('10');
+  const [maxUses, setMaxUses] = useState('50');
+  const [days, setDays] = useState('30');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  React.useEffect(() => subscribeVouchers(setList), []);
+
+  const create = async () => {
+    if (busy) return;
+    setBusy(true); setMsg('');
+    const r = await adminVoucherCreate({ code, percent: parseInt(percent, 10), maxUses: parseInt(maxUses, 10) || 1, daysValid: parseInt(days, 10) || 30 });
+    setBusy(false);
+    if (r.ok) { setMsg(`Voucher ${code.trim().toUpperCase()} aktif!`); setCode(''); }
+    else setMsg(r.error ?? 'Gagal membuat voucher.');
+  };
+
+  return (
+    <View style={{ gap: 16 }}>
+      <Card title="Buat kode voucher diskon">
+        <View style={{ padding: 12, gap: 10 }}>
+          <T v="caption" color={t.sub}>Voucher bisa ditukarkan user di halaman Zeroid Premium — diskon % untuk VIP, Member, Centang biru, dan Keamanan (koin atau transfer).</T>
+          <NeuInput icon="ticket" placeholder="KODE VOUCHER (mis. ZEROID10)" value={code} onChangeText={(v: string) => setCode(v.toUpperCase().replace(/[^A-Z0-9]/g, ''))} autoCapitalize="characters" />
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={{ flex: 1 }}>
+              <T v="caption" color={t.sub}>Diskon (%)</T>
+              <NeuInput value={percent} onChangeText={(v: string) => setPercent(v.replace(/\D/g, ''))} keyboardType="number-pad" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <T v="caption" color={t.sub}>Kuota pemakaian</T>
+              <NeuInput value={maxUses} onChangeText={(v: string) => setMaxUses(v.replace(/\D/g, ''))} keyboardType="number-pad" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <T v="caption" color={t.sub}>Masa aktif (hari)</T>
+              <NeuInput value={days} onChangeText={(v: string) => setDays(v.replace(/\D/g, ''))} keyboardType="number-pad" />
+            </View>
+          </View>
+          {!!msg && <T v="caption" color={msg.startsWith('Voucher') ? t.success : t.danger} style={{ fontWeight: '700' }}>{msg}</T>}
+          <Btn title="Buat voucher" icon="add-circle" loading={busy} onPress={create} disabled={code.trim().length < 4} />
+        </View>
+      </Card>
+
+      <Card title={`Voucher aktif · ${list.length}`}>
+        {list.length === 0 && <Empty icon="ticket-outline" title="Belum ada voucher" body="Buat kode voucher pertamamu di atas." />}
+        {list.map((v) => {
+          const expired = v.expiresAt > 0 && v.expiresAt < Date.now();
+          const usedUp = v.usedCount >= v.maxUses;
+          return (
+            <Neu key={v.id} inset radius={R.md} style={{ padding: 12, marginTop: 10, gap: 6 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <T v="h3" style={{ flex: 1, letterSpacing: 1.5 }}>{v.code}</T>
+                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: !v.active || expired || usedUp ? t.dangerSoft : 'rgba(20,196,122,0.14)' }}>
+                  <T v="caption" style={{ fontWeight: '800', color: !v.active || expired || usedUp ? t.danger : t.success }}>
+                    {!v.active ? 'nonaktif' : expired ? 'kadaluarsa' : usedUp ? 'habis' : `${v.percent}% off`}
+                  </T>
+                </View>
+              </View>
+              <T v="caption" color={t.sub}>
+                Diskon {v.percent}% · terpakai {v.usedCount}/{v.maxUses} · berlaku sampai {v.expiresAt ? new Date(v.expiresAt).toLocaleDateString('id-ID') : '-'}
+              </T>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Btn small variant={v.active ? 'neu' : 'primary'} icon={v.active ? 'pause' : 'play'} title={v.active ? 'Nonaktifkan' : 'Aktifkan'} onPress={() => adminVoucherToggle(v.code, !v.active)} style={{ flex: 1, height: 34 }} />
+                <Btn small variant="ghost" icon="trash" title="Hapus" onPress={() => adminVoucherDelete(v.code)} style={{ height: 34 }} />
+              </View>
+            </Neu>
+          );
+        })}
+      </Card>
+    </View>
+  );
+}
 
 /** Panel MASUKAN user → developer: balas + apresiasi koin (admin panel). */
 function FeedbackPanel() {
@@ -116,7 +356,7 @@ function FeedbackPanel() {
   );
 }
 
-type Tab = 'overview' | 'users' | 'chats' | 'orders' | 'reports' | 'appeals' | 'feedback' | 'content' | 'ai' | 'system';
+type Tab = 'overview' | 'users' | 'chats' | 'orders' | 'reports' | 'appeals' | 'feedback' | 'content' | 'ai' | 'guard' | 'voucher' | 'system';
 
 /** pilihan durasi ban (jam/hari) — 0 = permanen */
 const BAN_DURATIONS: { label: string; ms: number }[] = [
@@ -189,6 +429,8 @@ export default function AdminScreen() {
   const [chatBanMs, setChatBanMs] = useState<number>(86400_000);
   const [askVerifyChat, setAskVerifyChat] = useState<string | null>(null);
   const [verifyDays, setVerifyDays] = useState(30);
+  // HAPUS GRUP dari admin panel — konfirmasi dulu, hapus permanen chat + pesan
+  const [askDeleteChat, setAskDeleteChat] = useState<string | null>(null);
   const [seedMsg, setSeedMsg] = useState('');
   const [seedBusy, setSeedBusy] = useState(false);
   const [rulesProbes, setRulesProbes] = useState<RuleProbe[]>([]);
@@ -304,6 +546,8 @@ export default function AdminScreen() {
             ['reports', `Lapor${openReports ? ` ${openReports}` : ''}`],
             ['appeals', `Banding${openAppeals ? ` ${openAppeals}` : ''}`],
             ['feedback', `Masukan${openFeedback ? ` ${openFeedback}` : ''}`],
+            ['guard', 'AI Guard'],
+            ['voucher', 'Voucher'],
             ['content', 'Konten'],
             ['ai', 'Zeroid AI'],
             ['system', 'Sistem'],
@@ -323,6 +567,8 @@ export default function AdminScreen() {
       </View>
       <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 40, maxWidth: 720, width: '100%', alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
         {tab === 'feedback' && <FeedbackPanel />}
+        {tab === 'guard' && <GuardPanel />}
+        {tab === 'voucher' && <VoucherPanel />}
         {tab === 'overview' && (
           <>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginBottom: 22 }}>
@@ -527,6 +773,7 @@ export default function AdminScreen() {
                       <Btn small variant={banned ? 'primary' : 'danger'} icon={banned ? 'lock-open' : 'ban'} title={banned ? 'Buka ban' : 'Ban'} onPress={() => (banned ? adminUnbanChat(c.id) : (setAskBanChat(c.id), setChatBanReason(''), setChatBanMs(86400_000)))} style={{ height: 34 }} />
                       <Btn small variant={verified ? 'neu' : 'primary'} icon="checkmark-circle" title={verified ? 'Atur centang' : 'Centang biru'} onPress={() => (setAskVerifyChat(c.id), setVerifyDays(30))} style={{ height: 34 }} />
                       <Btn small variant="ghost" icon="chatbubbles" title="Buka" onPress={() => nav.navigate('ChatRoom', { chatId: c.id })} style={{ height: 34 }} />
+                      <Btn small variant="ghost" icon="trash" title="Hapus grup" onPress={() => setAskDeleteChat(c.id)} style={{ height: 34 }} />
                     </View>
                   </Neu>
                 );
@@ -945,6 +1192,23 @@ export default function AdminScreen() {
           {!!otpMsg && <T v="sub">{otpMsg}</T>}
         </View>
       </Sheet>
+      <Confirm
+        visible={!!askDeleteChat}
+        title={`Hapus ${db.chats[askDeleteChat ?? '']?.type === 'channel' ? 'saluran' : 'grup'} ini?`}
+        body={`"${db.chats[askDeleteChat ?? '']?.name ?? ''}" akan dihapus PERMANEN untuk semua anggota — termasuk seluruh isi pesannya. Tindakan ini tidak bisa dibatalkan.`}
+        confirm="Hapus permanen"
+        danger
+        onConfirm={async () => {
+          const id = askDeleteChat;
+          setAskDeleteChat(null);
+          if (!id) return;
+          const r = await adminDeleteChat(id);
+          pushBanner(r.ok
+            ? { title: 'Grup dihapus', body: 'Chat + seluruh pesannya sudah dihapus permanen.', icon: 'checkmark-circle' }
+            : { title: 'Gagal menghapus', body: r.error ?? 'Coba lagi.', icon: 'alert' });
+        }}
+        onClose={() => setAskDeleteChat(null)}
+      />
     </Screen>
   );
 }

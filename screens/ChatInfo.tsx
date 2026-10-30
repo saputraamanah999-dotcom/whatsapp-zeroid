@@ -75,7 +75,7 @@ export default function ChatInfo() {
   // developer/admin global boleh mengatur SEMUA chat (termasuk global & saluran Zeroid AI)
   const isAdmin = chat.admins.includes(me.id) || isFullAdmin(me);
   const badge = chat.type === 'direct' ? !!(peer && (peer.blueCheck || peer.developer || peer.role === 'admin' || peer.role === 'developer')) : chatBadge(chat, db);
-  const autoVerified = !chatVerified(chat) && badge && chat.type !== 'direct' && chat.type !== 'ai'; // ikut dari pemilik
+  const autoVerified = !chatVerified(chat) && badge && chat.type !== 'direct' && chat.type !== 'ai'; // otomatis dari centang biru pemilik
   const muted = chat.mutedBy.includes(me.id);
   const blocked = peer ? me.blocked.includes(peer.id) : false;
   const avatarUri = chat.type === 'ai' ? aiProf?.avatar ?? null : chat.type === 'direct' ? (canSee(me, peer, peer?.privacy.profilePhoto ?? 'everyone') ? peer?.avatar : null) : chat.avatar;

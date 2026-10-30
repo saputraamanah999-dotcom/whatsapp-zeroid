@@ -149,6 +149,107 @@ export async function fbPatchDoc(project: string, path: string, fields: Record<s
   }
 }
 
+/** DELETE dokumen (service account). */
+export async function fbDeleteDoc(project: string, path: string): Promise<boolean> {
+  const tok = await googleAccessToken(DATASTORE_SCOPE);
+  if (!tok) return false;
+  try {
+    const r = await fetch(base(project, path), {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${tok}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * QUERY dokumen (service account) — structuredQuery di lingkup parentPath.
+ * `filters`: [{field, op: 'EQUAL'|'GREATER_THAN'|'LESS_THAN'|'IN', value}] —
+ * value SUDAH berbentuk Firestore value ({stringValue}, {timestampValue}, …).
+ * Mengembalikan array dokumen ter-decode (id + fields).
+ */
+export async function fbQuery(
+  project: string,
+  parentPath: string,
+  filters: { field: string; op: string; value: any }[],
+  limitN = 20,
+  orderBy?: { field: string; desc?: boolean }
+): Promise<{ id: string; fields: Record<string, any> }[]> {
+  const tok = await googleAccessToken(DATASTORE_SCOPE);
+  if (!tok) return [];
+  const seg = parentPath.split('/').filter(Boolean);
+  const collectionId = seg.pop() ?? '';
+  const structured: any = {
+    from: [{ collectionId, allDescendants: false }],
+    limit: Math.max(1, Math.min(limitN, 200)),
+  };
+  if (filters.length === 1) {
+    structured.where = { fieldFilter: { field: { fieldPath: filters[0].field }, op: filters[0].op, value: filters[0].value } };
+  } else if (filters.length > 1) {
+    structured.where = {
+      compositeFilter: {
+        op: 'AND',
+        filters: filters.map((c) => ({ fieldFilter: { field: { fieldPath: c.field }, op: c.op, value: c.value } })),
+      },
+    };
+  }
+  if (orderBy) structured.orderBy = [{ field: { fieldPath: orderBy.field }, direction: orderBy.desc ? 'DESCENDING' : 'ASCENDING' }];
+  const scope = seg.length ? `${seg.join('/')}/` : '';
+  try {
+    const r = await fetch(`${base(project, scope)}:runQuery`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${tok}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ structuredQuery: structured }),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!r.ok) return [];
+    const lines = (await r.json()) as any[];
+    const out: { id: string; fields: Record<string, any> }[] = [];
+    for (const line of Array.isArray(lines) ? lines : []) {
+      const doc = line?.document;
+      if (!doc) continue;
+      out.push({ id: String(doc.name ?? '').split('/').pop() ?? '', fields: decodeFsFields(doc.fields ?? {}) });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+// ---------- server secrets (fallback env) ----------
+/**
+ * KUNCI API SERVER — sumber ganda:
+ *  1. env Vercel (utama),
+ *  2. dokumen Firestore `secrets/ai` (cadangan OTOMATIS via service account).
+ *
+ * Dokumen `secrets/ai` DILARANG dibaca/ditulis semua klien (rules: false) —
+ * hanya kode server yang punya service account bisa membacanya. Dipakai supaya
+ * menambah penyedia (mis. VEXO) TIDAK perlu buka dashboard Vercel: cukup seed
+ * via service account (CI deploy-rules) dan aplikasi langsung memakainya.
+ */
+let fsSecretsCache: { at: number; data: Record<string, string> } | null = null;
+
+export async function serverSecrets(): Promise<Record<string, string>> {
+  if (fsSecretsCache && Date.now() - fsSecretsCache.at < 600_000) return fsSecretsCache.data;
+  const project = process.env.FIREBASE_PROJECT_ID ?? process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID ?? '';
+  if (!project) return {};
+  const doc = await fbGetDoc(project, 'secrets/ai');
+  const data: Record<string, string> = {};
+  for (const [k, v] of Object.entries(doc ?? {})) {
+    if (typeof v === 'string' && v.trim() && !k.startsWith('_')) data[k] = v.trim();
+  }
+  if (Object.keys(data).length) fsSecretsCache = { at: Date.now(), data };
+  return data;
+}
+
+/** Kunci API: env dulu, lalu Firestore secrets/ai (cadangan otomatis). */
+export async function apiKey(name: string): Promise<string> {
+  return process.env[name] || (await serverSecrets())[name] || '';
+}
+
 // ---------- identity ----------
 /**
  * Verifikasi ID token pengguna lewat Identity Toolkit (accounts:lookup).

@@ -16,7 +16,7 @@
  */
 import { Message } from './types';
 
-export type ViolationKind = 'porn' | 'sticker_spam' | 'media_bomb';
+export type ViolationKind = 'porn' | 'profanity' | 'sticker_spam' | 'media_bomb';
 
 export type Violation = {
   kind: ViolationKind;
@@ -60,6 +60,25 @@ export function pornHit(raw: string): Violation | null {
   return null;
 }
 
+/** kata kasar (ID + EN) — AI Guard skill: ban berjam-jam otomatis */
+const PROFANITY_WORDS = [
+  'anjing', 'bajingan', 'bangsat', 'bangke', 'bego', 'bodoh', 'brengsek', 'goblok',
+  'tolol', 'idiot', 'kampret', 'kontol', 'memek', 'ngentot', 'pepek', 'pantek',
+  'tetek', 'titit', 'asu', 'sundala', 'fuck', 'fucking', 'bitch', 'asshole', 'bastard', 'dickhead',
+];
+
+/** Deteksi kata kasar pada satu teks. Null = bersih. */
+export function profanityHit(raw: string): Violation | null {
+  if (!raw) return null;
+  const t = norm(raw);
+  for (const w of PROFANITY_WORDS) {
+    if (new RegExp(`(^| )${w}( |$)`).test(t)) {
+      return { kind: 'profanity', reason: 'kata kasar terdeteksi', label: 'kata kasar' };
+    }
+  }
+  return null;
+}
+
 /** Pesan yang dianggap "media" untuk penghitungan spam (stiker/gambar/video). */
 function isMedia(m: Message): boolean {
   return m.type === 'sticker' || m.type === 'image' || m.type === 'video';
@@ -80,6 +99,10 @@ export function detectViolation(msg: Message, recent: Message[]): Violation | nu
     const cap = pornHit(msg.fileName ?? '');
     if (cap) return cap;
   }
+
+  // 1b) kata kasar (AI Guard skill) — teks pesan biasa
+  const prof = profanityHit(msg.text ?? '');
+  if (prof) return prof;
 
   // 2) spam stiker: >= 8 stiker dalam 90 detik oleh pengirim sama
   const now = msg.createdAt || Date.now();

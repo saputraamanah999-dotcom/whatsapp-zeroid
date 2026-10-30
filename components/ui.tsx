@@ -281,7 +281,7 @@ export function Avatar({ uri, name, size = 48, color, online, ring, icon }: { ur
 }
 
 // ---------- Header ----------
-export function Header({ title, subtitle, subtitleNode, back = true, right, onTitlePress, left, large }: { title: string; subtitle?: string; subtitleNode?: ReactNode; back?: boolean; right?: ReactNode; onTitlePress?: () => void; left?: ReactNode; large?: boolean }) {
+export function Header({ title, subtitle, subtitleNode, titleNode, back = true, right, onTitlePress, left, large }: { title: string; subtitle?: string; subtitleNode?: ReactNode; titleNode?: ReactNode; back?: boolean; right?: ReactNode; onTitlePress?: () => void; left?: ReactNode; large?: boolean }) {
   const t = useTheme();
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
@@ -290,9 +290,13 @@ export function Header({ title, subtitle, subtitleNode, back = true, right, onTi
       {back && <IconBtn icon="chevron-back" size={42} onPress={() => (nav.canGoBack() ? nav.goBack() : (nav as any).navigate('Main'))} label="Kembali" />}
       {left}
       <Pressable onPress={onTitlePress} disabled={!onTitlePress} style={{ flex: 1 }}>
-        <T v={large ? 'h1' : 'h3'} numberOfLines={1} style={large ? undefined : { fontSize: 18 }}>
-          {title}
-        </T>
+        {titleNode ? (
+          titleNode
+        ) : (
+          <T v={large ? 'h1' : 'h3'} numberOfLines={1} style={large ? undefined : { fontSize: 18 }}>
+            {title}
+          </T>
+        )}
         {subtitleNode ? (
           subtitleNode
         ) : (

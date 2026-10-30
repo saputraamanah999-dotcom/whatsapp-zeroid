@@ -79,7 +79,11 @@ export const pendingRef = () => {
 
 /**
  * Dipanggil saat profil baru dibuat (register / Google): beri reward pengundang
- * + pendatang baru dalam SATU batch (ledger + 2 user docs) — didukung rules v8.
+ * + pendatang baru — ANTI AKUN GANDA: satu perangkat / satu IP hanya boleh
+ * klaim referral SATU kali selamanya (bukti `ledger/ref_dev_<hash>` &
+ * `ledger/ref_ip_<hash>` ditulis atomik dalam transaksi — siapa pun yang
+ * klaim duluan menang, akun kedua/ketiga dari HP & internet yang sama
+ * TIDAK lagi mendapat koin walau buat akun baru berulang kali).
  */
 export async function applyPendingReferral(me: User): Promise<{ ok: boolean; rewarded?: number }> {
   const fb = firebase();
@@ -89,20 +93,49 @@ export async function applyPendingReferral(me: User): Promise<{ ok: boolean; rew
   try { window.localStorage.removeItem(REF_KEY); } catch { }
   try {
     // cari pemilik kode (query users diperbolehkan rules untuk user masuk)
-    const { collection, query, where, getDocs, increment } = await import('firebase/firestore');
+    const { collection, query, where, getDocs, increment, runTransaction, doc } = await import('firebase/firestore');
     const qs = await getDocs(query(collection(fb.db, C.users), where('referralCode', '==', code)));
     const ownerDoc = qs.empty ? null : qs.docs[0];
     const owner = ownerDoc?.id ?? '';
     if (!owner || owner === me.id) return { ok: false };
-    const { writeBatch } = await import('firebase/firestore');
-    const batch = writeBatch(fb.db);
-    // ledger = bukti unik per pendatang baru (rules mensyaratkan ini ada)
-    batch.set(doc(fb.db, 'ledger', me.id + '_ref'), {
-      uid: me.id, kind: 'referral_newbie', to: owner, delta: REF_REWARD_NEWBIE, at: Date.now(),
+
+    // sidik jari perangkat + IP (web) — kunci anti akun ganda
+    const { getDeviceHash } = await import('./device');
+    const dh = await getDeviceHash();
+    let ipHash = '';
+    if (typeof window !== 'undefined') {
+      try {
+        const r0 = await fetch('/api/ip-ban', { cache: 'no-store' });
+        if (r0.ok) ipHash = String((await r0.json()).hash ?? '');
+      } catch { /* offline — device hash tetap melindungi */ }
+    }
+
+    const devRef = doc(fb.db, 'ledger', `ref_dev_${dh}`);
+    const ipRef = ipHash ? doc(fb.db, 'ledger', `ref_ip_${ipHash}`) : null;
+    const now = Date.now();
+
+    const verdict = await runTransaction(fb.db, async (tx) => {
+      const dev = await tx.get(devRef);
+      if (dev.exists()) return 'device-claimed';
+      if (ipRef) {
+        const ip = await tx.get(ipRef);
+        if (ip.exists()) return 'ip-claimed';
+      }
+      // KLAIM PERTAMA MENANG — tulis bukti perangkat/IP + reward dalam SATU transaksi
+      tx.set(devRef, { uid: me.id, kind: 'ref_device', delta: 0, at: now });
+      if (ipRef) tx.set(ipRef, { uid: me.id, kind: 'ref_ip', delta: 0, at: now });
+      // ledger = bukti unik per pendatang baru (rules mensyaratkan ini ada)
+      tx.set(doc(fb.db, 'ledger', me.id + '_ref'), {
+        uid: me.id, kind: 'referral_newbie', to: owner, delta: REF_REWARD_NEWBIE, at: now,
+      });
+      tx.update(doc(fb.db, C.users, me.id), { referredBy: owner, points: (me.points ?? 0) + REF_REWARD_NEWBIE });
+      tx.update(doc(fb.db, C.users, owner), { points: increment(REF_REWARD_REFERRER), refCount: increment(1) });
+      return 'ok';
     });
-    batch.update(doc(fb.db, C.users, me.id), { referredBy: owner, points: (me.points ?? 0) + REF_REWARD_NEWBIE });
-    batch.update(doc(fb.db, C.users, owner), { points: increment(REF_REWARD_REFERRER), refCount: increment(1) });
-    await batch.commit();
+    if (verdict !== 'ok') {
+      // sudah ada yang klaim dari perangkat/IP ini → tanpa reward (anti akun ganda)
+      return { ok: false };
+    }
     return { ok: true, rewarded: REF_REWARD_NEWBIE };
   } catch {
     return { ok: false };
@@ -131,11 +164,16 @@ export async function dailyCheckIn(me: User): Promise<{ ok: boolean; reward?: nu
   const ALREADY = { ok: false as const, already: true as const, error: 'Sudah check-in hari ini — kembali lagi besok!' };
   try {
     const { runTransaction, getDoc } = await import('firebase/firestore');
-    const ledRef = doc(fb.db, 'ledger', `c_${me.id}_${dayId}`);
+    // BUKTI LEDGER v19 (anti cetak koin): id bukti = c_{uid}_{lastCheckinAt} —
+    // rules menurunkan id yang sama dari field lastCheckinAt yang ditulis dalam
+    // transaksi yang sama, lalu mewajibkan delta == kenaikan koin. Tanpa bukti
+    // ini, Server MENOLAK kenaikan points (audit keamanan).
+    const oldLedRef = doc(fb.db, 'ledger', `c_${me.id}_${dayId}`); // bukti versi lama (pemulihan)
     const uRef = doc(fb.db, C.users, me.id);
+    const proofRef = (stamp: number) => doc(fb.db, 'ledger', `c_${me.id}_${stamp}`);
 
-    // --- PEMULIHAN STATE LAMA: bukti ledger ada tapi koin tak pernah masuk? ---
-    const led = await getDoc(ledRef).catch(() => null);
+    // --- PEMULIHAN STATE LAMA: bukti ledger versi lama ada tapi koin tak masuk? ---
+    const led = await getDoc(oldLedRef).catch(() => null);
     if (led && led.exists()) {
       const L: any = led.data() ?? {};
       const res = await runTransaction(fb.db, async (tx) => {
@@ -147,13 +185,15 @@ export async function dailyCheckIn(me: User): Promise<{ ok: boolean; reward?: nu
         const reward = Math.max(0, Math.min(6000, L.delta ?? CHECKIN_BASE));
         const streak = prev >= yesterday ? (srv.checkinStreak ?? 0) + 1 : Math.max(1, Math.min(L.streak ?? 1, (srv.checkinStreak ?? 0) + 1));
         tx.update(uRef, { points: (srv.points ?? 0) + reward, checkinStreak: streak, lastCheckinAt: now });
+        // bukti VERSI BARU wajib ikut dalam transaksi yang sama (syarat rules v19)
+        tx.set(proofRef(now), { uid: me.id, kind: 'checkin', delta: reward, streak, at: now });
         return reward;
       });
       if (res === false) return ALREADY;
       return { ok: true, reward: res as number };
     }
 
-    // --- JALUR NORMAL: satu transaction = update koin + bukti ledger ---
+    // --- JALUR NORMAL (satu-satunya): koin + lastCheckinAt + bukti ledger SEKALIGUS ---
     try {
       const reward = await runTransaction(fb.db, async (tx) => {
         const u = await tx.get(uRef);
@@ -164,30 +204,21 @@ export async function dailyCheckIn(me: User): Promise<{ ok: boolean; reward?: nu
         const streak = last >= yesterday ? (srv.checkinStreak ?? 0) + 1 : 1;
         const r = CHECKIN_BASE + (streak % 7 === 0 ? CHECKIN_STREAK_BONUS : 0);
         tx.update(uRef, { points: (srv.points ?? 0) + r, checkinStreak: streak, lastCheckinAt: now });
-        // bukti unik per hari — kalau doc-nya sudah ada rules menolak UPDATE →
+        // bukti unik per stamp — kalau doc-nya sudah ada rules menolak →
         // seluruh transaksi dibatalkan (koin tidak ikut masuk) = anti spam tap server.
-        tx.set(ledRef, { uid: me.id, kind: 'checkin', delta: r, streak, at: now });
+        tx.set(proofRef(now), { uid: me.id, kind: 'checkin', delta: r, streak, at: now });
         return r;
       });
       return { ok: true, reward };
     } catch (full: any) {
-      // ---- JALUR DARURAT (rules server belum ada blok ledger) ----
-      // Tulis koin TANPA bukti ledger — tetap ANTI DOBEL karena rules selfEconomyUpdate
-      // menolak lastCheckinAt yang maju <19 jam di sisi SERVER. Begitu rules baru
-      // terpasang, jalur penuh (dengan bukti ledger) otomatis dipakai lagi.
+      // ALREADY = normal (sudah check-in hari ini). Error lain = rules menolak
+      // (mis. koneksi/rules lama) — pesan jujur, TANPA jalur tanpa bukti.
       if (full === ALREADY || full?.already) return ALREADY;
-      const reward = await runTransaction(fb.db, async (tx) => {
-        const u = await tx.get(uRef);
-        if (!u.exists()) throw new Error('Profil tidak ditemukan.');
-        const srv: any = u.data();
-        const last = srv.lastCheckinAt ?? 0;
-        if (now - last < CHECKIN_GAP_MS) throw ALREADY;
-        const streak = last >= yesterday ? (srv.checkinStreak ?? 0) + 1 : 1;
-        const r = CHECKIN_BASE + (streak % 7 === 0 ? CHECKIN_STREAK_BONUS : 0);
-        tx.update(uRef, { points: (srv.points ?? 0) + r, checkinStreak: streak, lastCheckinAt: now });
-        return r;
-      });
-      return { ok: true, reward, fallback: true };
+      const code = String(full?.code ?? '');
+      if (code.includes('permission-denied')) {
+        return { ok: false, error: 'Server menolak (izin Firestore). Perbarui Rules Firebase lalu coba lagi.' };
+      }
+      return { ok: false, error: 'Check-in gagal (' + (code || 'galat') + '). Coba lagi.' };
     }
   } catch (e: any) {
     if (e === ALREADY || e?.already) return ALREADY;
@@ -220,17 +251,26 @@ export async function checkinLockedToday(me: User): Promise<boolean> {
   } catch { return false; }
 }
 
-/** Belanja dengan koin (kurangi saldo sendiri). Dipanggil sebelum membuat order. */
+/** Belanja dengan koin (kurangi saldo sendiri). Dipanggil sebelum membuat order.
+ *  v19 AUDIT: TRANSAKSI dengan saldo dari SERVER (bukan cache) — mustahil
+ *  double-spend dengan cache basi, dan saldo tidak pernah minus. */
 export async function spendKoin(me: User, amount: number, reason: string): Promise<{ ok: boolean; error?: string }> {
   const fb = firebase();
   if (!fb || !me?.id) return { ok: false, error: 'Belum masuk.' };
   if (amount <= 0) return { ok: false, error: 'Nominal tidak valid.' };
-  if ((me.points ?? 0) < amount) return { ok: false, error: 'Koin belum cukup.' };
   try {
-    await setDoc(doc(fb.db, 'ledger', `s_${me.id}_${Date.now()}`), {
-      uid: me.id, kind: 'spend', reason, delta: -amount, at: Date.now(),
-    }).catch(() => { });
-    await updateDoc(doc(fb.db, C.users, me.id), { points: (me.points ?? 0) - amount });
+    const { runTransaction, doc: fdoc } = await import('firebase/firestore');
+    const uRef = fdoc(fb.db, C.users, me.id);
+    await runTransaction(fb.db, async (tx) => {
+      const u = await tx.get(uRef);
+      if (!u.exists()) throw new Error('Profil tidak ditemukan.');
+      const bal = (u.data() as any)?.points ?? 0;
+      if (bal < amount) throw new Error('Koin belum cukup.');
+      tx.update(uRef, { points: bal - amount });
+      tx.set(fdoc(fb.db, 'ledger', `s_${me.id}_${Date.now()}`), {
+        uid: me.id, kind: 'spend', reason, delta: -amount, at: Date.now(),
+      });
+    });
     return { ok: true };
   } catch (e: any) {
     return { ok: false, error: e?.message ?? 'Gagal memakai koin.' };

@@ -200,7 +200,7 @@ export type ProfileLink = { label: string; url: string };
 export type BubbleStyleId =
   | 'default' | 'sketch' | 'ghost' | 'pumpkin' | 'spider' | 'otter'
   | 'diva' | 'crocodile' | 'frog' | 'cat' | 'capybara' | 'neon'
-  | 'bunny' | 'panda' | 'fox' | 'bear';
+  | 'bunny' | 'panda' | 'fox' | 'bear' | 'alien' | 'love';
 
 /** Tema warna chat — mengganti warna balon sendiri + aksen */
 export type ChatThemeId = 'default' | 'ocean' | 'sunset' | 'forest' | 'candy' | 'mono';

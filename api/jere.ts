@@ -18,6 +18,7 @@
  *  anime_quotes / anime_news
  */
 export const config = { runtime: 'nodejs' };
+import { apiKey } from './_fbrest';
 // yt_dl / ytmp3 upstream can take ~60s — without this Vercel's short default
 // kills the function mid-download and the client sees a confusing 504.
 export const maxDuration = 60;
@@ -39,7 +40,7 @@ function rateLimited(ip: string): boolean {
 
 /** GET an upstream endpoint with the server key; returns parsed JSON or null. */
 async function jereGet(path: string, params: Record<string, string>, timeoutMs = 25000): Promise<{ ok: boolean; status: number; data: any }> {
-  const key = process.env.JEREXD_APIKEY ?? '';
+  const key = await apiKey('JEREXD_APIKEY');
   const qs = new URLSearchParams({ ...params, apikey: key });
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
@@ -504,13 +505,13 @@ const listHasItems = (v: any) => Array.isArray(v) && v.length > 0;
 export default async function handler(req: any, res: any) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   if (req.method === 'GET') {
-    return res.status(200).json({ ok: true, configured: !!process.env.JEREXD_APIKEY, service: 'zeroid-jere-proxy' });
+    return res.status(200).json({ ok: true, configured: !!(await apiKey('JEREXD_APIKEY')), service: 'zeroid-jere-proxy' });
   }
   if (req.method !== 'POST') return fail(res, 405, 'Method not allowed');
 
   const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ?? 'local';
   if (rateLimited(ip)) return fail(res, 429, 'Terlalu banyak permintaan. Coba lagi beberapa menit lagi.');
-  if (!process.env.JEREXD_APIKEY) return fail(res, 503, 'Layanan konten belum dikonfigurasi (JEREXD_APIKEY tidak ada di server).');
+  if (!(await apiKey('JEREXD_APIKEY'))) return fail(res, 503, 'Layanan konten belum dikonfigurasi (JEREXD_APIKEY tidak ada di server).');
 
   let body: any;
   try { body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body; } catch { return fail(res, 400, 'Body tidak valid.'); }
@@ -531,7 +532,7 @@ export default async function handler(req: any, res: any) {
   const run = routes[action];
   if (!run && !isAnime) return fail(res, 400, 'Aksi tidak dikenal.');
   // musik masih butuh key Jerexd; ANIME TIDAK LAGI (jalan penuh via siputzx keyless + fallback)
-  if (!process.env.JEREXD_APIKEY && !isAnime) return fail(res, 503, 'Layanan konten belum dikonfigurasi (JEREXD_APIKEY tidak ada di server).');
+  if (!(await apiKey('JEREXD_APIKEY')) && !isAnime) return fail(res, 503, 'Layanan konten belum dikonfigurasi (JEREXD_APIKEY tidak ada di server).');
 
   // ---------------- ANIME: SIPUTZX 27 endpoint → Jikan/ANN → gagal ----------------
   if (isAnime) {

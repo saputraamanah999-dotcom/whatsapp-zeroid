@@ -49,9 +49,31 @@ class FirestoreSignaling implements Signaling {
 
 const signaling: Signaling = firebase() ? new FirestoreSignaling() : new BroadcastSignaling();
 
+/**
+ * ICE servers — PANGGILAN NYATA lintas kota/negara.
+ *
+ * STUN saja tidak cukup di Indonesia: sebagian besar seluler/i-fi di balik
+ * CGNAT/simetris NAT → tanpa TURN media gagal tersambung ("belum berfungsi").
+ * Kini memakai TURN relay publik gratis (openrelay / metered) sebagai cadangan:
+ *  - udp :80 & :3478 (cepat),
+ *  - tcp :443 & 443?transport=tcp (tembus firewall ketat),
+ *  - turns tcp :443?transport=tcp (TLS, paling tahan blokir).
+ * Env EXPO_PUBLIC_TURN_* tetap bisa menimpa/menambah relay pribadi.
+ */
 export const ICE_SERVERS: RTCIceServer[] = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-  // Optional TURN (needed behind symmetric NAT). Set via EXPO_PUBLIC_TURN_URL / _USER / _CRED.
+  {
+    urls: [
+      'turn:openrelay.metered.ca:80',
+      'turn:openrelay.metered.ca:3478',
+      'turn:openrelay.metered.ca:443',
+      'turn:openrelay.metered.ca:443?transport=tcp',
+      'turns:openrelay.metered.ca:443?transport=tcp',
+    ],
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  // relay pribadi (opsional) — kalau diisi, dicoba lebih dulu
   ...(process.env.EXPO_PUBLIC_TURN_URL
     ? [{
         urls: (process.env.EXPO_PUBLIC_TURN_URL as string).split(',').map((x: string) => x.trim()).filter(Boolean),
@@ -71,6 +93,7 @@ export class CallSession {
   private unsub: (() => void) | null = null;
   private facing: 'user' | 'environment' = 'user';
   private closed = false;
+  private restarted = false;
 
   constructor(
     private o: {
@@ -122,7 +145,23 @@ export class CallSession {
     this.pc.onconnectionstatechange = () => {
       const s = this.pc?.connectionState;
       if (s === 'connected') { this.o.onState('connected'); void this.boostHd(); }
-      else if (s === 'failed') this.o.onState('failed');
+      else if (s === 'failed') {
+        // pemulihan otomatis 1x: restart ICE sebelum menyerah (NAT pindah jalur)
+        if (!this.restarted) {
+          this.restarted = true;
+          try { this.pc?.restartIce?.(); } catch {}
+          void (async () => {
+            try {
+              if (this.o.isCaller && this.pc) {
+                const offer = await this.pc.createOffer({ iceRestart: true, offerToReceiveAudio: true, offerToReceiveVideo: this.o.video });
+                await this.pc.setLocalDescription(offer);
+                this.send('offer', { type: offer.type, sdp: offer.sdp });
+              }
+            } catch { /* biarkan gagal seperti biasa */ }
+          })();
+          this.o.onState('connecting');
+        } else this.o.onState('failed');
+      }
       else if (s === 'connecting') this.o.onState('connecting');
     };
     this.unsub = signaling.listen(this.o.me, this.o.callId, (s) => this.onSignal(s));

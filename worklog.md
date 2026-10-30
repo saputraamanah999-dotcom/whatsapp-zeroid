@@ -319,3 +319,93 @@
   rate limit; versi 1.5.0/versionCode 6; docs/VEXO_SETUP.md (langkah Vercel).
 - CATATAN sandbox: output terminal menyaring "[m" (main → ain) — dulu mengira
   trigger workflow rusak; ternyata benar [main]. Verifikasi bracket-safe: OK.
+
+## 2026-10-30 — BATCH 9: AI GUARD penuh + VOUCHER + REFF ANTI AKUN GANDA + REALTIME + PANGGILAN NYATA (rules v19, APK 1.6.0)
+
+### REALTIME TANPA DELAY (akar "harus buka chat dulu baru pesan muncul")
+- Listener pesan kini GLOBAL: syncMessageSubs() melanggani pesan SEMUA chat
+  anggota (maks 60, prioritas chat teratas) setiap snapshot chats — pesan masuk,
+  badge & preview langsung jalan walau chat belum pernah dibuka. Menutup
+  ChatRoom otomatis memasang kembali listener pasif (tidak ada lagi "telat").
+
+### AI GUARD — moderator AI berlapis (server-first, anti penyalahgunaan)
+- Server action `guard-enforce`: klien anggota melaporkan pesan; SERVER membaca
+  pesan ASLI, memverifikasi ulang bukti (porn/kata kasar/spam), pesan wajib
+  segar ≤10 menit, pelapor ≠ pelanggar, staff (admin/developer/moderator) tak
+  pernah dibanned. Sanksi sesuai skill di guardconfig: kata kasar → ban jam,
+  18+ → ban hari + kunci IP/perangkat (hash divalidasi format hex — anti
+  collateral ban), spam → ban jam. Banding lama TIDAK dihapus. Semua tercatat
+  di guardlog + push FCM ke admin.
+- ADMIN PANEL tab "AI Guard": toggle skill (kata kasar / 18+ / spam) + durasi
+  ban + daftar laporan real-time + tombol ban cepat.
+- Kata kasar versi SERVER hanya makian keras (bukan 'anjing/babi/bodoh' dsb —
+  itu cukup menangguhkan grup 60 menit lewat klien, tanpa ban akun).
+
+### LOGIN GUARD — pelindung akun admin/developer
+- Gagal login ke akun admin/developer dilaporkan ke /api/login-guard:
+  hitungan berbasis hash IP (server-side, deviceHash klien TIDAK dipercaya),
+  respons selalu {ok:true} (anti orakel enumerasi email admin).
+  3–5x gagal/15 menit → IP+perangkat kunci 6 JAM; 6x+ → PERMANEN; laporan +
+  push FCM ke developer tiap percobaan. Device ban hanya untuk hash hex valid.
+
+### VOUCHER DISKON (admin panel → Premium)
+- Admin membuat kode (diskon %, kuota, masa aktif) di tab "Voucher"; user
+  menukar di halaman Zeroid Premium — harga semua paket langsung tampak
+  berkurang (harga lama dicoret). Penukaran TRANSAKSI + rules ketat:
+  usedCount tepat +1, usedBy += saya (mustahil hapus/menambah nama lain),
+  voucher aktif/belum kadaluarsa/kuota sisa/belum dipakai. Order gagal =
+  koin direfund & voucher tidak hangus (ditukar SETELAH order sukses);
+  kode voucher tercatat di order + pesan admin utk verifikasi.
+
+### REFFERAL ANTI AKUN GANDA (1 device/IP = 1 reff selamanya)
+- Klaim referral kini TRANSAKSI dengan bukti ledger/ref_dev_{hash} &
+  ledger/ref_ip_{hash} — siapa pun yang klaim duluan menang; akun kedua/
+  ketiga dari HP/internet yang sama TIDAK lagi dapat koin.
+- AUDIT rules: reward PASTI (pengundang tepat +5000, pendatang +1000,
+  kind 'referral_newbie') — path raw v8 ditutup.
+
+### ANTI CETAK KOIN (audit keamanan — CRITICAL fix)
+- Koin NAIK kini WAJIB bukti ledger dalam transaksi yang sama: check-in
+  (ledger/c_{uid}_{lastCheckinAt}, delta == kenaikan) atau referral
+  (ledger/{uid}_ref). Tulis 'points' saja tanpa bukti = DITOLAK server.
+  Saldo tak pernah minus; spendKoin TRANSAKSI dgn saldo server (anti
+  double-spend cache basi). Check-in tetap 1x/hari, tombol tetap terkunci.
+
+### PANGGILAN NYATA LINTAS NEGARA
+- TURN relay gratis (openrelay udp/tcp/tls) + ICE restart otomatis 1x saat
+  failed — panggilan tersambung di balik CGNAT seluler Indonesia, bukan
+  cuma satu jaringan. (WebRTC asli P2P via signals Firestore — bukan virtual.)
+
+### MUSIK MP3 + UI
+- Lagu profil (kartu YouTube) kini memakai ENGINE MP3 ZEROID MUSIC
+  (audio asli, tetap bunyi keluar halaman/latar belakang) — bukan lagi
+  iframe mp4. Web + native sama-sama lewat lib/player.
+
+### LAIN-LAIN
+- Centang biru di samping NAMA di kepala chat (Header titleNode) — semua
+  akun terverifikasi termasuk developer; UserBadges ikut tampil.
+- Teks "ikut dari pemilik" dihapus (diganti deskripsi verifikasi bersih).
+- Kartu Premium & Koin di tab Saya: KECIL, kalem, badge SVG, TANPA harga
+  ("mulai Rp10.000" dihapus).
+- Layar ban baru ala layar blokir: avatar + ikon LARANGAN SVG merah, alasan,
+  durasi (hitung mundur utk ban sementara; ban permanen = akun tak bisa
+  dipakai + akun baru di perangkat itu ditolak server, hanya admin bisa buka),
+  form banding — semua Bahasa Indonesia.
+- Balon obrolan: SVG kreasi ORIGINAL baru (lapisan gradien, highlight,
+  blush, mahkota berpermata, antena alien bercahaya, hati melayang) +
+  ANIMASI mengambang halus; 2 gaya baru: Alien & Cinta.
+- Masukan: query daftar milik user TANPA orderBy composite → error
+  "query requires an index" HILANG total (sort di klien).
+- Kunci AI otomatis: kunci penyedia (Sylvatica/Jerexd/Vexo/ImgBB) kini
+  punya cadangan OTOMATIS di Firestore secrets/ai (rules: klien DILARANG) —
+  Vexo API aktif TANPA perlu buka dashboard Vercel. GET /api/ai menampilkan
+  status penyedia sebenarnya (vexo kini true).
+- Admin panel: HAPUS GRUP/SALURAN permanen (chat + pesan) dengan konfirmasi.
+- Chat AI bersifat privat (rules: wajib anggota — bukan dunia terbuka).
+- Orders: harga/hari dibatasi wajar (Rp0–200.000 / ≤400 hari) — anti order palsu.
+- Seed CI idempoten sejati (GET dulu — tak pernah menimpa config admin).
+- Rules v19 LIVE: vouchers, guardconfig, guardlog, secrets (false), ledger
+  bukti referral/check-in, selfEconomy proof, orders bounds, ai privat.
+- Seed otomatis: guardconfig/main (skill default), vouchers/_schema,
+  config/ai (status 3 penyedia), secrets/ai (kunci server).
+- Versi 1.6.0 / versionCode 7.

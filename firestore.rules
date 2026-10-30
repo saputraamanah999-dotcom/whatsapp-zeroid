@@ -1,5 +1,11 @@
 rules_version = '2';
-// ZEROID WHATSAPP — FIRESTORE RULES v18 (WALLPAPER FX + TAMPILAN PERSONAL)
+// ZEROID WHATSAPP — FIRESTORE RULES v19 (VOUCHER + AI GUARD + REFF ANTI AKUN GANDA)
+// v19: + vouchers (admin buat kode diskon; user HANYA bisa pola penukaran:
+//        usedCount+1 & usedBy+=me pada voucher aktif/belum kadaluarsa/kuota sisa)
+//      + guardconfig (skill AI Guard — read semua user login, write admin)
+//      + guardlog (laporan AI Guard & login-guard — admin only)
+//      + ledger ref_dev_*/ref_ip_* (bukti anti akun ganda referral — boleh dibaca
+//        user login untuk cek klaim, ditulis sekali oleh pemiliknya)
 // v18: + 'wallpaperFx' (efek wallpaper chat: opasitas per chat/default) di
 //       whitelist profil sendiri. Perbaikan tampilan pribadi v16 (links/bubble/
 //       wallpapers/chatTheme) tetap. Semua field ini HANYA bisa diubah oleh
@@ -53,9 +59,11 @@ service cloud.firestore {
     function chatExists(chatId) { return exists(/databases/$(db)/documents/chats/$(chatId)); }
     function chatType(chatId) { return chatExists(chatId) ? chat(chatId).get('type', '') : ''; }
     function chatMembers(chatId) { return chatExists(chatId) ? chat(chatId).get('members', []) : []; }
+    // v19 AUDIT: chat 'ai' TIDAK lagi terbuka untuk semua — wajib anggota
+    // (dulu user mana pun bisa membaca percakapan AI milik user lain).
     function isMemberOf(chatId) {
       return signedIn() && chatExists(chatId) &&
-        (chatType(chatId) == 'global' || chatType(chatId) == 'channel' || chatType(chatId) == 'ai' || me() in chatMembers(chatId));
+        (chatType(chatId) == 'global' || chatType(chatId) == 'channel' || me() in chatMembers(chatId));
     }
     function isChatAdmin(chatId) { return signedIn() && chatExists(chatId) && me() in chat(chatId).get('admins', []); }
 
@@ -97,8 +105,21 @@ service cloud.firestore {
     //  - referralCode / referredBy hanya bisa diisi SEKALI (tidak bisa diganti)
     function selfEconomyUpdate() {
       let k = request.resource.data.diff(resource.data).affectedKeys();
+      // v19 AUDIT (anti cetak koin): koin NAIK wajib ada BUKTI ledger dalam
+      // transaksi yang sama — referral (ledger/{me}_ref, delta == kenaikan) atau
+      // check-in (ledger/c_{uid}_{lastCheckinAt}, delta == kenaikan). Tulisan
+      // 'points' saja tanpa bukti = DITOLAK server. Koin turun (belanja) bebas,
+      // asal tidak minus. (getAfter di dokumen yang belum ada = error → karena
+      // rules short-circuit, hanya dievaluasi saat koin memang naik.)
+      let oldP = resource.data.get('points', 0);
+      let newP = request.resource.data.get('points', oldP);
+      let gain = newP - oldP;
       return k.hasOnly(['points','bestStreak','checkinStreak','lastCheckinAt','referralCode','referredBy','fireRevives'])
-        && (!k.hasAny(['points'])
+        && newP >= 0
+        && (gain <= 0
+            || getAfter(/databases/$(db)/documents/ledger/$(me() + '_ref')).data.get('delta', 0) == gain
+            || getAfter(/databases/$(db)/documents/ledger/$('c_' + me() + '_' + string(request.resource.data.get('lastCheckinAt', 0)))).data.get('delta', 0) == gain)
+        && (gain <= 0
             || request.resource.data.get('points', 0) <= resource.data.get('points', 0) + 6000)
         && (!k.hasAny(['bestStreak'])
             || request.resource.data.get('bestStreak', 0) <= resource.data.get('bestStreak', 0) + 1)
@@ -117,10 +138,14 @@ service cloud.firestore {
     // Syarat: hanya menyentuh points+refCount, refCount tepat +1, koin naik ≤600,
     // dan ledger/{me}_ref (bukti unik per pendatang) menunjuk ke pengundang ini.
     function referralCreditUpdate(targetUid) {
+      // v19 AUDIT: nilai reward PASTI (tidak bisa dinaikkan) + bukti ledger
+      // wajib kind 'referral_newbie' & delta 1000 — path raw v8 ditutup.
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['points','refCount'])
-        && request.resource.data.get('points', 0) - resource.data.get('points', 0) <= 6000
+        && request.resource.data.get('points', 0) - resource.data.get('points', 0) == 5000
         && request.resource.data.get('refCount', 0) == resource.data.get('refCount', 0) + 1
-        && getAfter(/databases/$(db)/documents/ledger/$(me() + '_ref')).data.get('to', '') == targetUid;
+        && getAfter(/databases/$(db)/documents/ledger/$(me() + '_ref')).data.get('to', '') == targetUid
+        && getAfter(/databases/$(db)/documents/ledger/$(me() + '_ref')).data.get('delta', 0) == 1000
+        && getAfter(/databases/$(db)/documents/ledger/$(me() + '_ref')).data.get('kind', '') == 'referral_newbie';
     }
 
     // Which chat fields ANY member may touch (personal bookkeeping + send preview + patungan pot).
@@ -462,8 +487,13 @@ service cloud.firestore {
 
     // ---- premium orders (manual payment / koin, admin approved) ----
     match /orders/{oid} {
+      // v19 AUDIT: harga/hari dibatasi wajar (anti pesanan palsu Rp1 / 100 tahun).
       allow create: if signedIn() && notBanned() && request.resource.data.get('userId', '') == me()
-                    && request.resource.data.get('status', '') == 'pending';
+                    && request.resource.data.get('status', '') == 'pending'
+                    && request.resource.data.get('price', 0) >= 0
+                    && request.resource.data.get('price', 0) <= 200000
+                    && request.resource.data.get('days', 0) >= 0
+                    && request.resource.data.get('days', 0) <= 400;
       allow read: if signedIn() && (resource.data.get('userId', '') == me() || isMod());
       // only admins decide; status/decidedAt only
       allow update: if isAdmin()
@@ -513,7 +543,11 @@ service cloud.firestore {
       // FIX v14: get pada doc yang BELUM ADA tidak lagi ditolak (resource null saat
       // get doc kosong → pakai !exists() sebagai jalur) supaya getDoc pra-transaksi
       // check-in tidak melempar permission-denied palsu.
-      allow read: if signedIn() && (!exists() || resource.data.get('uid', me()) == me() || isMod());
+      // v19: bukti referral per perangkat/IP (ref_dev_*/ref_ip_*) boleh DIBACA
+      // user login mana pun (isinya hanya uid/kind/at — dipakai cek "perangkat ini
+      // sudah pernah klaim referral?"); penulisannya tetap sekali oleh pemilik.
+      allow read: if signedIn() && (!exists() || resource.data.get('uid', me()) == me() || isMod()
+                    || lid.matches('^ref_(dev|ip)_.*'));
       allow create: if signedIn() && notBanned()
                     && request.resource.data.get('uid', '') == me()
                     && request.resource.data.get('delta', 0) <= 6000
@@ -524,6 +558,44 @@ service cloud.firestore {
                         && request.resource.data.get('delta', 0) <= 6000
                         && request.resource.data.get('delta', 0) >= 0);
       allow update, delete: if false; // append-only
+    }
+
+    // ---- v19 VOUCHER DISKON (admin panel → ditukar di Zeroid Premium) ----
+    match /vouchers/{vid} {
+      allow read: if signedIn(); // isinya bukan rahasia (kode dibagikan admin)
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        // PENUKARAN OLEH USER — pola ketat: HANYA usedCount+1 & usedBy+=me,
+        // voucher aktif, belum kedaluarsa, kuota masih ada, user belum memakai;
+        // usedBy baru wajib memuat SEMUA entri lama (ukuran +1) — mustahil
+        // menghapus/menambah nama lain.
+        || (signedIn() && notBanned()
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedCount','usedBy'])
+            && request.resource.data.get('usedCount', 0) == resource.data.get('usedCount', 0) + 1
+            && request.resource.data.get('usedBy', []).size() == resource.data.get('usedBy', []).size() + 1
+            && me() in request.resource.data.get('usedBy', [])
+            && !(me() in resource.data.get('usedBy', []))
+            && request.resource.data.get('usedBy', []).hasAll(resource.data.get('usedBy', []))
+            && resource.data.get('active', false) == true
+            && (resource.data.get('expiresAt', 0) == 0 || resource.data.get('expiresAt', 0) > request.time.toMillis())
+            && resource.data.get('usedCount', 0) < resource.data.get('maxUses', 1));
+    }
+
+    // ---- v19 AI GUARD: konfigurasi skill + log eksekusi ----
+    match /guardconfig/{gid} {
+      allow read: if signedIn(); // klien membaca untuk tampilkan status
+      allow write: if isAdmin();
+    }
+    match /guardlog/{lid} {
+      allow read: if isMod();
+      allow write: if false; // ditulis HANYA oleh server (service account)
+    }
+
+    // ---- v19 SECRETS SERVER (kunci API cadangan) — DILARANG untuk semua klien ----
+    // Hanya kode server dengan service account yang bisa membaca/menulis
+    // (service account melewati rules). Isi: secrets/ai { JEREXD_APIKEY, ... }.
+    match /secrets/{sid} {
+      allow read, write: if false;
     }
 
     // ---- announcements (admin only writes, everyone reads) ----

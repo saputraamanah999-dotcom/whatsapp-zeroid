@@ -47,7 +47,7 @@ import { AVATAR_COLORS, setThemeMode, ThemeMode } from './theme';
 import { pushBanner, activeChatId, navRef } from './bus';
 import { presentLocal } from './notify';
 import { resolveMentions, MentionResolution } from './mentions';
-import { askAI, thinkAI, analyzeImage, AI_PROVIDERS, askBotReply, webSearch } from './ai';
+import { askAI, thinkAI, analyzeImage, AI_PROVIDERS, askBotReply, webSearch, guardEnforce } from './ai';
 import { firebase, isFirebaseConfigured, COLLECTIONS as C, firebaseConfig } from './firebase';
 import { fcmPush } from './fcm';
 import { recordFbError } from './health';
@@ -399,9 +399,40 @@ function clearAllSubs() {
   chatSubs.length = callSubs.length = miscSubs.length = adminSubs.length = 0;
   msgSubs.forEach((u) => { try { u(); } catch {} });
   msgSubs.clear();
+  msgLimits.clear();
   [userSub, storySub, notifSub].forEach((u) => { try { u?.(); } catch {} });
   userSub = storySub = notifSub = null;
   foregroundBannerReady = false;
+}
+
+/**
+ * REAL-TIME TANPA DELAY — pesan masuk langsung muncul di semua daftar
+ * (badge, preview, notifikasi) TANPA harus membuka chatnya dulu.
+ * Dulu: listener pesan hanya dipasang saat ChatRoom dibuka → chat yang belum
+ * dibuka "telat" (badge & preview baru muncul setelah chat dibuka).
+ * Sekarang: setiap chat yang jadi anggota otomatis dilanggani pesannya
+ * (maks MAX_GLOBAL_MSG_SUBS untuk hemat kuota — chat paling atas prioritas).
+ */
+const MAX_GLOBAL_MSG_SUBS = 60;
+function syncMessageSubs() {
+  const fb = firebase();
+  if (!fb) return;
+  const member = Object.values(db.chats)
+    .filter((c) => c.id !== '_schema' && isMember(c, uid0 ?? ''))
+    .sort((a, b) => (chatLastMsg(b, uid0 ?? '')?.createdAt ?? b.createdAt ?? 0) - (chatLastMsg(a, uid0 ?? '')?.createdAt ?? a.createdAt ?? 0));
+  const want = new Set(member.slice(0, MAX_GLOBAL_MSG_SUBS).map((c) => c.id));
+  // berhenti langganan chat yang sudah bukan anggota / keluar batas
+  for (const id of [...msgSubs.keys()]) {
+    if (!want.has(id)) {
+      const isRoomOpen = activeChatId === id;
+      if (!isRoomOpen) { try { msgSubs.get(id)?.(); } catch {} msgSubs.delete(id); msgLimits.delete(id); }
+    }
+  }
+  let added = 0;
+  for (const id of want) {
+    if (!msgSubs.has(id)) { subscribeMessages(id); added++; }
+  }
+  if (added) bump();
 }
 
 function attachUserSubs(fbUid: string) {
@@ -437,6 +468,10 @@ function attachUserSubs(fbUid: string) {
     });
     db.chats = chats; bump();
     checkFireDead();
+    // REAL-TIME TANPA DELAY: langgani pesan semua chat anggota (dibuka atau tidak).
+    // Dipanggil DI SETIAP snapshot (bukan hanya saat daftar berubah) supaya
+    // listener yang ditutup ChatRoom otomatis dipasang kembali.
+    syncMessageSubs();
   }, (e) => console.warn('chats sub', e)));
 
   // public discovery: global chat + channels
@@ -444,6 +479,7 @@ function attachUserSubs(fbUid: string) {
     const chats = { ...db.chats };
     s.docChanges().forEach((c) => { chats[c.doc.id] = mapChat(c.doc.id, c.doc.data()); });
     db.chats = chats; bump();
+    syncMessageSubs();
   }, (e) => console.warn('public chats sub', e)));
 
   // stories (24h)
@@ -608,6 +644,9 @@ export function unsubscribeMessages(chatId: string) {
   msgSubs.get(chatId)?.();
   msgSubs.delete(chatId);
   msgLimits.delete(chatId);
+  // GLOBAL REAL-TIME: langsung pasang kembali listener pasif untuk chat ini —
+  // menutup ChatRoom tidak boleh membuat chatnya "telat" menerima pesan.
+  syncMessageSubs();
 }
 
 /** Load one older page (another 60 messages). */
@@ -683,6 +722,10 @@ async function autoSuspendGroup(chat: Chat, msg: Message, v: { kind: string; rea
       autoBanAt: now,
       modOffense: clean(offense),
     });
+    // AI GUARD SERVER-SIDE: server memverifikasi ulang bukti lalu mengeksekusi
+    // sanksi sesuai skill yang diatur admin (ban jam/hari, lock IP/perangkat,
+    // guardlog + push ke admin panel). Sanksi berlaku walau tak ada admin online.
+    void guardEnforce(chat.id, msg.id, v.kind as 'porn' | 'profanity' | 'sticker_spam' | 'media_bomb');
     audit('auto_suspend', chat.id, `${v.kind} oleh ${who} (msg ${msg.id})`);
     for (const a of Object.values(db.users).filter((x) => x.role === 'admin' || x.role === 'developer')) {
       notifyFor(a.id, 'admin', `${label} ditangguhkan otomatis`, `${chat.name ?? label}: ${v.label} dari ${who}. Buka grupnya untuk mengeksekusi ban pengirim.`, { chatId: chat.id });
@@ -885,6 +928,8 @@ export async function initStore() {
         blocked: [], contacts: [],
       }).catch(() => {});
       void recordUsermeta(u.uid);
+      // PANDUAN OTOMATIS — Zeroid AI menyapa user baru dengan panduan lengkap
+      void sendAiWelcome(u);
       // referral link promosi: beri reward otomatis bila daftar lewat ?ref=CODE
       if (isWeb) captureRefFromUrl();
       void applyPendingReferral({ id: u.uid, points: 0 } as User).then((r) => {
@@ -1188,8 +1233,47 @@ export async function login(email: string, password: string): Promise<{ ok: bool
     await signInWithEmailAndPassword(fb.auth, email, password);
     return { ok: true };
   } catch (e: any) {
+    // LOGIN GUARD: gagal masuk dilaporkan ke server — bila email yang dicoba
+    // milik akun admin/developer, 3x gagal = IP + perangkat penyerang DIBAN KERAS
+    // permanen oleh server (dilaporkan ke developer + guardlog).
+    reportFailedLogin(email);
     return { ok: false, error: fbError(e) };
   }
+}
+
+/** Lapor percobaan login gagal (fire-and-forget, tanpa menunggu). */
+function reportFailedLogin(email: string) {
+  void (async () => {
+    try {
+      const dh = await getDeviceHash();
+      await fetch('/api/login-guard', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, cache: 'no-store',
+        body: JSON.stringify({ email, deviceHash: dh }),
+      });
+    } catch { /* offline — abaikan */ }
+  })();
+}
+
+/**
+ * PANDUAN USER BARU — Zeroid AI mengchat panduan lengkap SEKALI begitu akun
+ * dibuat (email/password maupun Google). Server yang menulis pesannya
+ * (idempoten) — device developer tidak perlu online.
+ */
+const welcomedKey = (uid: string) => `zeroid-welcomed-${uid}`;
+export async function sendAiWelcome(u: FBUser | { uid: string; getIdToken?: (f?: boolean) => Promise<string> }): Promise<void> {
+  try {
+    const uid = u.uid;
+    if (isWeb) { try { if (window.localStorage.getItem(welcomedKey(uid)) === '1') return; } catch {} }
+    else { try { if ((await AsyncStorage.getItem(welcomedKey(uid))) === '1') return; } catch {} }
+    const tok = u.getIdToken ? await u.getIdToken() : '';
+    if (!tok) return;
+    await fetch('/api/ai', {
+      method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tok}` },
+      body: JSON.stringify({ action: 'bot-welcome' }),
+    });
+    if (isWeb) { try { window.localStorage.setItem(welcomedKey(uid), '1'); } catch {} }
+    else { try { await AsyncStorage.setItem(welcomedKey(uid), '1'); } catch {} }
+  } catch { /* best effort */ }
 }
 
 export async function loginGoogle(): Promise<{ ok: boolean; error?: string }> {
@@ -1650,6 +1734,42 @@ export async function deleteChat(chatId: string) {
   if (c?.type === 'group') void leaveGroup(chatId);
   else if (c?.type === 'channel') void removeMember(chatId, me.id);
   else if (c && !c.archivedBy.includes(me.id)) toggleChatFlag(chatId, 'archivedBy');
+}
+
+/**
+ * ADMIN PANEL — HAPUS GRUP/SALURAN SEPENUHNYA (developer/admin global):
+ * dokumen chat + pesan-pesannya dihapus permanen dari server untuk SEMUA
+ * anggota (bukan cuma "keluar"). Optimis dari UI, server-first, error jujur.
+ */
+export async function adminDeleteChat(chatId: string): Promise<{ ok: boolean; error?: string }> {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFullAdmin(me)) return { ok: false, error: 'Hanya admin/developer.' };
+  const c = db.chats[chatId];
+  if (!c) return { ok: false, error: 'Chat tidak ditemukan.' };
+  try {
+    // hapus pesan (maks 600 terbaru — sisanya ikut hilang dari akses karena
+    // dokumen chat-nya sudah tidak ada)
+    const snap = await getDocs(query(collection(fb.db, C.chats, chatId, 'messages'), fsLimit(600))).catch(() => null);
+    if (snap && !snap.empty) {
+      const docs = snap.docs;
+      for (let i = 0; i < docs.length; i += 250) {
+        const batch = writeBatch(fb.db);
+        docs.slice(i, i + 250).forEach((d) => batch.delete(d.ref));
+        await batch.commit().catch(() => {});
+      }
+    }
+    await deleteDoc(doc(fb.db, C.chats, chatId));
+    // optimis: hilang dari semua daftar detik ini juga
+    const chats = { ...db.chats };
+    delete chats[chatId];
+    db.chats = chats;
+    bump();
+    audit('admin_delete_chat', chatId, `${c.type} "${c.name ?? chatId}" dihapus permanen`);
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: fbError(e) };
+  }
 }
 
 export function markRead(chatId: string) {
@@ -3182,7 +3302,7 @@ export function planActive(k: ProductKey, u?: User | null): boolean {
   return false;
 }
 
-export function createOrder(product: ProductKey, planIdx: number, methodKey: string, forChat?: { id: string; name?: string }): { orderId: string; chatId: string } | { error: string } | null {
+export function createOrder(product: ProductKey, planIdx: number, methodKey: string, forChat?: { id: string; name?: string }, priceOverride?: number, voucherCode?: string): { orderId: string; chatId: string } | { error: string } | null {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb) return null;
@@ -3206,7 +3326,10 @@ export function createOrder(product: ProductKey, planIdx: number, methodKey: str
     const mins = Math.ceil(waitMs / 60000);
     return { error: `Limit beli tercapai (maks ${ORDER_MAX}x per jam). Coba lagi dalam ${mins} menit.` };
   }
-  const method = PAYMENT_METHODS.find((m) => m.key === methodKey) ?? PAYMENT_METHODS[0];
+  const method = PAYMENT_METHODS.find((m) => m.key === methodKey) ?? (methodKey === 'koin' ? { key: 'koin', label: 'Koin Zeroid' } : PAYMENT_METHODS[0]);
+  // VOUCHER: harga akhir = harga paket - diskon voucher (pembulatan ke atas)
+  const finalPrice = priceOverride != null && priceOverride > 0 ? Math.ceil(priceOverride) : plan.price;
+  const voucherNote = finalPrice < plan.price ? ` · voucher -${Math.round(((plan.price - finalPrice) / plan.price) * 100)}%` : '';
   // find or create the admin direct chat (first admin user)
   const admin = Object.values(db.users).find((u) => u.role === 'admin') ?? Object.values(db.users).find((u) => u.role === 'developer');
   const chatId = admin ? openDirect(admin.id) : openDirect(me.id);
@@ -3214,14 +3337,15 @@ export function createOrder(product: ProductKey, planIdx: number, methodKey: str
   // catat percobaan (untuk limit) — best effort
   updateDoc(doc(fb.db, C.users, me.id), { orderAttempts: [...(me.orderAttempts ?? []).filter((t) => Date.now() - t < ORDER_WINDOW), Date.now()] }).catch(() => {});
   addDoc(collection(fb.db, C.orders), {
-    userId: me.id, product, plan: plan.label, price: plan.price, days: plan.days,
+    userId: me.id, product, plan: plan.label, price: finalPrice, listPrice: plan.price, days: plan.days,
     status: 'pending', method: method.label, chatId, createdAt: serverTimestamp(),
+    ...(voucherCode ? { voucherCode: voucherCode.toUpperCase().slice(0, 16) } : {}),
     ...(forChat ? { forChatId: forChat.id, forChatName: forChat.name ?? '' } : {}),
   }).catch(() => {});
   if (admin) {
     const label = forChat ? `${p.title} untuk "${forChat.name ?? forChat.id}"` : p.title;
-    sendMessage(chatId, { type: 'order', orderId, text: `${label} · ${plan.label} · ${rupiah(plan.price)}` });
-    notifyFor(admin.id, 'admin', 'Pesanan baru', `${me.name} memesan ${label} (${rupiah(plan.price)}) via ${method.label}`, { chatId });
+    sendMessage(chatId, { type: 'order', orderId, text: `${label} · ${plan.label} · ${rupiah(finalPrice)}${voucherNote}${voucherCode ? ` · voucher ${voucherCode.toUpperCase()}` : ''}` });
+    notifyFor(admin.id, 'admin', 'Pesanan baru', `${me.name} memesan ${label} (${rupiah(finalPrice)}${voucherNote}${voucherCode ? `, voucher ${voucherCode.toUpperCase()}` : ''}) via ${method.label}`, { chatId });
   }
   return { orderId, chatId };
 }

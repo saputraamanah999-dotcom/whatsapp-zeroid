@@ -46,7 +46,11 @@ export async function submitFeedback(input: { uid: string; name: string; text: s
   }
 }
 
-/** Langganan masukan milik SATU user (real-time). */
+/** Langganan masukan milik SATU user (real-time).
+ *  PENTING: TANPA orderBy('at') — kombinasi where(uid)+orderBy(at) butuh
+ *  composite index yang menampilkan error "query requires an index" kalau
+ *  indexnya belum jadi. Sorting dilakukan di klien sehingga daftar SELALU
+ *  tampil tanpa syarat index apa pun. */
 export function subscribeMyFeedback(
   uid: string,
   cb: (list: Feedback[]) => void,
@@ -54,13 +58,17 @@ export function subscribeMyFeedback(
 ): () => void {
   const fb = firebase();
   if (!fb) { cb([]); return () => {}; }
-  const q = query(collection(fb.db, C.feedback), where('uid', '==', uid), orderBy('at', 'desc'), fsLimit(30));
-  return onSnapshot(q, (s) => cb(s.docs.map((d) => {
-    const v = d.data() as any;
-    return { id: d.id, ...v, at: toMs(v.at), repliedAt: toMs(v.repliedAt) } as Feedback;
-  })), (e) => {
+  const q = query(collection(fb.db, C.feedback), where('uid', '==', uid), fsLimit(60));
+  return onSnapshot(q, (s) => {
+    const list = s.docs.map((d) => {
+      const v = d.data() as any;
+      return { id: d.id, ...v, at: toMs(v.at), repliedAt: toMs(v.repliedAt) } as Feedback;
+    });
+    list.sort((a, b) => (b.at ?? 0) - (a.at ?? 0));
+    cb(list.slice(0, 30));
+  }, (e) => {
     // JANGAN senyap-senyap tampilkan kosong — user harus tahu kalau daftarnya
-    // gagal dimuat (mis. index belum siap / izin).
+    // gagal dimuat (mis. izin).
     onError?.(String(e?.message ?? 'Gagal memuat masukan.'));
     cb([]);
   });
