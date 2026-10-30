@@ -67,16 +67,29 @@ async function publish(token, project, release, fileName, filePath) {
  */
 async function ensureIndex(token, project, spec) {
   const base = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/indexes`;
-  const list = await fetch(base, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.json());
-  const same = (a, b) => a.length === b.length && a.every((f, i) => f.fieldPath === b[i].fieldPath && (f.order ?? 'ASCENDING') === (b[i].order ?? 'ASCENDING'));
-  const exists = (list.indexes ?? []).some((ix) => ix.collectionGroup === spec.collectionGroup && same(ix.fields ?? [], spec.fields));
+  // baca daftar index — kalau gagal (HTML/redirect), tetap LANJUT mencoba membuat
+  // (create idempotent cukup aman; duplikat hanya 409 yang kita catat rapi)
+  let exists = false;
+  try {
+    const lr = await fetch(base, { headers: { Authorization: `Bearer ${token}` } });
+    const ct = lr.headers.get('content-type') ?? '';
+    if (!ct.includes('json')) throw new Error(`HTTP ${lr.status} ${ct.slice(0, 60)}`);
+    const list = await lr.json();
+    const same = (a, b) => a.length === b.length && a.every((f, i) => f.fieldPath === b[i].fieldPath && (f.order ?? 'ASCENDING') === (b[i].order ?? 'ASCENDING'));
+    exists = (list.indexes ?? []).some((ix) => ix.collectionGroup === spec.collectionGroup && same(ix.fields ?? [], spec.fields));
+  } catch (e) {
+    console.log(`↷ daftar index tak terbaca (${String(e.message).slice(0, 80)}) — langsung coba buat.`);
+  }
   if (exists) { console.log(`↷ index ${spec.collectionGroup} (${spec.fields.map((f) => f.fieldPath).join(',')}) sudah ada.`); return; }
   const r = await fetch(base, {
     method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(spec),
   });
   if (r.ok) console.log(`✅ index ${spec.collectionGroup} dibuat (menyiapkan 1-2 menit).`);
-  else console.log(`⚠️ index ${spec.collectionGroup} gagal: ${JSON.stringify(await r.json()).slice(0, 200)}`);
+  else {
+    const body = await r.text();
+    console.log(`⚠️ index ${spec.collectionGroup} gagal: HTTP ${r.status} ${body.slice(0, 220)}`);
+  }
 }
 
 // tambahan opsional — dijalankan hanya bila dipanggil sebagai bagian deploy
