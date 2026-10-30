@@ -233,3 +233,48 @@
 - tsc --noEmit: 0 error; expo export web + pwa-postbuild: OK; fitur baru ada di
   bundle (hapus riwayat + ai_profile); seed.html parse OK (node Function check);
   label "Firestore" di layanan user (ApiStatus/WebRTC) diganti "Basis data"/"Sinyal panggilan".
+
+## 2026-10-30 — GRUP ANTI NYANGKUT + TAG ALL KHUSUS ADMIN (rules v17, APK 1.4.0)
+
+### PENYEBAB UTAMA ditemukan
+- **2 commit batch-6 (wallpaper/tema/balon/feedback/bot/links/brat/foto live + fix
+  force-close APK) TERNYATA BELUM PERNAH ter-push** — origin/main masih dd867b9;
+  push ini mengirim semuanya (Vercel live di commit ec52648).
+- **Trigger workflow salah ketik `branches: ain]`** (deploy-rules.yml & build-apk.yml)
+  → rules & APK tidak pernah otomatis jalan sejak commit 3a57180. Diperbaiki `[main]`
+  (sebenarnya sudah dibereskan di 14551a2, ikut ter-push kali ini). Push pertama dengan
+  trigger benar langsung membuktikan: Deploy Firebase Rules ✅ LIVE (ruleset b9afa0dc),
+  Build APK Zeroid ✅ jalan otomatis.
+
+### GRUP: keluar/kick/kepemilikan (rules v17 + client)
+- **leaveGroup()**: server-first (getDoc terbaru) → transaksi atomik (update anggota +
+  pesan sistem "X keluar" SEKALIGUS; gagal keluar = notif palsu tak pernah muncul) →
+  UI optimistis → error jujur lewat banner. Grup ditangguhkan: jalur polos tanpa
+  pesan sistem (rules melarang anggota menulis pesan di chat dibanned).
+- **rules v17 jalur keluar**: 6a anggota biasa (members saja — sudah ada), 6b BARU
+  admin keluar (members+admins sekaligus — dulu SELALU DITOLAK karena whitelist
+  self-leave hanya 'members'), 6c BARU pemilik keluar + transfer admin utama
+  (members+admins+createdBy; suksesor wajib anggota lama & terdaftar admin).
+- **PEMILIK GRUP DILINDUNGI**: admin kedua/user lain tidak bisa menendang, menurunkan,
+  atau mengalihkan kepemilikan (client guard + rules ownerTouched). Lencana "Pemilik";
+  opsi kick/demote disembunyikan di lembar anggota (kecuali admin global).
+- **Pemilik keluar → admin utama OTOMATIS pindah** (admin lain dulu, jika tidak ada
+  anggota teratas) + pesan sistem "X sekarang admin utama grup" + notif suksesor.
+- **kick (removeMember)**: server-first, tolak kick pemilik, sysMsg & notif HANYA
+  sesudah sukses, error jujur. ChatRoom kini menampilkan layar jelas "Kamu keluar
+  dari grup ini" saat dibuka setelah keluar/di-kick.
+- Pesan di grup selalu menuntut keanggotaan (isMemberOf) → yang sudah keluar/di-kick
+  tidak bisa mengirim lagi.
+
+### MENTION
+- **@semua/@all/@everyone/@sini KHUSUS ADMIN GRUP & ADMIN GLOBAL** (rules tidak mungkin
+  menilai semantik tag-all → ditegakkan di klien: popup saran hanya admin + resolve
+  menolak expand utk user biasa — diketik manual pun jadi teks biasa).
+- **Tag individu bebas utk semua user, tanpa simpan kontak** — grup/saluran = anggota;
+  **CHAT GLOBAL kini = SEMUA PENGGUNA** (dulu pool "anggota" global kosong → tak bisa
+  tag siapa pun). SW ikut ditegakkan (alias tag-all hanya admin global).
+
+### Lain-lain
+- Fix t.card → t.bg2 (FeedbackScreen) — tsc bersih; expo export web OK.
+- Versi **1.4.0 / versionCode 5** untuk batch APK baru (force-close R8 fix ikut
+  terbang kali ini lewat trigger [main]).
