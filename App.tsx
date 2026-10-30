@@ -40,10 +40,13 @@ import ApiStatus from './screens/ApiStatus';
 import { UserProfile, PremiumScreen, SecurityScreen, MusicScreen, StickersScreen, SetUsernameScreen, LockScreen } from './screens/ExtraScreens';
 import { AnimeScreen, AnimeDetailScreen, AnimeWatchScreen } from './screens/AnimeScreens';
 import { EditProfile, PrivacyScreen, NotifSettings, PermissionsScreen, NotificationsScreen, StarredScreen } from './screens/SettingsScreens';
+import { ChatBubblesScreen, WallpaperScreen } from './screens/ChatCustomScreens';
+import FeedbackScreen from './screens/FeedbackScreen';
 import SearchScreen from './screens/SearchScreen';
 import AuditScreen from './screens/AuditScreen';
 import { RewardsScreen, LeaderboardScreen } from './screens/RewardsScreens';
 import DevGuard from './components/DevGuard';
+import BotHost from './components/BotHost';
 import { captureRefFromUrl } from './lib/points';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -450,6 +453,9 @@ export default function App() {
                   <Stack.Screen name="StoryCreate" component={StoryCreate} options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }} />
                   <Stack.Screen name="MediaViewer" component={MediaViewer} options={{ presentation: 'fullScreenModal', animation: 'fade' }} />
                   <Stack.Screen name="EditProfile" component={EditProfile} />
+                  <Stack.Screen name="ChatBubbles" component={ChatBubblesScreen} />
+                  <Stack.Screen name="Wallpaper" component={WallpaperScreen} />
+                  <Stack.Screen name="Feedback" component={FeedbackScreen} />
                   <Stack.Screen name="Privacy" component={PrivacyScreen} />
                   <Stack.Screen name="NotifSettings" component={NotifSettings} />
                   <Stack.Screen name="Permissions" component={PermissionsScreen} />
@@ -482,6 +488,7 @@ export default function App() {
           <PermissionHost />
           <BannerHost />
           <DevGuard />
+          <BotHost />
           <InstallBanner />
           <StatusBar style={t.dark ? 'light' : 'dark'} />
         </NavigationContainer>

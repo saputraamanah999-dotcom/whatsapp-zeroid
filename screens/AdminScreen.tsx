@@ -25,8 +25,98 @@ import { ago } from '../lib/format';
 import { pushBanner } from '../lib/bus';
 import { checkServerRules, rulesBanner, type RuleProbe } from '../lib/rulescheck';
 import { pickGallery, uploadMedia, uploadMediaDirect } from '../lib/media';
+import { subscribeAllFeedback, answerFeedback, deleteFeedback } from '../lib/feedback';
+import { Feedback as FeedbackType } from '../lib/types';
 
-type Tab = 'overview' | 'users' | 'chats' | 'orders' | 'reports' | 'appeals' | 'content' | 'ai' | 'system';
+/** Panel MASUKAN user → developer: balas + apresiasi koin (admin panel). */
+function FeedbackPanel() {
+  const t = useTheme();
+  const { me } = useStore();
+  const [list, setList] = useState<FeedbackType[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, { reply: string; reward: string }>>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'open' | 'all'>('open');
+
+  React.useEffect(() => {
+    const unsub = subscribeAllFeedback(setList);
+    return () => unsub();
+  }, []);
+
+  const shown = list.filter((f) => (filter === 'open' ? f.status === 'open' : true));
+
+  const sendReply = async (f: FeedbackType) => {
+    const d = drafts[f.id] ?? { reply: '', reward: '' };
+    if (!me) return;
+    setBusyId(f.id);
+    const r = await answerFeedback({
+      fid: f.id,
+      feedback: f,
+      reply: d.reply,
+      reward: parseInt(d.reward || '0', 10) || 0,
+      adminId: me.id,
+      adminName: me.name,
+    });
+    setBusyId(null);
+    if (r.ok) {
+      setDrafts((x) => ({ ...x, [f.id]: { reply: '', reward: '' } }));
+      pushBanner({ title: 'Masukan dibalas', body: 'Balasan + apresiasi terkirim ke pengguna.', icon: 'checkmark-circle' });
+    } else {
+      pushBanner({ title: 'Gagal membalas', body: r.error ?? 'Coba lagi.', icon: 'alert' });
+    }
+  };
+
+  return (
+    <View style={{ gap: 16 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ flex: 1 }}>
+          <Segmented value={filter} onChange={(v) => setFilter(v as 'open' | 'all')} options={[{ value: 'open', label: 'Belum dibalas' }, { value: 'all', label: 'Semua' }]} />
+        </View>
+      </View>
+      {shown.length === 0 && <Empty icon="chatbubbles-outline" title="Tidak ada masukan" body="Masukan pengguna akan muncul di sini secara real-time." />}
+      {shown.map((f) => {
+        const d = drafts[f.id] ?? { reply: '', reward: '' };
+        const answered = f.status === 'answered';
+        return (
+          <Card key={f.id}>
+            <View style={{ padding: 12, gap: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <T v="label" style={{ flexShrink: 1 }}>{f.name || 'Pengguna'}</T>
+                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: f.kind === 'bug' ? 'rgba(255,90,95,0.14)' : 'rgba(30,107,255,0.12)' }}>
+                  <T v="caption" style={{ fontWeight: '700' }}>{f.kind === 'bug' ? 'Bug' : f.kind === 'ide' ? 'Ide' : 'Lainnya'}</T>
+                </View>
+                <T v="caption" color={t.faint} style={{ flex: 1, textAlign: 'right' }}>{ago((f.at as any) ?? Date.now())}</T>
+              </View>
+              <T v="sub" style={{ lineHeight: 20 }}>{f.text}</T>
+              {answered && !!f.reply && (
+                <View style={{ borderRadius: R.md, padding: 10, backgroundColor: 'rgba(20,196,122,0.08)', gap: 3 }}>
+                  <T v="caption" color={t.success} style={{ fontWeight: '800' }}>
+                    Sudah dibalas{f.handledBy ? ` oleh ${f.handledBy}` : ''}{f.reward ? ` · apresiasi +${f.reward} koin` : ''}
+                  </T>
+                  <T v="sub" style={{ lineHeight: 19 }}>{f.reply}</T>
+                </View>
+              )}
+              {!answered && (
+                <View style={{ gap: 8 }}>
+                  <NeuInput icon="chatbubbles" placeholder="Tulis balasan untuk pengguna ini…" value={d.reply} onChangeText={(s) => setDrafts((x) => ({ ...x, [f.id]: { ...d, reply: s } }))} multiline maxLength={1200} />
+                  <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                    <View style={{ width: 130 }}>
+                      <NeuInput placeholder="Koin (0)" value={d.reward} onChangeText={(s) => setDrafts((x) => ({ ...x, [f.id]: { ...d, reward: s.replace(/\D/g, '') } }))} keyboardType="number-pad" />
+                    </View>
+                    <Btn small title="Balas & apresiasi" icon="gift" loading={busyId === f.id} onPress={() => sendReply(f)} style={{ flex: 1 }} />
+                    <Btn small variant="ghost" icon="trash" title="" onPress={() => deleteFeedback(f.id)} />
+                  </View>
+                  <T v="caption" color={t.faint}>Apresiasi koin masuk otomatis ke saldo pengguna + tercatat di ledger (maks 6000).</T>
+                </View>
+              )}
+            </View>
+          </Card>
+        );
+      })}
+    </View>
+  );
+}
+
+type Tab = 'overview' | 'users' | 'chats' | 'orders' | 'reports' | 'appeals' | 'feedback' | 'content' | 'ai' | 'system';
 
 /** pilihan durasi ban (jam/hari) — 0 = permanen */
 const BAN_DURATIONS: { label: string; ms: number }[] = [
@@ -167,6 +257,13 @@ export default function AdminScreen() {
   const chatTargets = Object.values(db.chats).filter((c) => c.type === 'group' || c.type === 'channel' || c.type === 'global');
   const chatBannedCount = chatTargets.filter((c) => chatBannedNow(c)).length;
   const pendingChatAppeals = chatTargets.filter((c) => c.banAppeal?.status === 'pending');
+  const [openFeedbackCount, setOpenFeedbackCount] = useState(0);
+  React.useEffect(() => {
+    if (tab !== 'overview' && tab !== 'feedback') return;
+    const unsub = subscribeAllFeedback((list) => setOpenFeedbackCount(list.filter((f) => f.status === 'open').length));
+    return () => unsub();
+  }, [tab]);
+  const openFeedback = openFeedbackCount;
 
   const runSeedSupabase = async () => {
     setSeedBusy(true);
@@ -206,6 +303,7 @@ export default function AdminScreen() {
             ['orders', `Order${pendingOrders ? ` ${pendingOrders}` : ''}`],
             ['reports', `Lapor${openReports ? ` ${openReports}` : ''}`],
             ['appeals', `Banding${openAppeals ? ` ${openAppeals}` : ''}`],
+            ['feedback', `Masukan${openFeedback ? ` ${openFeedback}` : ''}`],
             ['content', 'Konten'],
             ['ai', 'Zeroid AI'],
             ['system', 'Sistem'],
@@ -224,6 +322,7 @@ export default function AdminScreen() {
         </ScrollView>
       </View>
       <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 40, maxWidth: 720, width: '100%', alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
+        {tab === 'feedback' && <FeedbackPanel />}
         {tab === 'overview' && (
           <>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginBottom: 22 }}>

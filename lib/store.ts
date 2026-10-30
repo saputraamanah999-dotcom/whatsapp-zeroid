@@ -1023,6 +1023,8 @@ export function messagePreview(m?: Message) {
     case 'audio': return `Pesan suara${m.duration ? ` (${fmtDur(m.duration)})` : ''}`;
     case 'document': return m.fileName ?? 'Dokumen';
     case 'sticker': return 'Stiker';
+    case 'brat': return 'Stiker Brat';
+    case 'livephoto': return 'Foto Live';
     case 'location': return 'Lokasi';
     case 'contact': return `Kontak: ${m.contactName ?? ''}`;
     case 'order': return m.text ?? 'Pesanan';
@@ -1032,7 +1034,7 @@ export function messagePreview(m?: Message) {
   }
 }
 
-function notifyFor(userId: string, kind: NotifKind, title: string, body: string, extra: Partial<AppNotification> = {}) {
+export function notifyFor(userId: string, kind: NotifKind, title: string, body: string, extra: Partial<AppNotification> = {}) {
   const fb = firebase();
   if (!fb || !userId) return;
   // PENTING: JANGAN simpan field id — rawDoc mengambil id dari snapshot; field id:''
@@ -1099,7 +1101,7 @@ function fbError(e: any): string {
   if (c.includes('operation-not-allowed')) return 'Metode masuk ini belum diaktifkan di Firebase console.';
   if (c.includes('requires-recent-login')) return 'Sesi sudah lama. Keluar lalu masuk kembali, dan ulangi tindakan ini.';
   if (c.includes('permission-denied') || c.includes('insufficient permissions'))
-    return 'Server menolak aksi ini. Admin perlu mempublikasikan Rules terbaru di Firebase Console (pwa/seed.html → langkah Rules).';
+    return 'Server menolak aksi ini. Admin perlu memasang Rules terbaru (GitHub Actions → Deploy Rules — otomatis tanpa buka console).';
   if (c.includes('unavailable') || c.includes('network')) return 'Koneksi ke server terputus. Periksa internet kamu.';
   return e?.message ?? 'Terjadi kesalahan.';
 }
@@ -1259,7 +1261,7 @@ export async function verifyEmail(): Promise<{ ok: boolean; error?: string }> {
   return { ok: false, error: 'Email belum diverifikasi. Klik link di email kamu, lalu cek ulang.' };
 }
 
-type Updatable = Partial<Pick<User, 'name' | 'about' | 'avatar' | 'banner' | 'bannerType' | 'phone' | 'privacy' | 'notif' | 'spotify' | 'username' | 'pin' | 'color'>>;
+type Updatable = Partial<Pick<User, 'name' | 'about' | 'avatar' | 'banner' | 'bannerType' | 'phone' | 'privacy' | 'notif' | 'spotify' | 'username' | 'pin' | 'color' | 'bubble' | 'links' | 'wallpapers' | 'chatTheme'>>;
 /**
  * Simpan perubahan profil ke Firestore.
  * - Field undefined DIBUANG (updateDoc menolak undefined → dulu tombol "Simpan"
@@ -1551,7 +1553,7 @@ export function typingUsers(chat: Chat, meId: string) {
 
 // ============================ messages ============================
 
-export type OutMsg = Partial<Pick<Message, 'type' | 'text' | 'uri' | 'fileName' | 'fileSize' | 'duration' | 'mime' | 'width' | 'height' | 'thumb' | 'storagePath' | 'replyTo' | 'forwarded' | 'orderId' | 'assistant' | 'lat' | 'lng' | 'locationLabel' | 'contactName' | 'contactPhone' | 'reasoning' | 'mediaExpiresAt' | 'poll' | 'viewOnce'>>;
+export type OutMsg = Partial<Pick<Message, 'type' | 'text' | 'uri' | 'fileName' | 'fileSize' | 'duration' | 'mime' | 'width' | 'height' | 'thumb' | 'storagePath' | 'replyTo' | 'forwarded' | 'orderId' | 'assistant' | 'lat' | 'lng' | 'locationLabel' | 'contactName' | 'contactPhone' | 'reasoning' | 'mediaExpiresAt' | 'poll' | 'viewOnce' | 'bratText' | 'videoUri' | 'bubble'>>;
 
 /** disappearing-message TTL in ms for a chat, or 0 when off */
 export const disappearingMs = (c?: Chat | null): number =>
@@ -1658,6 +1660,8 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     poll: payload.poll, votes: payload.poll ? {} : undefined,
     viewOnce: payload.viewOnce, viewedBy: [],
     reasoning: payload.reasoning, expiresAt: ttl ? Date.now() + ttl : undefined, mediaExpiresAt: payload.mediaExpiresAt,
+    bratText: payload.bratText, videoUri: payload.videoUri,
+    bubble: payload.bubble ?? (payload.assistant ? undefined : (getMe()?.bubble ?? undefined)),
     createdAt: Date.now(), deletedFor: [], reactions: {}, starredBy: [], status: 'sending',
   };
   // mention @username / @semua (grup & global) — disimpan di pesan untuk highlight
@@ -1674,6 +1678,7 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     orderId: local.orderId, assistant: local.assistant ?? null, lat: local.lat ?? null, lng: local.lng ?? null,
     locationLabel: local.locationLabel ?? null, contactName: local.contactName ?? null, contactPhone: local.contactPhone ?? null,
     reasoning: local.reasoning ?? null, expiresAt: local.expiresAt ?? null, mediaExpiresAt: local.mediaExpiresAt ?? null,
+    bratText: local.bratText ?? null, videoUri: local.videoUri ?? null, bubble: local.bubble ?? null,
     poll: local.poll ?? null, votes: {},
     viewOnce: !!local.viewOnce, viewedBy: [],
     mentions: local.mentions ?? [], mentionsAll: !!local.mentionsAll,
@@ -2293,6 +2298,10 @@ async function audit(action: string, target?: string, detail?: string) {
 }
 
 export const isFullAdmin = (u: User | null) => !!u && (u.role === 'admin' || u.role === 'developer');
+
+/** UID akun BOT resmi Zeroid — hanya admin Developer boleh memasukkannya ke grup/saluran. */
+export const BOT_UID = 'zeroid-bot';
+export const isBot = (uid?: string | null) => uid === BOT_UID;
 
 /** Apakah akun sedang terkena sanksi (ban permanen / sampai waktu tertentu)? */
 export function bannedNow(u: User | null | undefined): boolean {

@@ -104,7 +104,7 @@ export function rulesSummary(probes: RuleProbe[]): { ok: number; total: number; 
   const total = probes.length;
   const text = ok === total
     ? 'Semua izin server OK — Rules Firebase sudah terbaru.'
-    : `${total - ok} izin DITOLAK server — buka /rules.html di domain aplikasi dan ikuti 2 langkah pasang (2 menit).`;
+    : `${total - ok} izin DITOLAK server — jalankan workflow "Deploy Rules" (GitHub Actions) untuk memasang Rules terbaru, lalu cek ulang di sini.`;
   return { ok, total, text };
 }
 

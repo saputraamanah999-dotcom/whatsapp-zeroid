@@ -71,6 +71,7 @@ export const COLLECTIONS = {
   config: 'config', // config/platform — maintenance mode, feature flags
   fcmTokens: 'fcm_tokens',
   mail: 'mail', // Trigger Email extension (Gmail SMTP)
+  feedback: 'feedback', // masukan user → developer (dibalas + apresiasi koin)
 } as const;
 
 /** Server-side env (Vercel functions only) — never referenced in client code. */

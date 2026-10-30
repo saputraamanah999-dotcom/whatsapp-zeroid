@@ -49,11 +49,14 @@ service cloud.firestore {
     }
 
     // Which user fields a normal user may touch on their own profile.
+    // v16: + links (tautan profil), bubble (gaya balon), wallpapers (wallpaper chat),
+    //       chatTheme (tema warna chat) — semua data tampilan pribadi.
     function selfProfileUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys()
         .hasOnly(['name','about','avatar','banner','bannerType','color','phone','username','pin','spotify',
                   'privacy','notif','blocked','contacts','lastSeen','otpCode','otpExpires',
-                  'otpVerified','verified','fcmToken','mutedUntil','orderAttempts','lastCallsSeenAt']);
+                  'otpVerified','verified','fcmToken','mutedUntil','orderAttempts','lastCallsSeenAt',
+                  'links','bubble','wallpapers','chatTheme']);
     }
 
     // EKONOMI KOIN (v15 — FIX CHECK-IN DITOLAK UNTUK SEMUA USER BIASA):
@@ -120,9 +123,14 @@ service cloud.firestore {
     }
 
     // Which chat fields ONLY chat admins (or global admins) may touch.
+    // v16 BOT GUARD: menambahkan 'zeroid-bot' ke anggota HANYA boleh oleh admin global
+    // (admin Developer). Chat admin biasa tetap bisa mengatur anggota manusia.
     function adminChatUpdate() {
-      return request.resource.data.diff(resource.data).affectedKeys()
-        .hasOnly(['members','admins','name','description','avatar','postPolicy','inviteCode','disappearing']);
+      let k = request.resource.data.diff(resource.data).affectedKeys();
+      let addsBot = request.resource.data.get('members', []).hasAny(['zeroid-bot'])
+                    && !resource.data.get('members', []).hasAny(['zeroid-bot']);
+      return k.hasOnly(['members','admins','name','description','avatar','postPolicy','inviteCode','disappearing'])
+        && (!addsBot || isAdmin());
     }
     // Message fields any member may touch (receipts, reactions, own stars, poll votes,
     // view-once open receipts).
@@ -165,7 +173,8 @@ service cloud.firestore {
       allow create: if request.auth.uid == uid
                     && (request.resource.data.get('role', 'user') == 'user'
                         || (request.resource.data.get('role', 'user') == 'developer'
-                            && !exists(/databases/$(db)/documents/config/bootstrap)));
+                            && !exists(/databases/$(db)/documents/config/bootstrap)))
+                    || (isAdmin() && uid == 'zeroid-bot'); // profil BOT resmi dibuat admin Developer
       allow delete: if request.auth.uid == uid || isAdmin();
     }
 
@@ -173,7 +182,8 @@ service cloud.firestore {
     match /usernames/{name} {
       allow get: if true;
       allow list: if true;
-      allow create: if signedIn() && request.resource.data.get('uid', '') == me() && !exists(/databases/$(db)/documents/usernames/$(name));
+      allow create: if signedIn() && request.resource.data.get('uid', '') == me() && !exists(/databases/$(db)/documents/usernames/$(name))
+                    || (isAdmin() && request.resource.data.get('uid', '') == 'zeroid-bot'); // BOT resmi
       allow update, delete: if signedIn() && (resource.data.get('uid', '') == me() || isAdmin());
     }
 
@@ -225,8 +235,14 @@ service cloud.firestore {
 
       match /messages/{mid} {
         allow read: if isMemberOf(chatId);
+        // v16: selain pengirim sendiri, ADMIN GLOBAL boleh menulis SEBAGAI BOT resmi
+        // (senderId='zeroid-bot') — hanya di chat di mana bot benar-benar anggota.
         allow create: if signedIn() && notBanned()
-                      && request.resource.data.get('senderId', '') == me()
+                      && (request.resource.data.get('senderId', '') == me()
+                          || (isAdmin()
+                              && request.resource.data.get('senderId', '') == 'zeroid-bot'
+                              && exists(/databases/$(db)/documents/chats/$(chatId))
+                              && 'zeroid-bot' in chat(chatId).get('members', [])))
                       && isMemberOf(chatId)
                       && !peerBlocked(chatId)
                       && (!chatBanned(chatId) || isAdmin()) // grup/saluran dibanned → hanya admin bisa mengirim
@@ -405,6 +421,27 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.get('uid', '') == me();
     }
 
+    // ---- FEEDBACK / MASUKAN user → developer (v16) ----
+    // User membuat masukan miliknya (status selalu 'open' saat create, tanpa balasan);
+    // admin membaca semua + mengisi reply/reward/status; pemilik hanya bisa menandai
+    // sudah dibaca (readByUser). Koin apresiasi ditulis lewat transaksi terpisah.
+    match /feedback/{fid} {
+      allow create: if signedIn() && notBanned()
+                    && request.resource.data.get('uid', '') == me()
+                    && request.resource.data.get('status', '') == 'open'
+                    && request.resource.data.get('reply', '') == ''
+                    && request.resource.data.get('reward', 0) == 0
+                    && request.resource.data.get('text', '').size() > 0
+                    && request.resource.data.get('text', '').size() <= 2000;
+      allow read: if signedIn() && (resource.data.get('uid', '') == me() || isAdmin());
+      allow update: if isAdmin()
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','reply','repliedAt','reward','handledBy'])
+                    || (signedIn()
+                        && resource.data.get('uid', '') == me()
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readByUser']));
+      allow delete: if isAdmin();
+    }
+
     // ---- LEDGER KOIN (v9) — bukti setiap perubahan koin (referral, check-in, belanja) ----
     match /ledger/{lid} {
       // FIX v14: get pada doc yang BELUM ADA tidak lagi ditolak (resource null saat
@@ -414,7 +451,12 @@ service cloud.firestore {
       allow create: if signedIn() && notBanned()
                     && request.resource.data.get('uid', '') == me()
                     && request.resource.data.get('delta', 0) <= 6000
-                    && request.resource.data.get('delta', 0) >= -1000000;
+                    && request.resource.data.get('delta', 0) >= -1000000
+      // v16 APRESIASI MASUKAN: admin memberi koin ke user lewat balasan feedback
+                    || (isMod()
+                        && request.resource.data.get('kind', '') == 'feedback_reward'
+                        && request.resource.data.get('delta', 0) <= 6000
+                        && request.resource.data.get('delta', 0) >= 0);
       allow update, delete: if false; // append-only
     }
 

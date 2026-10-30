@@ -34,8 +34,11 @@ module.exports = function withZeroidAndroid(config) {
     setGradleProp(cfg.modResults, 'android.minSdkVersion', '24');
     setGradleProp(cfg.modResults, 'android.compileSdkVersion', '35');
     setGradleProp(cfg.modResults, 'android.targetSdkVersion', '35');
-    setGradleProp(cfg.modResults, 'android.enableProguardInReleaseBuilds', 'true');
-    setGradleProp(cfg.modResults, 'android.enableShrinkResourcesInReleaseBuilds', 'true');
+    // AKAR BUG FORCE CLOSE v1.2.0: R8/ProGuard + shrinkResources membuang class native
+    // → aplikasi crash saat dibuka. DIMATIKAN TOTAL (stabil > ukuran kecil).
+    setGradleProp(cfg.modResults, 'android.enableProguardInReleaseBuilds', 'false');
+    setGradleProp(cfg.modResults, 'android.enableShrinkResourcesInReleaseBuilds', 'false');
+    setGradleProp(cfg.modResults, 'android.enableMinifyInReleaseBuilds', 'false');
     setGradleProp(cfg.modResults, 'hermesEnabled', 'true');
     setGradleProp(cfg.modResults, 'org.gradle.jvmargs', '-Xmx4096m -XX:MaxMetaspaceSize=1024m');
     return cfg;

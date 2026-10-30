@@ -48,7 +48,7 @@ export function RewardsScreen() {
       pushBanner({
         title: 'Check-in berhasil',
         body: `+${(r.reward ?? 0).toLocaleString('id-ID')} koin masuk! Kembali lagi besok untuk +${CHECKIN_BASE} koin lagi.`
-          + (r.fallback ? ' (rules server belum terpasang — pasang lewat /rules.html biar referral & sekali lihat ikut normal.)' : ''),
+          + (r.fallback ? ' (rules server belum terpasang — admin bisa jalankan workflow Deploy Rules di GitHub Actions.)' : ''),
         icon: 'gift',
       });
     } else {

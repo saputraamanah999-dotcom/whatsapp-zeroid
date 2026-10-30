@@ -4,6 +4,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import * as Clipboard from 'expo-clipboard';
 import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Image } from 'expo-image';
 import { Header, Screen, IconBtn, Avatar, T, Btn, Empty, Toggle } from '../components/ui';
 import MessageBubble from '../components/MessageBubble';
 import Composer from '../components/Composer';
@@ -62,6 +63,9 @@ export default function ChatRoom() {
   const chatId: string = route.params?.chatId;
   const { db, me } = useStore();
   const chat = db.chats[chatId];
+  // WALLPAPER chat: khusus chat ini → default semua chat (penyimpanan profil, real-time)
+  const _wps = (me?.wallpapers ?? {}) as Record<string, string | null>;
+  const wallpaper = _wps[chatId] ?? _wps['default'] ?? null;
   const [sel, setSel] = useState<Message | null>(null);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
   const [aiPrefs, setAiPrefs] = useState<{ model: string; thinking: boolean; search: boolean }>({ model: '', thinking: false, search: false });
@@ -228,6 +232,7 @@ export default function ChatRoom() {
             )}
             {callable && !blocked && (
               <>
+                <IconBtn icon="color-palette" size={40} color={wallpaper || (me.chatTheme ?? 'default') !== 'default' ? t.accent2 : t.sub} onPress={() => nav.navigate('Wallpaper', { chatId })} label="Wallpaper & tema" />
                 <IconBtn icon="videocam" size={40} color={t.accent} onPress={() => placeCall(nav, chatId, true)} label="Video call" />
                 <IconBtn icon="call" size={40} color={t.accent} onPress={() => placeCall(nav, chatId, false)} label="Voice call" />
               </>
@@ -247,7 +252,10 @@ export default function ChatRoom() {
         </View>
       )}
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : Platform.OS === 'android' ? 'height' : undefined}>
-        <View style={{ flex: 1, marginHorizontal: 8, borderRadius: R.xl, backgroundColor: t.bg, boxShadow: t.inset, overflow: 'hidden' } as any}>
+        <View style={{ flex: 1, marginHorizontal: 8, borderRadius: R.xl, backgroundColor: wallpaper ? 'transparent' : t.bg, boxShadow: t.inset, overflow: 'hidden' } as any}>
+          {!!wallpaper && (
+            <Image source={{ uri: wallpaper }} style={{ position: 'absolute', width: '100%', height: '100%', opacity: 0.32 }} contentFit="cover" transition={200} />
+          )}
           <FlatList
             ref={listRef}
             inverted
@@ -301,6 +309,7 @@ export default function ChatRoom() {
                   onReplyPress={jumpTo}
                   onReply={canPost && !blocked ? () => setReplyTo(item.m) : undefined}
                   onOpenUser={(uid) => uid && uid !== me.id && nav.navigate('UserProfile', { userId: uid })}
+                  themeId={me.chatTheme ?? 'default'}
                 />
               )
             }

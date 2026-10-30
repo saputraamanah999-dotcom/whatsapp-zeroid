@@ -23,7 +23,7 @@ import { bratStickerLocal } from '../lib/brat';
 import MentionSuggestions, { MentionOption } from './MentionSuggestions';
 import { activeMentionQuery, applyMention, mentionCandidates } from '../lib/mentions';
 import { ensurePermission } from '../lib/permissions';
-import { pickCamera, pickDocument, pickGallery, pickMultipleImages, uploadMedia, Picked, PreparedMedia, prepareForSend, MediaError } from '../lib/media';
+import { pickCamera, pickDocument, pickGallery, pickMultipleImages, pickVideo, uploadMedia, Picked, PreparedMedia, prepareForSend, MediaError } from '../lib/media';
 import { duration as fmt } from '../lib/format';
 import { pushBanner } from '../lib/bus';
 
@@ -76,6 +76,10 @@ export default function Composer({
   const [contactOpen, setContactOpen] = useState(false);
   const [cName, setCName] = useState('');
   const [cPhone, setCPhone] = useState('');
+  // FOTO LIVE (ala iPhone Live Photo)
+  const [liveOpen, setLiveOpen] = useState(false);
+  const [livePhoto, setLivePhoto] = useState<Picked | null>(null);
+  const [liveVideo, setLiveVideo] = useState<Picked | null>(null);
   const [bratMode, setBratMode] = useState(false);
   const [bratText, setBratText] = useState('');
   const [bratUrl, setBratUrl] = useState<string | null>(null);
@@ -145,6 +149,25 @@ export default function Composer({
       setPending({ prepared, preview: prepared.uri, caption: '', progress: 0, viewOnce: false });
     } catch (e: any) {
       pushBanner({ title: 'Lampiran tidak valid', body: e instanceof MediaError ? e.message : (e?.message ?? 'Gagal menyiapkan media.'), icon: 'alert' });
+    }
+  };
+
+  const sendLivePhoto = async () => {
+    if (!livePhoto || !liveVideo) return;
+    setBusy(true);
+    try {
+      // FOTO LIVE: foto + video 3 dtk diunggah bersamaan → type 'livephoto'
+      const rp = await prepareForSend(livePhoto, chatId);
+      const resP = await rp.upload!();
+      const rv = await prepareForSend(liveVideo, chatId);
+      const resV = await rv.upload!();
+      send({ type: 'livephoto', uri: resP.url, videoUri: resV.url, text: text.trim() || undefined });
+      setLivePhoto(null); setLiveVideo(null); setLiveOpen(false); setAttach(false);
+      resetInput();
+    } catch (e: any) {
+      pushBanner({ title: 'Foto Live gagal', body: e instanceof MediaError ? e.message : (e?.message ?? 'Coba lagi.'), icon: 'alert' });
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -519,6 +542,7 @@ export default function Composer({
         options={[
           { icon: 'camera', label: 'Kamera', onPress: async () => preparePicked(await pickCamera()) },
           { icon: 'images', label: 'Galeri foto & video', color: '#7B61FF', onPress: async () => preparePicked(await pickGallery('all')) },
+          { icon: 'aperture', label: 'Foto Live — foto + gerak 3 dtk', color: '#FF5A8A', onPress: () => (setLivePhoto(null), setLiveVideo(null), setLiveOpen(true)) },
           { icon: 'images', label: 'Beberapa foto (maks 4)', color: '#7B61FF', onPress: async () => sendMultiple(await pickMultipleImages(4)) },
           { icon: 'document-text', label: 'Dokumen', color: '#FF9F0A', onPress: async () => preparePicked(await pickDocument(false)) },
           { icon: 'musical-notes', label: 'Audio', color: '#FF5A8A', onPress: async () => preparePicked(await pickDocument(true)) },
@@ -586,6 +610,27 @@ export default function Composer({
             maxLength={24}
           />
           <Btn small variant="primary" icon="send" title="Kirim kontak" disabled={!cName.trim() || !cPhone.trim()} onPress={sendContact} />
+        </View>
+      </Sheet>
+      {/* ===== FOTO LIVE: foto + video 3 detik (ala iPhone Live Photo) ===== */}
+      <Sheet visible={liveOpen} onClose={() => setLiveOpen(false)} title="Foto Live">
+        <View style={{ gap: 12 }}>
+          <T v="caption" color={t.faint}>
+            Pilih FOTO utama + VIDEO pendek (±3 detik). Di chat, fotonya tampil diam — TAHAN balonnya untuk melihat gerakannya, persis Live Photo iPhone.
+          </T>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Btn small icon="image" title={livePhoto ? 'Foto ✓ ganti' : 'Pilih foto'} onPress={async () => setLivePhoto(await pickGallery('images'))} style={{ flex: 1 }} />
+            <Btn small icon="videocam" title={liveVideo ? 'Video ✓ ganti' : 'Pilih video'} onPress={async () => setLiveVideo(await pickVideo())} style={{ flex: 1 }} />
+          </View>
+          <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+            <Ionicons name={livePhoto ? 'checkmark-circle' : 'ellipse-outline'} size={16} color={livePhoto ? t.success : t.faint} />
+            <T v="caption" style={{ flex: 1 }}>{livePhoto ? `Foto siap (${Math.round((livePhoto.size ?? 0) / 1024)} KB)` : 'Foto belum dipilih'}</T>
+          </View>
+          <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+            <Ionicons name={liveVideo ? 'checkmark-circle' : 'ellipse-outline'} size={16} color={liveVideo ? t.success : t.faint} />
+            <T v="caption" style={{ flex: 1 }}>{liveVideo ? `Video siap (${liveVideo.duration ? `${liveVideo.duration.toFixed(1)}s · ` : ''}${Math.round((liveVideo.size ?? 0) / 1024)} KB)` : 'Video belum dipilih'}</T>
+          </View>
+          <Btn small variant="primary" icon="aperture" title="Kirim Foto Live" disabled={!livePhoto || !liveVideo} loading={busy} onPress={sendLivePhoto} />
         </View>
       </Sheet>
       <Sheet
@@ -660,7 +705,9 @@ export default function Composer({
                       icon="send"
                       title="Kirim"
                       onPress={() => {
-                        send({ type: 'sticker', uri: bratUrl });
+                        // KIRIM SEBAGAI PESAN BRAT: dirender langsung (SVG) dengan
+                        // emoji gaya iPhone — tajam & konsisten di semua perangkat.
+                        send({ type: 'brat', text: bratText.trim(), bratText: bratText.trim(), uri: bratUrl ?? undefined });
                         setPanel(null);
                         setBratMode(false);
                         setBratUrl(null);

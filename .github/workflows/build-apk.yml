@@ -62,18 +62,24 @@ jobs:
       - name: Expo prebuild (android)
         run: npx expo prebuild --platform android --no-install
 
-      - name: Sinkronkan minify & shrink (Expo SDK 57 template mismatch)
+      - name: Matikan R8/minify (AKAR BUG FORCE CLOSE v1.2.0)
         run: |
-          sed -i 's/^android.enableShrinkResourcesInReleaseBuilds=.*/android.enableShrinkResourcesInReleaseBuilds=true/' android/gradle.properties
-          grep -q '^android.enableMinifyInReleaseBuilds=' android/gradle.properties \
-            || echo 'android.enableMinifyInReleaseBuilds=true' >> android/gradle.properties
-          sed -i 's/^android.enableMinifyInReleaseBuilds=.*/android.enableMinifyInReleaseBuilds=true/' android/gradle.properties
+          # v1.2.0 mengaktifkan ProGuard/R8 + shrinkResources supaya APK kecil —
+          # HASILNYA: aplikasi langsung crash saat dibuka ("terus berhenti") karena
+          # R8 membuang class native yang dibutuhkan runtime.
+          # Stabil > kecil: R8 + shrink DIMATIKAN TOTAL. Filter ABI ARM tetap aktif
+          # supaya ukuran tetap jauh lebih kecil dari APK universal.
+          sed -i 's/^android.enableProguardInReleaseBuilds=.*/android.enableProguardInReleaseBuilds=false/' android/gradle.properties
+          grep -q '^android.enableProguardInReleaseBuilds=' android/gradle.properties || echo 'android.enableProguardInReleaseBuilds=false' >> android/gradle.properties
+          sed -i 's/^android.enableShrinkResourcesInReleaseBuilds=.*/android.enableShrinkResourcesInReleaseBuilds=false/' android/gradle.properties
+          grep -q '^android.enableShrinkResourcesInReleaseBuilds=' android/gradle.properties || echo 'android.enableShrinkResourcesInReleaseBuilds=false' >> android/gradle.properties
+          sed -i 's/^android.enableMinifyInReleaseBuilds=.*/android.enableMinifyInReleaseBuilds=false/' android/gradle.properties
+          grep -q '^android.enableMinifyInReleaseBuilds=' android/gradle.properties || echo 'android.enableMinifyInReleaseBuilds=false' >> android/gradle.properties
           # HANYA ABI HP SUNGGUHAN (arm64 + armv7) — buang x86/x86_64 (khusus emulator).
           # APK universal 4-ABI = 162MB; 2-ABI ARM = sekitar setengahnya → unduhan jauh lebih cepat.
           sed -i 's/^reactNativeArchitectures=.*/reactNativeArchitectures=armeabi-v7a,arm64-v8a/' android/gradle.properties
-          grep -q '^reactNativeArchitectures=' android/gradle.properties \
-            || echo 'reactNativeArchitectures=armeabi-v7a,arm64-v8a' >> android/gradle.properties
-          grep -E 'enable(Minify|ShrinkResources)InReleaseBuilds|reactNativeArchitectures' android/gradle.properties
+          grep -q '^reactNativeArchitectures=' android/gradle.properties || echo 'reactNativeArchitectures=armeabi-v7a,arm64-v8a' >> android/gradle.properties
+          grep -E 'enable(Proguard|ShrinkResources|Minify)InReleaseBuilds|reactNativeArchitectures' android/gradle.properties
 
       - name: Copy keystore + inject signing
         env:

@@ -28,6 +28,7 @@ import {
   chatVerified,
   chatBadge,
   isFullAdmin,
+  BOT_UID,
 } from '../lib/store';
 import { rupiah } from '../lib/products';
 import { ago } from '../lib/format';
@@ -248,6 +249,19 @@ export default function ChatInfo() {
                 title="Siapa boleh mengirim"
                 subtitle={chat.postPolicy === 'admins' ? 'Hanya admin' : 'Semua pengikut'}
                 onPress={() => setPostPolicy(chat.id, chat.postPolicy === 'admins' ? 'everyone' : 'admins')}
+              />
+            )}
+            {/* ZERoid BOT — HANYA admin Developer boleh memasukkan bot ke grup/saluran */}
+            {isFullAdmin(me) && !chat.members.includes(BOT_UID) && (
+              <Row
+                icon="sparkles"
+                iconColor="#7B61FF"
+                title="Tambah Zeroid Bot"
+                subtitle="Khusus admin Developer — bot menjawab lewat AI di sini (sebut @zeroid)"
+                onPress={() => {
+                  addMembers(chat.id, [BOT_UID]);
+                  pushBanner({ title: 'Zeroid Bot ditambahkan', body: 'Bot siap — sebut @zeroid untuk bertanya.', icon: 'sparkles' });
+                }}
               />
             )}
           </Card>

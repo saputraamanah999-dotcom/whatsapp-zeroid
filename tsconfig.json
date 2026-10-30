@@ -3,5 +3,12 @@
   "compilerOptions": {
     "strict": true
   },
-  "exclude": ["functions", "node_modules", "dist", "scripts"]
+  "exclude": [
+    "functions",
+    "node_modules",
+    "dist",
+    "scripts",
+    "skills",
+    "upload"
+  ]
 }

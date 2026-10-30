@@ -64,6 +64,16 @@ export type User = {
   fireRevives?: Record<string, number>;
   /** Terakhir kali daftar Panggilan dibuka — badge panggilan tak terjawab hilang real-time */
   lastCallsSeenAt?: number;
+  /** Gaya balon obrolan pilihan user (real-time terlihat orang lain) */
+  bubble?: BubbleStyleId;
+  /** Tautan profil (maks 5) — ditampilkan di UserProfile */
+  links?: ProfileLink[];
+  /** Wallpaper chat: { default: url } + per chat: { [chatId]: url } */
+  wallpapers?: Record<string, string | null>;
+  /** Tema warna chat */
+  chatTheme?: ChatThemeId;
+  /** Akun bot resmi (zeroid-bot) */
+  bot?: boolean;
   verified: boolean;
   banned: boolean;
   suspendedUntil?: number;
@@ -159,7 +169,38 @@ export type Chat = {
   disappearing?: 'off' | '24h' | '7d' | '90d';
 };
 
-export type MsgType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'system' | 'call' | 'sticker' | 'order' | 'location' | 'contact' | 'poll';
+export type MsgType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'system' | 'call' | 'sticker' | 'order' | 'location' | 'contact' | 'poll' | 'brat' | 'livephoto';
+
+/** FOTO LIVE (ala iPhone Live Photo): foto + video 3 detik berdampingan. */
+export type LivePhotoData = { photo: string; video: string };
+
+/** MASUKAN user untuk developer — dibalas di admin panel + apresiasi koin */
+export type Feedback = {
+  id: string;
+  uid: string;
+  name: string;
+  text: string;
+  kind: 'ide' | 'bug' | 'lainnya';
+  at: number;
+  status: 'open' | 'answered';
+  reply?: string;
+  repliedAt?: number;
+  /** apresiasi koin dari developer (1 koin = Rp10) */
+  reward?: number;
+  handledBy?: string;
+  readByUser?: boolean;
+};
+
+/** Tautan di profil (ala WhatsApp Business): website, toko, sosial media */
+export type ProfileLink = { label: string; url: string };
+
+/** Gaya balon obrolan — dipilih user, tampil real-time ke semua orang */
+export type BubbleStyleId =
+  | 'default' | 'sketch' | 'ghost' | 'pumpkin' | 'spider' | 'otter'
+  | 'diva' | 'crocodile' | 'frog' | 'cat' | 'capybara' | 'neon';
+
+/** Tema warna chat — mengganti warna balon sendiri + aksen */
+export type ChatThemeId = 'default' | 'ocean' | 'sunset' | 'forest' | 'candy' | 'mono';
 
 /** Polling ala WhatsApp — pertanyaan di text, pilihan + suara di sini */
 export type PollData = { options: string[]; multi?: boolean };
@@ -248,6 +289,12 @@ export type Message = {
   reasoning?: string;
   /** true when written by the AI assistant through the current user's session */
   assistant?: boolean;
+  /** STIKER BRAT: teks asli — dirender ulang tajam + emoji gaya iPhone di semua perangkat */
+  bratText?: string;
+  /** FOTO LIVE: pasangan video 3 detik (uri = fotonya) */
+  videoUri?: string;
+  /** SNAPSHOT gaya balon pengirim saat pesan dikirim (fallback live dari profil) */
+  bubble?: string;
   /** orang yang disebut pakai @username (grup/global) — untuk highlight + notif */
   mentions?: MentionRef[];
   /** pesan memakai @semua → semua anggota disebut */

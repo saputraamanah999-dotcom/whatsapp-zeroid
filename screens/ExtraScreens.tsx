@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, ScrollView, Pressable, Platform, ActivityIndicator } from 'react-native';
+import { View, ScrollView, Pressable, Platform, ActivityIndicator, Linking } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -117,6 +117,33 @@ export function UserProfile() {
             </T>
           </View>
         </Card>
+
+        {/* TAUTAN PROFIL (ala WhatsApp Business) — semua user bisa memasangnya */}
+        {!!u.links?.length && (
+          <Card title="Tautan">
+            <View style={{ padding: 8, gap: 6 }}>
+              {u.links.filter((l) => l?.url).map((l, i) => (
+                <Pressable
+                  key={i}
+                  onPress={() => {
+                    const url = /^https?:\/\//i.test(l.url) ? l.url : `https://${l.url}`;
+                    Platform.OS === 'web' ? window.open(url, '_blank') : Linking.openURL(url).catch(() => {});
+                  }}
+                  style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10, borderRadius: R.md, backgroundColor: pressed ? t.bg2 : t.bg })}
+                >
+                  <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: t.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+                    <Ionicons name="link" size={18} color={t.accent} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <T v="body" style={{ fontWeight: '600', color: t.accent }}>{l.label || l.url}</T>
+                    <T v="caption" color={t.faint} numberOfLines={1}>{l.url}</T>
+                  </View>
+                  <Ionicons name="open-outline" size={17} color={t.faint} />
+                </Pressable>
+              ))}
+            </View>
+          </Card>
+        )}
 
         <Card title="Lencana">
           <View style={{ padding: 10, gap: 10 }}>

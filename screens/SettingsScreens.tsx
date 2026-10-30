@@ -29,6 +29,21 @@ export function EditProfile() {
   const [oldPw, setOldPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [pwErr, setPwErr] = useState('');
+  // TAUTAN PROFIL (ala WhatsApp Business) — maksimal 5 tautan
+  const [links, setLinks] = useState<{ label: string; url: string }[]>(me?.links ?? []);
+  const setLink = (i: number, patch: Partial<{ label: string; url: string }>) =>
+    setLinks((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  const saveLinks = async () => {
+    const clean = links
+      .map((l) => ({ label: (l.label ?? '').trim().slice(0, 40), url: (l.url ?? '').trim().slice(0, 256) }))
+      .filter((l) => l.url.length > 3)
+      .slice(0, 5);
+    const r = await updateMe({ links: clean });
+    if (r.ok) {
+      setLinks(clean);
+      pushBanner({ title: 'Tautan tersimpan', body: `${clean.length} tautan tampil di profilmu.`, icon: 'link' });
+    } else pushBanner({ title: 'Gagal menyimpan tautan', body: r.error ?? 'Coba lagi.', icon: 'alert' });
+  };
   if (!me) return null;
 
   const setPhoto = async (cam: boolean) => {
@@ -117,6 +132,32 @@ export function EditProfile() {
           Telepon (opsional)
         </T>
         <NeuInput icon="call" value={phone} onChangeText={setPhone} placeholder="+62…" keyboardType="phone-pad" maxLength={20} />
+
+        {/* ===== TAUTAN PROFIL — website / toko / sosial media ===== */}
+        <Card title={`Tautan profil (${links.length}/5)`}>
+          <View style={{ padding: 8, gap: 12 }}>
+            <T v="caption" color={t.faint}>
+              Tautan tampil di profilmu — website, toko, Instagram, YouTube, dll (ala WhatsApp Business).
+            </T>
+            {links.map((l, i) => (
+              <View key={i} style={{ gap: 8 }}>
+                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <NeuInput icon="pricetag" value={l.label} onChangeText={(s) => setLink(i, { label: s })} placeholder="Nama tautan (mis. Toko)" maxLength={40} />
+                  </View>
+                  {links.length > 1 && (
+                    <Pressable onPress={() => setLinks((ls) => ls.filter((_, j) => j !== i))} hitSlop={8} accessibilityLabel="Hapus tautan">
+                      <Ionicons name="trash" size={20} color={t.danger} />
+                    </Pressable>
+                  )}
+                </View>
+                <NeuInput icon="link" value={l.url} onChangeText={(s) => setLink(i, { url: s })} placeholder="https://… atau saputrastore.vercel.app" maxLength={256} autoCapitalize="none" />
+              </View>
+            ))}
+            {links.length < 5 && <Btn small variant="neu" icon="add" title="Tambah tautan" onPress={() => setLinks((ls) => [...ls, { label: '', url: '' }])} />}
+            <Btn small variant="primary" icon="checkmark" title="Simpan tautan" onPress={saveLinks} />
+          </View>
+        </Card>
         <Card title="Keamanan akun">
           <Row icon="mail" title={me.email} subtitle={me.verified ? 'Email terverifikasi' : 'Belum diverifikasi — ketuk untuk kirim ulang'} right={<Ionicons name={me.verified ? 'checkmark-circle' : 'alert-circle'} size={20} color={me.verified ? t.success : t.warning} />} onPress={me.verified ? undefined : sendVerification} />
           <Row icon="key" title="Ganti password" onPress={() => (setOldPw(''), setNewPw(''), setPwErr(''), setPwOpen(true))} />

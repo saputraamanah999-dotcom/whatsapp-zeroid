@@ -5,14 +5,17 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import Animated, { FadeInUp } from 'react-native-reanimated';
 import { T, Btn } from './ui';
 import SwipeReply from './SwipeReply';
+import BratView from './BratView';
 import { productSafe, rupiah } from '../lib/products';
 import { adminDecideOrder, votePoll, markViewOnce } from '../lib/store';
 import { voLocalOpened } from '../lib/viewonce';
 import { ProductIcon, VerifiedBadge } from '../lib/icons';
 import VoicePlayer from './VoicePlayer';
+import LivePhotoBubble from './LivePhotoBubble';
 import { Ticks } from './ChatRow';
 import MentionText from './MentionText';
 import { useTheme, R } from '../lib/theme';
+import { resolveBubble } from '../lib/bubbles';
 import { Chat, DB, Message, User } from '../lib/types';
 import { messageStatus, messagePreview } from '../lib/store';
 import { timeShort, bytes } from '../lib/format';
@@ -29,6 +32,9 @@ export default function MessageBubble({
   onReply,
   highlighted,
   onOpenUser,
+  /** gaya balon & tema chat dari ChatRoom (wallpaper/tema + snapshot pengirim) */
+  bubbleStyleId,
+  themeId,
 }: {
   m: Message;
   chat: Chat;
@@ -42,6 +48,8 @@ export default function MessageBubble({
   highlighted?: boolean;
   /** tap @username → buka profil orang yang disebut */
   onOpenUser?: (uid: string) => void;
+  bubbleStyleId?: string | null;
+  themeId?: string | null;
 }) {
   const t = useTheme();
   const mine = m.senderId === me.id && !m.assistant;
@@ -77,8 +85,15 @@ export default function MessageBubble({
     );
   }
 
-  const reply = m.replyTo ? (db.messages[m.chatId] ?? []).find((x) => x.id === m.replyTo) : undefined;  const bg = mine ? t.bubbleMe : t.bubbleOther;
-  const fg = mine ? '#fff' : t.text;
+  const reply = m.replyTo ? (db.messages[m.chatId] ?? []).find((x) => x.id === m.replyTo) : undefined;  // GAYA BALON: snapshot pesan → profil pengirim → default. TEMA: warna milik.
+  const skin = resolveBubble({
+    styleId: bubbleStyleId ?? m.bubble ?? sender?.bubble ?? 'default',
+    themeId: themeId ?? null,
+    mine,
+    t,
+  });
+  const bg = skin.backgroundColor;
+  const fg = skin.color;
   const subFg = mine ? 'rgba(255,255,255,0.75)' : t.faint;
   const reactions = Object.values(m.reactions);
   const grouped = reactions.reduce<Record<string, number>>((a, e) => ((a[e] = (a[e] ?? 0) + 1), a), {});
@@ -98,17 +113,22 @@ export default function MessageBubble({
           : `tersimpan ${Math.max(1, Math.round((m.mediaExpiresAt - Date.now()) / 3600000))} jam`)
       : null;
 
-  if (m.type === 'sticker' && !m.deletedForAll) {
+  // STIKER & BRAT: TAMPIL DI TENGAH baris chat (bukan menempel kiri/kanan)
+  if ((m.type === 'sticker' || m.type === 'brat') && !m.deletedForAll) {
     return (
       <SwipeReply onReply={() => onReply?.()} color={t.accent} disabled={!onReply}>
-        <View style={{ paddingHorizontal: 12, marginVertical: 4, alignItems: mine ? 'flex-end' : 'flex-start' }}>
+        <View style={{ paddingHorizontal: 12, marginVertical: 4, alignItems: 'center' }}>
           {showName && !mine && (
             <T v="caption" color={senderColor} style={{ fontWeight: '700', marginBottom: 2 }}>
               {senderName}
             </T>
           )}
-          <Pressable onLongPress={onLongPress} delayLongPress={300}>
-            {m.uri ? <Image source={{ uri: m.uri }} style={{ width: 120, height: 120 }} contentFit="contain" transition={150} /> : null}
+          <Pressable onLongPress={onLongPress} delayLongPress={300} style={{ alignItems: 'center' }}>
+            {m.type === 'brat' ? (
+              <BratView text={m.bratText ?? m.text ?? ''} size={168} />
+            ) : m.uri ? (
+              <Image source={{ uri: m.uri }} style={{ width: 120, height: 120 }} contentFit="contain" transition={150} />
+            ) : null}
           </Pressable>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, backgroundColor: t.bg, boxShadow: t.raisedSm } as any}>
             <T v="caption" style={{ fontSize: 11 }}>
@@ -246,15 +266,16 @@ export default function MessageBubble({
           ({
             maxWidth: '82%',
             backgroundColor: bg,
-            borderRadius: 20,
-            borderBottomRightRadius: mine ? 6 : 20,
-            borderBottomLeftRadius: mine ? 20 : 6,
+            borderRadius: skin.borderRadius,
+            borderBottomRightRadius: skin.borderBottomRightRadius,
+            borderBottomLeftRadius: skin.borderBottomLeftRadius,
             padding: isMedia ? 4 : 10,
             paddingHorizontal: isMedia ? 4 : 13,
             transform: [{ scale: pressed ? 0.985 : 1 }],
-            boxShadow: mine ? '0px 6px 14px rgba(30,107,255,0.28)' : t.raisedSm,
-            borderWidth: highlighted ? 2 : 0,
-            borderColor: t.warning,
+            boxShadow: skin.boxShadow,
+            borderWidth: highlighted ? 2 : skin.borderWidth,
+            borderColor: highlighted ? t.warning : skin.borderColor,
+            opacity: skin.opacity,
           } as any)
         }
       >
@@ -325,6 +346,9 @@ export default function MessageBubble({
               </View>
             )}
             {m.type === 'audio' && m.uri && <VoicePlayer uri={m.uri} seed={m.id} dur={m.duration} mine={mine} accent={t.accent} msgId={m.id} chatTitle={chat.name} />}
+            {m.type === 'livephoto' && m.uri && m.videoUri && (
+              <LivePhotoBubble photo={m.uri} video={m.videoUri} mine={mine} onOpen={() => onOpenMedia(m)} />
+            )}
             {m.type === 'location' && (
               <Pressable
                 onPress={() => Linking.openURL(`https://www.google.com/maps?q=${m.lat},${m.lng}`).catch(() => {})}
