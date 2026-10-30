@@ -66,9 +66,9 @@ async function publish(token, project, release, fileName, filePath) {
  * (contoh nyata: feedback "Masukan saya (0)" karena index uid+at tidak ada).
  */
 async function ensureIndex(token, project, spec) {
-  const base = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/indexes`;
-  // baca daftar index — kalau gagal (HTML/redirect), tetap LANJUT mencoba membuat
-  // (create idempotent cukup aman; duplikat hanya 409 yang kita catat rapi)
+  // PENTING: endpoint v1 lama /databases/(default)/indexes sudah 404 —
+  // path yang benar: /databases/(default)/collectionGroups/{koleksi}/indexes
+  const base = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/collectionGroups/${spec.collectionGroup}/indexes`;
   let exists = false;
   try {
     const lr = await fetch(base, { headers: { Authorization: `Bearer ${token}` } });
@@ -76,14 +76,15 @@ async function ensureIndex(token, project, spec) {
     if (!ct.includes('json')) throw new Error(`HTTP ${lr.status} ${ct.slice(0, 60)}`);
     const list = await lr.json();
     const same = (a, b) => a.length === b.length && a.every((f, i) => f.fieldPath === b[i].fieldPath && (f.order ?? 'ASCENDING') === (b[i].order ?? 'ASCENDING'));
-    exists = (list.indexes ?? []).some((ix) => ix.collectionGroup === spec.collectionGroup && same(ix.fields ?? [], spec.fields));
+    exists = (list.indexes ?? []).some((ix) => same(ix.fields ?? [], spec.fields));
   } catch (e) {
     console.log(`↷ daftar index tak terbaca (${String(e.message).slice(0, 80)}) — langsung coba buat.`);
   }
   if (exists) { console.log(`↷ index ${spec.collectionGroup} (${spec.fields.map((f) => f.fieldPath).join(',')}) sudah ada.`); return; }
   const r = await fetch(base, {
     method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(spec),
+    // bentuk body untuk endpoint collectionGroups: TANPA collectionGroup di body
+    body: JSON.stringify({ queryScope: spec.queryScope, fields: spec.fields }),
   });
   if (r.ok) console.log(`✅ index ${spec.collectionGroup} dibuat (menyiapkan 1-2 menit).`);
   else {
