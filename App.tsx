@@ -11,9 +11,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 
-import { useStore, initStore, acceptCall, declineCall, sendMessage, markRead, adminEndAnnouncement, bannedNow, myAppeal } from './lib/store';
+import { useStore, initStore, acceptCall, declineCall, sendMessage, markRead, adminEndAnnouncement, bannedNow, myAppeal, recheckDeviceBan } from './lib/store';
 import { useTheme, R } from './lib/theme';
-import { navRef, setActiveRouteName } from './lib/bus';
+import { navRef, setActiveRouteName, pushBanner } from './lib/bus';
 import { setupNotifications, registerPushToken } from './lib/notify';
 import { registerWebFcm } from './lib/fcm';
 import { isFirebaseConfigured } from './lib/firebase';
@@ -308,12 +308,23 @@ function DeviceBanGate({ children }: { children: React.ReactNode }) {
     const iv = setInterval(() => force((x) => x + 1), 1000); // hitung mundur hidup
     return () => clearInterval(iv);
   }, [deviceBan?.until]);
+  // FIX v20 "unban tapi masih diblokir": recheck TANPA cache ke gerbang server
+  // segera saat layar muncul + tiap 15 detik. Begitu admin membuka ban,
+  // kunci terangkat dan aplikasi langsung terbuka — tanpa reload, tanpa menunggu.
+  React.useEffect(() => {
+    if (!deviceBan) return;
+    let alive = true;
+    const run = () => recheckDeviceBan().catch(() => {});
+    run();
+    const iv = setInterval(() => { if (alive) run(); }, 15000);
+    return () => { alive = false; clearInterval(iv); };
+  }, []);
   // akun yang dibanned sendiri boleh lewat → BannedScreen tampil (info + banding)
   const ownAccount = !!me && (!!deviceBan && (me.email ?? '').toLowerCase() === (deviceBan.ownEmail ?? '').toLowerCase());
   if (!deviceBan || !ready || ownAccount || (escape && !me)) return <>{children}</>;
   const left = deviceBan.until > 0 ? Math.max(0, deviceBan.until - Date.now()) : 0;
   const d = Math.floor(left / 86400000), h = Math.floor((left % 86400000) / 3600000), m = Math.floor((left % 3600000) / 60000), s = Math.floor((left % 60000) / 1000);
-  const cd = deviceBan.until > 0 ? (d > 0 ? `${d} hari ${h} jam` : h > 0 ? `${h} jam ${m} menit` : `${m} menit ${s} detik`) : 'permanen';
+  const cd = deviceBan.until > 0 ? (d > 0 ? `${d} hari ${h} jam` : h > 0 ? `${h} jam ${m} menit` : `${m} menit ${s} detik`) : '';
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.bg, padding: 30, gap: 14 }}>
       <View style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: 'rgba(255,59,92,0.14)', alignItems: 'center', justifyContent: 'center' }}>
@@ -323,10 +334,17 @@ function DeviceBanGate({ children }: { children: React.ReactNode }) {
       <T v="sub" style={{ textAlign: 'center', maxWidth: 400 }}>
         {deviceBan.reason ?? 'Tercatat pada akun yang diblokir admin.'} Membuat akun baru atau ganti akun TIDAK akan membantu — tidak ada celah akun baru di perangkat/IP ini.
       </T>
-      <View style={{ paddingHorizontal: 18, paddingVertical: 10, borderRadius: 14, backgroundColor: t.bg, boxShadow: t.raisedSm } as any}>
-        <T v="h2" color={t.danger} style={{ fontVariant: ['tabular-nums'] }}>{cd}</T>
-        <T v="caption" color={t.faint} style={{ textAlign: 'center' }}>sisa waktu blokir</T>
-      </View>
+      {deviceBan.until > 0 ? (
+        <View style={{ paddingHorizontal: 18, paddingVertical: 10, borderRadius: 14, backgroundColor: t.bg, boxShadow: t.raisedSm } as any}>
+          <T v="h2" color={t.danger} style={{ fontVariant: ['tabular-nums'] }}>{cd}</T>
+          <T v="caption" color={t.faint} style={{ textAlign: 'center' }}>sisa waktu blokir — otomatis terbuka saat habis</T>
+        </View>
+      ) : (
+        <View style={{ paddingHorizontal: 18, paddingVertical: 10, borderRadius: 14, backgroundColor: t.bg, boxShadow: t.raisedSm } as any}>
+          <T v="h2" color={t.danger} style={{ textAlign: 'center' }}>Blokir permanen</T>
+          <T v="caption" color={t.faint} style={{ textAlign: 'center' }}>hanya admin yang bisa membuka blokir ini — kalau sudah dibuka, layar ini hilang sendiri</T>
+        </View>
+      )}
       {!!deviceBan.ownEmail && (
         <Btn title={`Saya pemilik akun yang diblokir (${deviceBan.ownEmail})`} icon="log-in" variant="ghost" onPress={() => setEscape(true)} />
       )}
@@ -365,6 +383,23 @@ export default function App() {
     initStore();
     setupNotifications();
     captureRefFromUrl(); // web: simpan ?ref=CODE dari link ajakan teman
+    // LAPORAN GALAT TERAKHIR (anti force close v20): kalau sesi sebelumnya
+    // menabrak galat fatal, tampilkan alasannya sebagai banner — pemakai cukup
+    // screenshot & kirim ke developer; tidak ada lagi "tiba-tiba tutup sendiri"
+    // tanpa petunjuk sama sekali.
+    if (Platform.OS !== 'web') {
+      import('@react-native-async-storage/async-storage').then(async (AS: any) => {
+        const last = await (AS.default ?? AS).getItem('zeroid-last-crash').catch(() => null);
+        if (!last) return;
+        (AS.default ?? AS).removeItem('zeroid-last-crash').catch(() => {});
+        const [stamp, kind, head, stackPart] = last.split('|');
+        pushBanner({
+          title: `Laporan galat ${kind === 'FATAL' ? 'fatal' : ''} sesi lalu`,
+          body: `${(head ?? last).slice(0, 160)}${stackPart ? ' — buka Saya → Bantuan untuk detail & kirim ke developer' : ''}`,
+          icon: 'alert',
+        });
+      }).catch(() => {});
+    }
     // MUSIK & PANGGILAN TETAP NYALA DI LATAR BELAKANG (native/Android):
     // tanpa shouldPlayInBackground, expo-audio mematikan pemutaran begitu
     // keluar layar / lock screen. Web tidak terpengaruh (aman dipanggil native saja).

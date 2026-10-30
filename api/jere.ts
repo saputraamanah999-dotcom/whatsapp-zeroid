@@ -174,7 +174,9 @@ function normAnimeList(data: any): any[] {
   return list.slice(0, 60).map((a: any) => ({
     slug: slugify(txt(a, ['slug', 'id', 'endpoint', 'link', 'url', 'href'])),
     title: txt(a, ['title', 'name', 'judul']) || 'Anime',
-    poster: txt(a, ['poster', 'thumb', 'thumbnail', 'image', 'img', 'cover', 'gambar']) || undefined,
+    // v20: 'imgSrc' (oploverz) & 'img_src' ikut dipetakan — dulu poster list
+    // oploverz HILANG karena field tak terbaca → tampil ikon placeholder saja.
+    poster: txt(a, ['poster', 'thumb', 'thumbnail', 'image', 'img', 'imgSrc', 'img_src', 'cover', 'gambar']) || undefined,
     rating: txt(a, ['rating', 'score', 'skor', 'nilai']) || undefined,
     status: txt(a, ['status', 'type']) || undefined,
     episode: txt(a, ['episode', 'eps', 'episode_num', 'terbaru']) || undefined,
@@ -194,7 +196,7 @@ function normAnimeDetail(data: any): any {
     return {
       slug: slugify(txt(e, ['slug', 'id', 'endpoint', 'link'])),
       title: txt(e, ['title', 'name', 'judul', 'episode']) || 'Episode',
-      poster: txt(e, ['poster', 'thumb', 'image', 'img']) || undefined,
+      poster: txt(e, ['poster', 'thumb', 'image', 'img', 'imgSrc', 'img_src']) || undefined,
       date: txt(e, ['date', 'released', 'uploaded_on', 'rilis']) || undefined,
     };
   });
@@ -222,7 +224,7 @@ function normAnimeDetail(data: any): any {
   return {
     slug: slugify(txt(d, ['slug', 'id', 'endpoint', 'url', 'link'])),
     title: txt(d, ['title', 'name', 'judul']) || 'Anime',
-    poster: txt(d, ['poster', 'thumb', 'thumbnail', 'image', 'img', 'cover', 'gambar']) || undefined,
+    poster: txt(d, ['poster', 'thumb', 'thumbnail', 'image', 'img', 'imgSrc', 'img_src', 'cover', 'gambar']) || undefined,
     banner: txt(d, ['banner', 'background']) || undefined,
     rating: txt(d, ['rating', 'score', 'skor']) || undefined,
     status: txt(d, ['status']) || undefined,

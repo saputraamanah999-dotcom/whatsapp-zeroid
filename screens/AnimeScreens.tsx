@@ -21,7 +21,8 @@ import { animeDetail, animeHot, animeLatest, animeSchedule, animeSearch, animeQu
 function Poster({ uri, style }: { uri?: string; style?: any }) {
   return (
     <View style={[{ backgroundColor: 'rgba(127,127,127,0.15)', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', borderRadius: R.md }, ...(Array.isArray(style) ? style : [style ?? {}])]}>
-      {uri ? <Image source={{ uri }} style={{ width: '100%', height: '100%' }} contentFit="cover" recyclingKey={uri} /> : <Ionicons name="tv-outline" size={26} color="rgba(127,127,127,0.6)" />}
+      {/* v20: poster kini terisi — normAnimeList memetakan 'imgSrc' (oploverz). */}
+      {uri ? <Image source={{ uri }} style={{ width: '100%', height: '100%' }} contentFit="cover" recyclingKey={uri} transition={150} /> : <Ionicons name="tv-outline" size={26} color="rgba(127,127,127,0.6)" />}
     </View>
   );
 }

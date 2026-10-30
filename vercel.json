@@ -5,6 +5,11 @@
   "framework": null,
   "cleanUrls": true,
   "rewrites": [
+    { "source": "/api/ban-gate", "destination": "/api/guard?action=ban-gate" },
+    { "source": "/api/ip-ban", "destination": "/api/guard?action=ip-ban" },
+    { "source": "/api/login-guard", "destination": "/api/guard?action=login-guard" },
+    { "source": "/api/fcm-subscribe", "destination": "/api/fcm?action=subscribe" },
+    { "source": "/api/fcm-unsubscribe", "destination": "/api/fcm?action=unsubscribe" },
     {
       "source": "/((?!_expo|assets|api|sw.js|manifest.webmanifest|offline.html|icon-192.png|icon-512.png|icon-192-maskable.png|icon-512-maskable.png|apple-touch-icon.png|favicon-32.png|.*\\..*).*)",
       "destination": "/index.html"

@@ -441,3 +441,57 @@
   token: dilewati rapi dengan petunjuk pemasangan.
 - Langkah user (1x): pasang VERCEL_TOKEN dari vercel.com/account/tokens ATAU
   tekan Redeploy sekali di dashboard → batch 9 langsung hidup.
+
+## 2026-10-30 — BATCH 10 (v20): VERCEL KEMBALI HIDUP + 5 BUG USER DIPERBAIKI
+
+### AKAR "VERCEL TIDAK DEPLOY" — BUKAN WEBHOOK, TAPI KUOTA FUNGSI
+- Log Vercel (token user): SEMUA build sejak a695835 ERROR —
+  "exceeded_serverless_functions_per_deployment": Hobby maks 12 Serverless
+  Functions, api/ punya 13 (batch 9 menambah login-guard.ts).
+- FIX: gabung 5 endpoint → 2 router TANPA mengubah perilaku:
+  api/guard.ts = ban-gate + ip-ban + login-guard (?action=…);
+  api/fcm.ts = fcm-subscribe + fcm-unsubscribe. 13 → 10 functions.
+  URL lama tetap hidup via rewrites vercel.json; klien ikut diarahkan ke URL baru.
+- Token Vercel user dipasang sebagai secret VERCEL_TOKEN (terenkripsi) →
+  deploy-web.yml kini deploy otomatis tiap push; env VEXO_APIKEY ditambahkan
+  via API (dulu belum ada di env Vercel).
+
+### UNBAN TAPI PERANGKAT MASIH DIBLOKIR (screenshot user)
+- adminUnban hanya men-expires banips/devices (until=masa lalu) DAN klien
+  menyimpan verdict 10 menit + localStorage until=0 tak pernah cek ulang.
+- FIX: (1) adminUnban kini MENGHAPUS dokumen banips/devices milik terdakwa
+  (fallback: expire); (2) recheckDeviceBar/fresh banGateCheck — layar blokir
+  mengecek ulang server TANPA cache segera + tiap 15 detik → begitu admin
+  unban, layar hilang sendiri; (3) layar "permanen" tak lagi menampilkan
+  kotak countdown "sisa waktu blokir".
+
+### POSTER ANIME KOSONG (screenshot user)
+- Upstream oploverz memberi gambar di field 'imgSrc' — normAnimeList/
+  normAnimeDetail tidak memetakannya → semua item tampil ikon placeholder.
+- FIX: 'imgSrc'/'img_src' masuk daftar field poster (list, detail, episode).
+
+### APK FORCE CLOSE (user: baru buka langsung tutup)
+- Deps 1.5.0→1.6.0 TIDAK berubah; bundle Android terkompilasi mulus (hbc 7MB);
+  google-services.json package = app.json package (com.zeroid.whatsapp);
+  R8/minify memang sudah off; semua hook startup ter-guard web. Tanpa logcat
+  perangkat, akar pasti tak bisa ditebak — kini:
+- FIX: index.ts memasang ErrorUtils.setGlobalHandler: galat FATAL JS tidak
+  lagi mematikan aplikasi diam-diam — muncul Alert berisi nama+pesan galat,
+  tersimpan (AsyncStorage), dan banner "Laporan galat sesi lalu" tampil saat
+  boot berikutnya → pemakai cukup screenshot, developer dapat teks pastinya.
+- Versi 1.6.1 / versionCode 8 (wajib naik agar bisa pasang di atas 1.6.0).
+
+### CHAT DELAY + MASUKAN ERROR (screenshot user)
+- Kedua fitur sudah diperbaiki di HEAD batch 9 (syncMessageSubs global;
+  query masukan tanpa composite index) — produksi masih commit lama karena
+  build Vercel gagal; deploy ini yang menghidupkan keduanya.
+
+### AUDIT (security-audit loop)
+- guard.ts: respons seragam {ok:true} dipertahankan (anti enumerasi email
+  admin); rate limit & kunci hitungan server-side tetap; tanpa log rahasia.
+- fcm.ts: validasi token/uid identik versi lama.
+- adminUnban delete: hanya dokumen uid terdakwa, rules isAdmin/delete.
+- Tanpa kunci baru di repo (scan 0); token Vercel hanya di GitHub secrets.
+- Catatan desain (pra-ada, bukan regresi): gerbang ban di sisi klien bisa
+  dilewati klien patch — penegakan server tetap via rules & gate saat auth.
+- tsc 0 error; expo export web + android sukses.

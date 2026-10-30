@@ -785,17 +785,20 @@ function stopGuard() { guardReady = false; guardSeen.clear(); }
 type GateVerdict = { blocked: boolean; until: number; reason?: string; bannedEmail?: string; own?: boolean };
 const gateCache = new Map<string, GateVerdict & { _at: number }>();
 
-async function banGateCheck(email?: string): Promise<GateVerdict> {
+async function banGateCheck(email?: string, opts: { fresh?: boolean } = {}): Promise<GateVerdict> {
   const fb = firebase();
   if (!fb || !isFirebaseConfigured) return { blocked: false, until: 0 };
   const dh = await getDeviceHash();
   const key = `${dh.slice(0, 16)}|${(email ?? '').toLowerCase()}`;
-  const hit = gateCache.get(key);
+  // FIX v20 "unban tapi masih diblokir": verdict di-cache 10 menit membuat
+  // layar ban tetap tampil SETELAH admin membuka ban. fresh=true (dipakai
+  // DeviceBanGate saat recheck) TIDAK memakai cache dan TIDAK menimpanya.
+  const hit = opts.fresh ? undefined : gateCache.get(key);
   if (hit && Date.now() - hit._at < 10 * 60_000) return hit;
   let verdict: GateVerdict = { blocked: false, until: 0 };
   if (Platform.OS === 'web') {
     try {
-      const r = await fetch('/api/ban-gate', {
+      const r = await fetch('/api/guard?action=ban-gate', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ deviceHash: dh, email: email ?? '' }), cache: 'no-store',
       });
@@ -810,7 +813,7 @@ async function banGateCheck(email?: string): Promise<GateVerdict> {
     try {
       let ipHash = '';
       if (Platform.OS === 'web') {
-        const r0 = await fetch('/api/ip-ban', { cache: 'no-store' }).catch(() => null);
+        const r0 = await fetch('/api/guard?action=ip-ban', { cache: 'no-store' }).catch(() => null);
         if (r0?.ok) { const j0 = await r0.json().catch(() => ({} as any)); ipHash = String(j0.hash ?? ''); }
       }
       const now = Date.now();
@@ -833,7 +836,7 @@ async function banGateCheck(email?: string): Promise<GateVerdict> {
       }
     } catch { /* jangan pernah memblokir login normal saat error jaringan */ }
   }
-  gateCache.set(key, { ...verdict, _at: Date.now() });
+  if (!opts.fresh) gateCache.set(key, { ...verdict, _at: Date.now() });
   return verdict;
 }
 
@@ -852,6 +855,26 @@ async function refuseSession(g: GateVerdict, opts: { deleteU?: FBUser | null } =
   });
 }
 
+/**
+ * RECHECK gerbang ban TANPA cache (dipanggil DeviceBanGate berkala).
+ * FIX v20 "sudah di-unban tapi layar blokir masih nempel": begitu server
+ * melaporkan tidak diblokir lagi, kunci lokal diangkat — layar hilang
+ * OTOMATIS tanpa reload, persis harapan admin & pengguna.
+ */
+export async function recheckDeviceBan(): Promise<boolean> {
+  if (!deviceBan) return true;
+  const me = getMe();
+  const g = await banGateCheck(me?.email ?? deviceBan.ownEmail ?? undefined, { fresh: true });
+  if (!g.blocked) {
+    setDeviceBan(null);
+    return true;
+  }
+  // masih diblokir — perbarui data layar (reason/until bisa berubah)
+  deviceBan = { ...deviceBan, until: g.until, reason: g.reason ?? deviceBan.reason, ownEmail: g.bannedEmail ?? deviceBan.ownEmail };
+  bump();
+  return false;
+}
+
 /** Catat IP + perangkat sesi ini ke `usermeta/{uid}` — dipakai admin saat mem-ban. */
 async function recordUsermeta(who: string) {
   try {
@@ -860,7 +883,7 @@ async function recordUsermeta(who: string) {
     const dh = await getDeviceHash();
     let ipHash = '';
     if (Platform.OS === 'web') {
-      const r = await fetch('/api/ip-ban', { cache: 'no-store' }).catch(() => null);
+      const r = await fetch('/api/guard?action=ip-ban', { cache: 'no-store' }).catch(() => null);
       if (r?.ok) { const j = await r.json().catch(() => ({} as any)); ipHash = String(j.hash ?? ''); }
     }
     setDoc(doc(fb.db, 'usermeta', who), { lastIpHash: ipHash || null, lastDeviceHash: dh || null, at: Date.now() }, { merge: true }).catch(() => {});
@@ -1125,7 +1148,7 @@ async function registerBannedIdentity(uid0_: string, email: string, until: numbe
       uid: uid0_, email: (email ?? '').toLowerCase(), until: until ?? 0, reason: reason ?? '', at: Date.now(), ...extra,
     });
     if (Platform.OS === 'web') {
-      const r = await fetch('/api/ip-ban', { cache: 'no-store' }).catch(() => null);
+      const r = await fetch('/api/guard?action=ip-ban', { cache: 'no-store' }).catch(() => null);
       if (r?.ok) {
         const { ip, hash: ipH } = await r.json().catch(() => ({} as any));
         if (ipH) {
@@ -1246,7 +1269,7 @@ function reportFailedLogin(email: string) {
   void (async () => {
     try {
       const dh = await getDeviceHash();
-      await fetch('/api/login-guard', {
+      await fetch('/api/guard?action=login-guard', {
         method: 'POST', headers: { 'content-type': 'application/json' }, cache: 'no-store',
         body: JSON.stringify({ email, deviceHash: dh }),
       });
@@ -2704,7 +2727,10 @@ export function adminBan(userId: string, reason: string, durationMs: number) {
 
 /**
  * Cabut ban + arsipkan catatan + BUKA kunci IP/perangkat yang tercatat atas
- * nama user ini (semua dokumen banips/devices miliknya dibuat kedaluwarsa).
+ * nama user ini. FIX v20 "unban tapi perangkat masih diblokir": dokumen
+ * banips/devices milik user DIHAPUS (bukan hanya kedaluwarsa) — gerbang server
+ * (banips.get = tidak ada → bebas) langsung meloloskan, TANPA menunggu cache.
+ * Fallback: bila hapus gagal, dokumen dibuat kedaluwarsa (until = masa lalu).
  */
 export function adminUnban(userId: string) {
   const me = getMe();
@@ -2717,9 +2743,13 @@ export function adminUnban(userId: string) {
   void (async () => {
     try {
       const snap = await getDocs(query(collection(fb.db, 'banips'), where('uid', '==', userId))).catch(() => null);
-      snap?.forEach((d) => updateDoc(d.ref, { until: Date.now() - 1000, openedAt: Date.now() }).catch(() => {}));
+      snap?.forEach((d) => { deleteDoc(d.ref).catch(() => updateDoc(d.ref, { until: Date.now() - 1000, openedAt: Date.now() }).catch(() => {})); });
       const dv = await getDocs(query(collection(fb.db, 'devices'), where('uid', '==', userId))).catch(() => null);
-      dv?.forEach((d) => updateDoc(d.ref, { until: Date.now() - 1000, openedAt: Date.now() }).catch(() => {}));
+      dv?.forEach((d) => { deleteDoc(d.ref).catch(() => updateDoc(d.ref, { until: Date.now() - 1000, openedAt: Date.now() }).catch(() => {})); });
+      // JANGAN lupa identitas yang pernah dicatat user yang dibanned sendiri
+      // (banips/devices ditulis korban dengan uid-nya — sudah tercakup query di atas).
+      // Arsip bans/{uid}: simpan siapa yang membuka + kapan (jejak admin).
+      updateDoc(doc(fb.db, C.bans, userId), { active: false, openedAt: Date.now(), openedBy: me.name }).catch(() => {});
     } catch { /* best effort */ }
   })();
 }

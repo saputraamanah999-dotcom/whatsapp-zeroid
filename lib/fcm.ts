@@ -60,7 +60,7 @@ export async function registerWebFcm(uid: string): Promise<string | null> {
     } as any);
     if (webToken) {
       // daftarkan topic lewat server (FCM_SERVER_KEY hidup di sana)
-      await proxyPost('/api/fcm-subscribe', { token: webToken, uid }, 20000).catch(() => {});
+      await proxyPost('/api/fcm?action=subscribe', { token: webToken, uid }, 20000).catch(() => {});
     }
     return webToken;
   } catch {
@@ -71,7 +71,7 @@ export async function registerWebFcm(uid: string): Promise<string | null> {
 export async function unregisterWebFcm() {
   try {
     if (Platform.OS === 'web' && webToken) {
-      await proxyPost('/api/fcm-unsubscribe', { token: webToken }, 15000).catch(() => {});
+      await proxyPost('/api/fcm?action=unsubscribe', { token: webToken }, 15000).catch(() => {});
       webToken = null;
     }
   } catch {}
@@ -80,7 +80,7 @@ export async function unregisterWebFcm() {
 /** Native: daftarkan token expo-notifications (FCM) ke topic lewat server. */
 export async function proxySubscribeNative(token: string, uid: string) {
   if (!token || !uid) return;
-  await proxyPost('/api/fcm-subscribe', { token, uid }, 20000).catch(() => {});
+  await proxyPost('/api/fcm?action=subscribe', { token, uid }, 20000).catch(() => {});
 }
 
 export type FcmPushInput = {

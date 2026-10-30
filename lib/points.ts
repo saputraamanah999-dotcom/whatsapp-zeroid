@@ -105,7 +105,7 @@ export async function applyPendingReferral(me: User): Promise<{ ok: boolean; rew
     let ipHash = '';
     if (typeof window !== 'undefined') {
       try {
-        const r0 = await fetch('/api/ip-ban', { cache: 'no-store' });
+        const r0 = await fetch('/api/guard?action=ip-ban', { cache: 'no-store' });
         if (r0.ok) ipHash = String((await r0.json()).hash ?? '');
       } catch { /* offline — device hash tetap melindungi */ }
     }
