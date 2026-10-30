@@ -3,10 +3,7 @@ name: Deploy Web ke Vercel
 # VERCEL WEB — build otomatis berjalan lewat Git Integration Vercel
 # (project linked ke repo ini). Workflow ini MEMANTAU deployment commit
 # terbaru lewat Vercel API (token team-scoped — CLI tidak dipakai):
-#   READY    → job sukses
-#   ERROR    → job gagal + alasan error build tampil di log Actions
-# Jadi setiap push: Vercel build → Actions melapor hasilnya.
-#
+#   READY → job sukses;  ERROR → job gagal + pesan build di log Actions.
 # Token: repo secret VERCEL_TOKEN (Project Access Token, team-scoped).
 
 on:
@@ -16,6 +13,7 @@ on:
 
 env:
   VERCEL_API: https://api.vercel.com
+  VERCEL_PROJ: prj_6OYo8RNMp2SK5RPjqzsgNg1SG4q7
 
 jobs:
   monitor:
@@ -39,34 +37,22 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           SHA: ${{ github.sha }}
         run: |
-          PROJ="prj_6OYo8RNMp2SK5RPjqzsgNg1SG4q7"
           AUTH="Authorization: Bearer $VERCEL_TOKEN"
           echo "Menunggu deployment untuk commit ${SHA:0:7}…"
           DEP=""
-          for i in $(seq 1 24); do
-            R=$(curl -s -H "$AUTH" "$VERCEL_API/v6/deployments?projectId=$PROJ&limit=8&target=production")
-            DEP=$(echo "$R" | python3 -c "
-import json,sys
-sha='$SHA'.lower()
-for x in json.load(sys.stdin).get('deployments',[]):
-    if (x.get('meta') or {}).get('githubCommitSha','').lower()==sha:
-        print(x['uid']); break
-")
-            [ -n "$DEP" ] && break
-            sleep 30
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            DEP=$(curl -s -H "$AUTH" "$VERCEL_API/v6/deployments?projectId=$VERCEL_PROJ&limit=8&target=production" | python3 -c "import json,sys; sha='$SHA'.lower(); ms=[x for x in json.load(sys.stdin).get('deployments',[]) if ((x.get('meta') or {}).get('githubCommitSha','').lower()==sha)]; print(ms[0]['uid'] if ms else '')")
+            if [ -n "$DEP" ]; then break; fi
+            echo "  [$i] deployment belum muncul — tunggu 30s"; sleep 30
           done
-          if [ -z "$DEP" ]; then echo "⚠️ Deployment untuk commit ini tidak ditemukan (mungkin commit tanpa perubahan web)."; exit 0; fi
+          if [ -z "$DEP" ]; then echo "⚠️ Deployment commit ini tidak ditemukan (mungkin commit tanpa perubahan web)."; exit 0; fi
           echo "Deployment: $DEP — tunggu hasil build…"
-          STATE=""
-          for i in $(seq 1 24); do
-            STATE=$(curl -s -H "$AUTH" "$VERCEL_API/v13/deployments/$DEP" | python3 -c "import json,sys; print(json.load(sys.stdin).get('readyState',''))")
-            echo "  [$i] $STATE"
-            case "$STATE" in
-              READY) echo "✅ WEB LIVE — deployment READY"; exit 0 ;;
-              ERROR|CANCELED)
-                MSG=$(curl -s -H "$AUTH" "$VERCEL_API/v13/deployments/$DEP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('errorMessage') or d.get('errorCode') or 'tanpa pesan')")
-                echo "##[error]Build Vercel GAGAL: $MSG"; exit 1 ;;
-            esac
+          for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            OUT=$(curl -s -H "$AUTH" "$VERCEL_API/v13/deployments/$DEP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('readyState',''), '|', d.get('errorMessage') or d.get('errorCode') or '')")
+            STATE=$(echo "$OUT" | cut -d'|' -f1 | xargs)
+            echo "  [$i] $OUT"
+            if [ "$STATE" = "READY" ]; then echo "✅ WEB LIVE — deployment READY"; exit 0; fi
+            if [ "$STATE" = "ERROR" ] || [ "$STATE" = "CANCELED" ]; then echo "##[error]Build Vercel GAGAL: $(echo "$OUT" | cut -d'|' -f2-)"; exit 1; fi
             sleep 30
           done
           echo "##[error]Timeout menunggu deployment selesai."; exit 1
