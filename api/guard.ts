@@ -23,6 +23,39 @@ import crypto from 'node:crypto';
 import { parseServiceAccount, fcmAccessToken, serviceAccountProject } from './_fcmAuth';
 import { fbQuery, fbCreateDoc, fbPatchDoc } from './_fbrest';
 
+/** Kirim push ke SEMUA token milik daftar uid (v20 — token langsung, tanpa
+ *  topic: API IID di-retire Google, scope instance.id tak bisa dipakai). */
+async function pushToUsers(project: string, uids: string[], title: string, body: string): Promise<void> {
+  try {
+    const tok = await fcmAccessToken();
+    if (!tok) return;
+    const proj = serviceAccountProject() ?? project;
+    for (const uid of uids.slice(0, 20)) {
+      let docs: { id: string; fields: Record<string, any> }[] = [];
+      try {
+        docs = await fbQuery(proj, 'fcmtokens', [{ field: 'uid', op: 'EQUAL', value: { stringValue: uid } }], 40);
+      } catch { continue; }
+      await Promise.all(docs.map((d) => {
+        const tk = String(d.fields?.token ?? '');
+        if (tk.length < 20) return Promise.resolve(null);
+        return fetch(`https://fcm.googleapis.com/v1/projects/${proj}/messages:send`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: {
+              token: tk,
+              notification: { title, body },
+              data: { kind: 'admin' },
+              android: { priority: 'high', notification: { channel_id: 'admin', visibility: 'PUBLIC' } },
+            },
+          }),
+          signal: AbortSignal.timeout(8000),
+        }).catch(() => null);
+      }));
+    }
+  } catch { /* best effort */ }
+}
+
 export const config = { runtime: 'nodejs' };
 export const maxDuration = 30;
 
@@ -182,28 +215,6 @@ const tries = new Map<string, { count: number; windowStart: number }>();
 const WINDOW_MS = 15 * 60_000;
 const MAX_TRIES = 3;
 
-/** Push FCM langsung ke semua developer (topic user_<uid>). */
-async function notifyDeveloper(project: string, title: string, body: string): Promise<void> {
-  try {
-    const devs = await fbQuery(project, 'users', [{ field: 'role', op: 'EQUAL', value: { stringValue: 'developer' } }], 10);
-    const tok = await fcmAccessToken();
-    if (!tok || !devs.length) return;
-    const proj = serviceAccountProject() ?? project;
-    await Promise.all(devs.map((d) => fetch(`https://fcm.googleapis.com/v1/projects/${proj}/messages:send`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: {
-          topic: `user_${d.id}`,
-          notification: { title, body },
-          data: { kind: 'admin' },
-          android: { priority: 'high', notification: { channel_id: 'admin', visibility: 'PUBLIC' } },
-        },
-      }),
-      signal: AbortSignal.timeout(8000),
-    }).catch(() => null)));
-  } catch { /* best effort */ }
-}
 
 async function actionLoginGuard(req: any, res: any): Promise<void> {
   if (req.method !== 'POST') return void json(res, 405, { ok: false });
@@ -252,7 +263,7 @@ async function actionLoginGuard(req: any, res: any): Promise<void> {
         action: fsS('dimonitor — ban otomatis pada percobaan ke-3'),
         until: fsInt(0), byCaller: fsS('login-guard'), msgId: fsS(''), at: fsInt(now),
       });
-      await notifyDeveloper(project, `⚠️ Percobaan login akun ${role}`, `Percobaan gagal ke-${state.count} ke ${email} dari IP/perangkat tak dikenal. Ban otomatis pada percobaan ke-${MAX_TRIES}.`);
+      await pushToUsers(project, [String(acc.id)], `⚠️ Percobaan login akun ${role}`, `Percobaan gagal ke-${state.count} ke ${email} dari IP/perangkat tak dikenal. Ban otomatis pada percobaan ke-${MAX_TRIES}.`);
       return void json(res, 200, { ok: true });
     }
 
@@ -279,7 +290,7 @@ async function actionLoginGuard(req: any, res: any): Promise<void> {
       excerpt: fsS(`IP hash ${ipHashShort.slice(0, 16)}… · perangkat ${deviceHash ? deviceHash.slice(0, 10) + '…' : 'tidak diketahui'} — ${permanent ? 'BAN PERMANEN' : 'BAN 6 JAM'} dipasang`),
       action: fsS(permanent ? 'BAN KERAS IP+perangkat (permanen)' : 'BAN IP+perangkat (6 jam)'), until: fsInt(until), byCaller: fsS('login-guard'), msgId: fsS(''), at: fsInt(now),
     });
-    await notifyDeveloper(project, permanent ? '🛡️ Serangan diblokir permanen' : '🛡️ Sumber dicurigai diblokir 6 jam',
+    await pushToUsers(project, [String(acc.id)], permanent ? '🛡️ Serangan diblokir permanen' : '🛡️ Sumber dicurigai diblokir 6 jam',
       `${state.count}x percobaan gagal ke akun ${role} (${email}). IP & perangkat penyerang ${permanent ? 'diblokir PERMANEN' : 'diblokir 6 jam'} otomatis.`);
     return void json(res, 200, { ok: true, banned: true });
   } catch {

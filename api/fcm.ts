@@ -1,19 +1,23 @@
 /// <reference types="node" />
 /**
- * /api/fcm — ROUTER penggabung 2 endpoint FCM (hemat kuota 12 serverless
- * functions Hobby — dulu 2 file, kini satu):
+ * /api/fcm — ROUTER FCM (subscribe/unsubscribe) v20: PENYIMPANAN TOKEN LANGSUNG.
  *
- *   POST /api/fcm?action=subscribe    { token, uid }      (dulu /api/fcm-subscribe)
- *   POST /api/fcm?action=unsubscribe  { token }           (dulu /api/fcm-unsubscribe)
+ * MENGAPA BUKAN TOPIC/IID LAGI: API Instance ID (iid.googleapis.com) di-retire
+ * Google — scope `instance.id` kini tak bisa menukar access_token (diuji CI:
+ * respons hanya id_token) dan endpoint IID menolak token OAuth (401). Push
+ * berbasis topic = MUSTAHIL di project ini. Penggantinya: token FCM disimpan
+ * di Firestore (koleksi `fcmtokens`, hanya server — rules false) dan
+ * /api/notify mengirim LANGSUNG ke tiap token via FCM HTTP v1.
+ *
+ *   POST /api/fcm?action=subscribe    { token, uid }
+ *   POST /api/fcm?action=unsubscribe  { token }
  *
  * Tanpa ?action: body.uid ada → subscribe, hanya token → unsubscribe.
- * URL lama tetap jalan via rewrites vercel.json.
- *
- * DUA MODE (otomatis):
- *  1. OAuth2 service account (FIREBASE_SERVICE_ACCOUNT) — project baru.
- *  2. Legacy FCM_SERVER_KEY — fallback project lama.
+ * URL lama (/api/fcm-subscribe, /api/fcm-unsubscribe) tetap jalan via rewrites.
  */
-import { fcmAccessToken, lastOauthDiag } from './_fcmAuth';
+import crypto from 'node:crypto';
+import { parseServiceAccount, serviceAccountProject } from './_fcmAuth';
+import { fbPatchDoc, fbDeleteDoc } from './_fbrest';
 
 export const config = { runtime: 'nodejs' };
 
@@ -23,11 +27,15 @@ function json(res: any, code: number, data: any) {
   res.end(JSON.stringify(data));
 }
 
+/** id dokumen token — hash saja (token asli tidak jadi id; tetap tersimpan sebagai field). */
+function tokenId(token: string): string {
+  return 't_' + crypto.createHash('sha256').update(token, 'utf8').digest('hex').slice(0, 24);
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') return json(res, 405, { ok: false, error: 'Method not allowed' });
-  const saOk = !!process.env.FIREBASE_SERVICE_ACCOUNT;
-  const legacyKey = process.env.FCM_SERVER_KEY || '';
-  if (!saOk && !legacyKey) return json(res, 503, { ok: false, error: 'Isi FIREBASE_SERVICE_ACCOUNT (project baru) atau FCM_SERVER_KEY (legacy) di Vercel env.' });
+  if (!parseServiceAccount()) return json(res, 503, { ok: false, error: 'Isi FIREBASE_SERVICE_ACCOUNT di Vercel env.' });
+  const project = serviceAccountProject() ?? '';
 
   let body: { token?: string; uid?: string; action?: string };
   try {
@@ -45,41 +53,24 @@ export default async function handler(req: any, res: any) {
 
   const token = String(body.token ?? '').trim();
   const uid = String(body.uid ?? '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 90);
-  if (!token) return json(res, 400, { ok: false, error: 'token wajib.' });
+  if (!token || token.length < 20 || token.length > 4096) return json(res, 400, { ok: false, error: 'token wajib (20-4096 karakter).' });
   if (mode === 'subscribe' && !uid) return json(res, 400, { ok: false, error: 'uid wajib untuk subscribe.' });
 
-  const auth = async () => {
-    if (saOk) {
-      const t = await fcmAccessToken();
-      if (!t) throw new Error(`oauth gagal (${lastOauthDiag || 'tanpa diagnosa'})`);
-      return { bearer: t, legacy: '' };
-    }
-    return { bearer: '', legacy: legacyKey };
-  };
-
-  const subscribe = async (topic: string, h: { bearer: string; legacy: string }) => {
-    const headers: Record<string, string> = h.bearer ? { Authorization: `Bearer ${h.bearer}` } : { Authorization: `key=${h.legacy}` };
-    const r = await fetch(`https://iid.googleapis.com/iid/v1/${encodeURIComponent(token)}/rel/topics/${topic}`, {
-      method: 'POST',
-      headers,
-      signal: AbortSignal.timeout(9000),
-    });
-    return r.ok || r.status === 400; // 400 = sudah ter-subscribe
-  };
-
   try {
-    const h = await auth();
     if (mode === 'unsubscribe') {
-      const r = await fetch(`https://iid.googleapis.com/iid/v1/${encodeURIComponent(token)}/rel/topics/all`, {
-        method: 'DELETE',
-        headers: h.bearer ? { Authorization: `Bearer ${h.bearer}` } : { Authorization: `key=${h.legacy}` },
-        signal: AbortSignal.timeout(9000),
-      });
-      return json(res, 200, { ok: r.ok || r.status === 404, mode: 'unsubscribe' });
+      const ok = await fbDeleteDoc(project, `fcmtokens/${tokenId(token)}`);
+      return json(res, 200, { ok: true, mode: 'unsubscribe', removed: ok });
     }
-    const [u, all] = await Promise.all([subscribe(`user_${uid}`, h), subscribe('all', h)]);
-    return json(res, 200, { ok: u || all, topics: [`user_${uid}`, 'all'], mode: h.bearer ? 'v1' : 'legacy' });
+    // subscribe → simpan/refresh token (1 dokumen per token; uid sebagai field).
+    // fbPatchDoc mengirim fields APA ADANYA ke REST → nilai wajib Firestore-typed.
+    const id = tokenId(token);
+    const ok = await fbPatchDoc(project, `fcmtokens/${id}`, {
+      uid: { stringValue: uid },
+      token: { stringValue: token },
+      at: { integerValue: String(Date.now()) },
+    });
+    return json(res, 200, { ok, mode: 'subscribe', topics: [], store: 'fcmtokens' });
   } catch (e: any) {
-    return json(res, 200, { ok: false, error: String(e?.message ?? 'iid failed').slice(0, 160), oauth: lastOauthDiag });
+    return json(res, 200, { ok: false, error: String(e?.message ?? 'store failed').slice(0, 160) });
   }
 }

@@ -1,5 +1,5 @@
 rules_version = '2';
-// ZEROID WHATSAPP — FIRESTORE RULES v19 (VOUCHER + AI GUARD + REFF ANTI AKUN GANDA)
+// ZEROID WHATSAPP — FIRESTORE RULES v20 (PUSH TOKEN LANGSUNG — IID/topic di-retire Google)
 // v19: + vouchers (admin buat kode diskon; user HANYA bisa pola penukaran:
 //        usedCount+1 & usedBy+=me pada voucher aktif/belum kadaluarsa/kuota sisa)
 //      + guardconfig (skill AI Guard — read semua user login, write admin)
@@ -595,6 +595,16 @@ service cloud.firestore {
     // Hanya kode server dengan service account yang bisa membaca/menulis
     // (service account melewati rules). Isi: secrets/ai { JEREXD_APIKEY, ... }.
     match /secrets/{sid} {
+      allow read, write: if false;
+    }
+
+    // ---- fcmtokens (v20: token push per perangkat — server-only) ----
+    // v20: API IID Google di-retire (scope instance.id tak bisa access_token,
+    // endpoint IID 401) → push berbasis TOPIC mustahil. Penggantinya: token FCM
+    // disimpan oleh /api/fcm (service account) di fcmtokens/t_{sha256}, dan
+    // /api/notify mengirim LANGSUNG ke token via FCM HTTP v1. Klien tidak
+    // pernah membaca/menulis koleksi ini (token = kredensial kirim pesan).
+    match /fcmtokens/{tid} {
       allow read, write: if false;
     }
 

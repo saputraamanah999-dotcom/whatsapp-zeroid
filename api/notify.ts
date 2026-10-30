@@ -1,23 +1,24 @@
 /// <reference types="node" />
 /**
- * Vercel serverless — kirim PUSH NOTIFICATION FCM (pesan masuk, panggilan,
- * story developer, broadcast admin). Notifikasi muncul DI LUAR aplikasi/website
- * (status bar Android / notifikasi browser).
+ * Vercel serverless — kirim PUSH NOTIFICATION FCM v20: LANGSUNG KE TOKEN.
  *
- * Body (JSON): { uids?: string[], topic?: string, title, body, kind?, data? }
- *  - uids: daftar uid penerima → dikirim ke topic `user_<uid>` (di-subscribe
- *          oleh /api/fcm-subscribe dan registerPushToken native)
- *  - topic: topic langsung, mis. `all` (broadcast)
+ * MENGAPA BUKAN TOPIC: API Instance ID (IID) di-retire Google — scope
+ * instance.id tak bisa menukar access_token (diuji: respons hanya id_token)
+ * dan IID menolak token OAuth (401). Push topic = mustahil. Kini token FCM
+ * tiap perangkat disimpan di koleksi `fcmtokens` (server-only) oleh
+ * /api/fcm?action=subscribe, dan notifikasi dikirim LANGSUNG ke token
+ * (message:{token}) via FCM HTTP v1. Token mati (404/410) dihapus otomatis.
  *
- * DUA MODE KIRIM (otomatis):
- *  1. FCM HTTP v1 (UTAMA)  — pakai FIREBASE_SERVICE_ACCOUNT (service account,
- *     satu-satunya cara di project Firebase baru; legacy API dimatikan Google).
- *  2. Legacy (FALLBACK)    — FCM_SERVER_KEY `AAAA...` untuk project lama.
+ * Body (JSON): { uids?: string[], topic?: 'all', title, body, kind?, data? }
+ *  - uids → semua token milik uid tsb (query fcmtokens)
+ *  - topic 'all' (broadcast admin) → SEMUA token tersimpan (maks 500)
  *
+ * Legacy FCM_SERVER_KEY (project lama) masih mendukung topic via /fcm/send.
  * Kunci hanya hidup di env server — tidak pernah ke client.
  */
+import crypto from 'node:crypto';
 import { fcmAccessToken, serviceAccountProject } from './_fcmAuth';
-import { verifyIdToken } from './_fbrest';
+import { verifyIdToken, fbQuery, fbDeleteDoc } from './_fbrest';
 
 export const config = { runtime: 'nodejs' };
 
@@ -48,38 +49,61 @@ type Body = {
   data?: Record<string, string>;
 };
 
-/** Kirim 1 topic via FCM HTTP v1. */
-async function sendV1(topic: string, title: string, text: string, data: Record<string, string>, high: boolean, origin: string, channelId: string): Promise<boolean> {
-  const token = await fcmAccessToken();
+/** id dokumen token di fcmtokens — SAMA dengan api/fcm.ts. */
+function tokenId(token: string): string {
+  return 't_' + crypto.createHash('sha256').update(token, 'utf8').digest('hex').slice(0, 24);
+}
+
+/** Ambil semua token FCM milik uid-uid ini (query koleksi fcmtokens, SA). */
+async function tokensForUids(project: string, uids: string[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const uid of uids.slice(0, 60)) {
+    try {
+      const docs = await fbQuery(project, 'fcmtokens', [{ field: 'uid', op: 'EQUAL', value: { stringValue: uid } }], 60);
+      for (const d of docs) {
+        const t = String(d.fields?.token ?? '');
+        if (t && t.length >= 20) out.push(t);
+      }
+    } catch { /* lanjut uid berikutnya */ }
+  }
+  return [...new Set(out)];
+}
+
+/** Semua token tersimpan (broadcast admin) — maks 500 dokumen. */
+async function allTokens(project: string): Promise<string[]> {
+  try {
+    const docs = await fbQuery(project, 'fcmtokens', [], 500);
+    return [...new Set(docs.map((d) => String(d.fields?.token ?? '')).filter((t) => t.length >= 20))];
+  } catch { return []; }
+}
+
+/** Kirim 1 token via FCM HTTP v1; false = gagal (panggilan menandai utk dihapus). */
+async function sendV1Token(token: string, title: string, text: string, data: Record<string, string>, high: boolean, origin: string, channelId: string): Promise<{ ok: boolean; status: number }> {
+  const bearer = await fcmAccessToken();
   const project = serviceAccountProject();
-  if (!token || !project) return false;
-  const r = await fetch(`${'https://fcm.googleapis.com/v1/projects'}/${project}/messages:send`, {
+  if (!bearer || !project) return { ok: false, status: 0 };
+  const r = await fetch(`https://fcm.googleapis.com/v1/projects/${project}/messages:send`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       message: {
-        topic,
+        token,
         notification: { title, body: text },
         data,
         android: {
           priority: high ? 'high' : 'normal',
-          notification: {
-            sound: 'default',
-            channel_id: channelId,
-            tag: data.chatId || topic,
-            visibility: 'PUBLIC',
-          },
+          notification: { sound: 'default', channel_id: channelId, tag: data.chatId || channelId, visibility: 'PUBLIC' },
         },
         webpush: {
           headers: { Urgency: high ? 'high' : 'normal' },
-          notification: { icon: '/icon-192.png', badge: '/icon-192.png', tag: data.chatId || topic, renotify: true },
+          notification: { icon: '/icon-192.png', badge: '/icon-192.png', tag: data.chatId || channelId, renotify: true },
           fcmOptions: { link: origin || '/' },
         },
       },
     }),
     signal: AbortSignal.timeout(9000),
   });
-  return r.ok;
+  return { ok: r.ok, status: r.status };
 }
 
 /** Kirim 1 topic via legacy API (project lama yang masih punya server key). */
@@ -163,10 +187,8 @@ export default async function handler(req: any, res: any) {
 
   const topics: string[] = [];
   if (payload.topic) topics.push(String(payload.topic).replace(/[^a-zA-Z0-9-_.~%]/g, '').slice(0, 80));
-  for (const u of (payload.uids ?? []).slice(0, 60)) {
-    if (u) topics.push(`user_${String(u).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 90)}`);
-  }
-  if (!topics.length) return json(res, 400, { ok: false, error: 'uids atau topic wajib diisi.' });
+  const targetUids = (payload.uids ?? []).map((u) => String(u).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 90)).filter(Boolean).slice(0, 60);
+  if (!topics.length && !targetUids.length) return json(res, 400, { ok: false, error: 'uids atau topic wajib diisi.' });
 
   const high = kind === 'call';
   // CHANNEL ANDA — popup notifikasi di luar aplikasi (APK): pesan/grup/story/
@@ -186,11 +208,35 @@ export default async function handler(req: any, res: any) {
   let sent = 0;
   let failed = 0;
 
+  const project = serviceAccountProject() ?? '';
+  const stale: string[] = [];
+
+  // PATH UTAMA v20 — token langsung (saOk). Legacy server-key tetap topic.
+  if (saOk && project) {
+    let targets: string[] = [];
+    if (topics.includes('all')) targets = await allTokens(project);
+    if (targetUids.length) targets = targets.concat(await tokensForUids(project, targetUids));
+    targets = [...new Set(targets)].slice(0, 500);
+    if (!targets.length) return json(res, 200, { ok: false, sent: 0, failed: 0, reason: 'tidak ada token terdaftar untuk penerima' });
+    await Promise.all(targets.map(async (tk) => {
+      try {
+        const r = await sendV1Token(tk, title, text, data, high, origin, channelId);
+        if (r.ok) sent++;
+        else {
+          failed++;
+          // token tidak terdaftar lagi (uninstall) → hapus dari store
+          if (r.status === 404 || r.status === 410) stale.push(tk);
+        }
+      } catch { failed++; }
+    }));
+    void Promise.all(stale.slice(0, 100).map((tk) => fbDeleteDoc(project, `fcmtokens/${tokenId(tk)}`).catch(() => null)));
+    return json(res, 200, { ok: sent > 0, sent, failed, targets: targets.length, mode: 'v1-token' });
+  }
+
+  // FALLBACK legacy (project lama dgn server key): topic tetap jalan di sana
   await Promise.all(topics.map(async (topic) => {
     try {
-      const ok = saOk
-        ? await sendV1(topic, title, text, data, high, origin, channelId)
-        : await sendLegacy(topic, title, text, data, legacyKey, high);
+      const ok = await sendLegacy(topic, title, text, data, legacyKey, high);
       if (ok) sent++;
       else failed++;
     } catch {
@@ -198,5 +244,5 @@ export default async function handler(req: any, res: any) {
     }
   }));
 
-  return json(res, 200, { ok: sent > 0, sent, failed, topics: topics.length, mode: saOk ? 'v1' : 'legacy' });
+  return json(res, 200, { ok: sent > 0, sent, failed, topics: topics.length, mode: 'legacy' });
 }

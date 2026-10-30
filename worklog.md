@@ -502,3 +502,15 @@
 - deploy-web.yml ditulis ulang: pantau deployment commit terbaru via REST API
   (READY = sukses, ERROR = job gagal + pesan build tampil). Build tetap oleh
   Git Integration Vercel — tidak ada deploy dobel.
+
+### BATCH 10 lanjutan — PUSH FCM DIBANGUN ULANG (topic → token langsung)
+- DIAGNOSA CI (matriks): scope `instance.id` meracuni oauth (respons 200 hanya
+  id_token, tanpa access_token) — FCM messaging scope sendiri sukses; IID API
+  menolak SEMUA token OAuth (401). Kesimpulan: Instance ID API di-retire
+  Google → push berbasis TOPIC mustahil di project ini (tidak pernah bisa).
+- REFAKTOR: /api/fcm menyimpan token per perangkat di fcmtokens/t_{sha256}
+  (server-only, rules v20 false); /api/notify mengirim LANGSUNG ke token
+  (message:{token}) + menghapus token mati (404/410); login-guard push ke
+  token developer langsung; broadcast 'all' = semua token (maks 500).
+- FIREBASE_SERVICE_ACCOUNT di env Vercel disinkronkan dari CI (PATCH env id
+  bkBcTAe4rhchKy0I) + diagnosa oauth lengkap (status/keys/jwt iss+scope).
