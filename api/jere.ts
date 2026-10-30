@@ -264,7 +264,7 @@ const fail = (res: any, status: number, error: string) => res.status(status).jso
 // 5 endpoint anime JERE (latest/hot/schedule/quotes/news) sering 500 di sisi
 // penyedia. Fallback ini 100% keyless sehingga anime tetap jalan.
 
-async function jikan(path: string, timeoutMs = 14000): Promise<any> {
+async function jikanOnce(path: string, timeoutMs: number): Promise<any> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
@@ -273,6 +273,18 @@ async function jikan(path: string, timeoutMs = 14000): Promise<any> {
     return await r.json();
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/** Jikan dengan 1 percobaan ulang otomatis saat 429/5xx (rate limit bersama IP Vercel). */
+async function jikan(path: string, timeoutMs = 14000): Promise<any> {
+  try {
+    return await jikanOnce(path, timeoutMs);
+  } catch (e: any) {
+    const retryable = /HTTP (4[0-9]{2}|5[0-9]{2})/.test(String(e?.message ?? ''));
+    if (!retryable) throw e;
+    await new Promise((r) => setTimeout(r, 1600));
+    return jikanOnce(path, timeoutMs);
   }
 }
 
@@ -533,9 +545,11 @@ export default async function handler(req: any, res: any) {
           () => sipList('/api/anime/auratail-latest'),
         ], 20000);
         if (list) return res.status(200).json({ ok: true, list, source: 'siputzx' });
-        const jk = action === 'anime_latest' ? await jikan('/top/anime?filter=airing&limit=24') : await jikan('/seasons/now?limit=24');
-        const jl = (jk?.data ?? []).map(jikanCard);
-        if (listHasItems(jl)) return res.status(200).json({ ok: true, list: jl, source: 'jikan' });
+        try {
+          const jk = action === 'anime_latest' ? await jikan('/top/anime?filter=airing&limit=24') : await jikan('/seasons/now?limit=24');
+          const jl = (jk?.data ?? []).map(jikanCard);
+          if (listHasItems(jl)) return res.status(200).json({ ok: true, list: jl, source: 'jikan' });
+        } catch { /* Jikan down/limit → pesan rapi di bawah */ }
         return fail(res, 502, 'Sumber anime sedang gangguan — coba lagi sebentar.');
       }
       if (action === 'anime_search') {
@@ -550,9 +564,11 @@ export default async function handler(req: any, res: any) {
           () => sipList('/api/anime/auratail-search', { query: q }),
         ], 20000);
         if (list) return res.status(200).json({ ok: true, list, source: 'siputzx' });
-        const d = await jikan(`/anime?q=${encodeURIComponent(q)}&limit=24&sfw=true`);
-        const jl = (d?.data ?? []).map(jikanCard);
-        if (listHasItems(jl)) return res.status(200).json({ ok: true, list: jl, source: 'jikan' });
+        try {
+          const d = await jikan(`/anime?q=${encodeURIComponent(q)}&limit=24&sfw=true`);
+          const jl = (d?.data ?? []).map(jikanCard);
+          if (listHasItems(jl)) return res.status(200).json({ ok: true, list: jl, source: 'jikan' });
+        } catch { /* Jikan down/limit */ }
         return fail(res, 502, 'Pencarian gagal — sumber anime sedang gangguan.');
       }
       if (action === 'anime_detail') {
@@ -571,11 +587,13 @@ export default async function handler(req: any, res: any) {
           () => sipList('/api/anime/samehadaku/release'),
         ], 16000);
         if (list) return res.status(200).json({ ok: true, list, source: 'siputzx' });
-        const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-        const day = days[new Date().getDay()];
-        const d = await jikan(`/schedules?filter=${day}&limit=24&sfw=true`);
-        const jl = (d?.data ?? []).map(jikanCard);
-        if (listHasItems(jl)) return res.status(200).json({ ok: true, list: jl, source: 'jikan' });
+        try {
+          const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+          const day = days[new Date().getDay()];
+          const d = await jikan(`/schedules?filter=${day}&limit=24&sfw=true`);
+          const jl = (d?.data ?? []).map(jikanCard);
+          if (listHasItems(jl)) return res.status(200).json({ ok: true, list: jl, source: 'jikan' });
+        } catch { /* Jikan down/limit */ }
         return fail(res, 502, 'Jadwal rilis sedang tidak tersedia.');
       }
       if (action === 'anime_quotes') {
