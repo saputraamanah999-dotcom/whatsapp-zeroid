@@ -1,0 +1,22 @@
+name: FCM Diagnosa & Perbaikan
+
+# Diagnosis + perbaikan otomatis push FCM (HTTP v1):
+# jalankan manual dari tab Actions → "FCM Diagnosa & Perbaikan" → Run workflow.
+# Minta token FCM scope firebase.messaging; bila ditolak (API belum enable)
+# → enable fcm.googleapis.com via Service Usage → minta lagi. Hasil di log.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Diagnosa token FCM
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node scripts/ci-fcm-diag.mjs
