@@ -31,7 +31,11 @@ export default function BannedScreen({ me, appeal }: { me: User; appeal?: Appeal
   const temporary = remain > 0;
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState<string | null>(appeal && appeal.status !== 'pending' ? appeal.status : null);
+  // FIX SPAM PENINJAUAN — dulu: appeal pending membuat `sent` null saat buka ulang
+  // → form banding tampil LAGI dan bisa dikirim berkali-kali. Sekarang: status
+  // apa pun (pending/approved/rejected) langsung tampil, form hanya untuk
+  // kasus BELUM PERNAH mengirim (1x kirim per masa ban, dijaga juga di store).
+  const [sent, setSent] = useState<string | null>(appeal?.status ?? null);
   const [note, setNote] = useState<string | null>(appeal?.adminNote ?? null);
   const [err, setErr] = useState('');
   // countdown lokal — re-render tiap detik hanya saat ban berwaktu
@@ -129,13 +133,11 @@ export default function BannedScreen({ me, appeal }: { me: User; appeal?: Appeal
           </View>
         )}
         {sent === 'rejected' && (
-          <View style={{ width: '100%', gap: 10 }}>
-            <View style={{ borderRadius: R.lg, padding: 16, gap: 8, alignItems: 'center', backgroundColor: t.dangerSoft }} pointerEvents="none">
-              <Ionicons name="close-circle" size={22} color={t.danger} />
-              <T v="sub" style={{ textAlign: 'center', fontWeight: '700', color: t.danger }}>Banding ditolak</T>
-              {!!note && <T v="caption" color={t.sub} style={{ textAlign: 'center' }}>{note}</T>}
-            </View>
-            <Btn small title="Kirim keterangan ulang" icon="create" onPress={() => (setSent(null), setText(''))} />
+          <View style={{ width: '100%', borderRadius: R.lg, padding: 16, gap: 8, alignItems: 'center', backgroundColor: t.dangerSoft }} pointerEvents="none">
+            <Ionicons name="close-circle" size={22} color={t.danger} />
+            <T v="sub" style={{ textAlign: 'center', fontWeight: '700', color: t.danger }}>Banding ditolak</T>
+            {!!note && <T v="caption" color={t.sub} style={{ textAlign: 'center' }}>{note}</T>}
+            <T v="caption" color={t.faint} style={{ textAlign: 'center' }}>Banding cukup 1x per masa ban — hubungi admin lewat Obrolan global bila perlu.</T>
           </View>
         )}
 

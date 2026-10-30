@@ -1,6 +1,8 @@
 /**
  * STIKER BRAT — dibuat LOKAL di perangkat (tanpa endpoint/server).
  * Gaya Brat PUTIH (sesuai permintaan): latar putih bersih, teks lowercase tebal warna hitam.
+ * LAYOUT ASLI BRAT (ala brat generator): teks RATA KIRI-ATAS di sudut — BUKAN di
+ * tengah. Teks kecil di pojok kiri atas persis seperti contoh aslinya.
  *  - Web   : HTML5 Canvas → PNG data URL (paling kompatibel untuk dikirim).
  *  - Native: SVG data URL (expo-image menampilkan SVG; kualitas tajam di ukuran apa pun).
  * Selalu berhasil — tidak ada lagi stiker kosong karena endpoint mati.
@@ -9,6 +11,7 @@ import { Platform } from 'react-native';
 
 const BG = '#FFFFFF'; // PUTIH polos — gaya brat putih (bukan hijau asam lagi)
 const FG = '#111111';
+const PAD = 34;       // jarak teks dari tepi kiri & atas (gaya brat asli)
 
 function wrapWords(text: string, maxChars: number): string[] {
   const words = text.split(/\s+/).filter(Boolean);
@@ -24,18 +27,18 @@ function wrapWords(text: string, maxChars: number): string[] {
 }
 
 function bratSvg(text: string): string {
-  const lines = wrapWords(text, 9);
+  const lines = wrapWords(text, 11);
   const n = Math.max(1, lines.length);
-  const fontSize = Math.max(34, Math.min(92, Math.round(340 / Math.max(2.2, n * 0.62))));
-  const lh = Math.round(fontSize * 1.16);
-  const startY = 256 - ((n - 1) * lh) / 2 + fontSize * 0.34;
+  // teks besar untuk teks pendek (1-2 kata), mengecil otomatis untuk teks panjang
+  const fontSize = Math.max(30, Math.min(120, Math.round(444 / Math.max(2.6, n * 0.85))));
+  const lh = Math.round(fontSize * 1.12);
   const tspans = lines
-    .map((l, i) => `<tspan x="256" y="${Math.round(startY + i * lh)}">${l
+    .map((l, i) => `<tspan x="${PAD}" y="${Math.round(PAD + fontSize * 0.82 + i * lh)}">${l
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</tspan>`)
     .join('');
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">` +
     `<rect width="512" height="512" fill="${BG}"/>` +
-    `<text font-family="'Arial Black','Helvetica Neue',Arial,sans-serif" font-weight="900" font-size="${fontSize}" fill="${FG}" text-anchor="middle">${tspans}</text>` +
+    `<text font-family="'Arial','Helvetica Neue',Helvetica,sans-serif" font-weight="bold" font-size="${fontSize}" fill="${FG}" text-anchor="start">${tspans}</text>` +
     `</svg>`;
   return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
 }
@@ -50,22 +53,23 @@ function bratCanvasPng(text: string): Promise<string> {
       ctx.fillStyle = BG;
       ctx.fillRect(0, 0, 512, 512);
       ctx.fillStyle = FG;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      // RATA KIRI-ATAS — teks mulai dari pojok kiri atas (gaya brat asli),
+      // BUKAN di tengah lagi.
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
       // pilih ukuran font: mulai besar, kecilkan sampai semua baris muat
-      let size = 88;
+      let size = 116;
       let lines: string[] = [];
-      for (; size >= 30; size -= 4) {
-        ctx.font = `900 ${size}px 'Arial Black','Helvetica Neue',Arial,sans-serif`;
-        const maxChars = Math.max(5, Math.floor(452 / (size * 0.62)));
+      for (; size >= 26; size -= 4) {
+        ctx.font = `bold ${size}px Arial,'Helvetica Neue',Helvetica,sans-serif`;
+        const maxChars = Math.max(5, Math.floor(448 / (size * 0.55)));
         lines = wrapWords(text, maxChars);
         const widest = Math.max(...lines.map((l) => ctx.measureText(l).width));
-        if (widest <= 452 && lines.length * size * 1.18 <= 470) break;
+        if (widest <= 448 && PAD + size * 0.82 + (lines.length - 1) * size * 1.12 <= 478) break;
       }
-      ctx.font = `900 ${size}px 'Arial Black','Helvetica Neue',Arial,sans-serif`;
-      const lh = size * 1.18;
-      const startY = 256 - ((lines.length - 1) * lh) / 2;
-      lines.forEach((l, i) => ctx.fillText(l, 256, startY + i * lh));
+      ctx.font = `bold ${size}px Arial,'Helvetica Neue',Helvetica,sans-serif`;
+      const lh = size * 1.12;
+      lines.forEach((l, i) => ctx.fillText(l, PAD, Math.round(PAD + size * 0.82 + i * lh)));
       resolve(cv.toDataURL('image/png'));
     } catch (e) {
       reject(e);

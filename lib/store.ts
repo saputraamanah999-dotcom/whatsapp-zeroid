@@ -144,7 +144,82 @@ export function patchMeLocal(patch: Partial<User>) {
   bump();
 }
 
-function bump() { version++; rebuild(); }
+function bump() { version++; rebuild(); scheduleCacheSave(); }
+
+// ============================ PENYIMPANAN HP (cache lokal) ============================
+/**
+ * DATA TERSIMPAN DI PENYIMPANAN HP — seluruh data penting (chat, pesan, panggilan,
+ * user, story, notifikasi, stiker) di-cache ke AsyncStorage perangkat:
+ *  - buka aplikasi → data terakhir langsung tampil INSTAN (tidak layar kosong
+ *    menunggu Firestore), termasuk saat sinyal lemah / offline;
+ *  - snapshot Firestore yang masuk berikutnya selalu menimpa cache (server = benar).
+ * Ukuran dijaga: pesan terakhir per chat, daftar panggilan & notifikasi dibatasi.
+ */
+const CACHE_PREFIX = 'zeroid-cache-';
+let cacheTimer: ReturnType<typeof setTimeout> | null = null;
+
+function cacheSnapshot(): Record<string, any> | null {
+  if (!uid0) return null;
+  const msgs: Record<string, any[]> = {};
+  for (const [cid, arr] of Object.entries(db.messages)) {
+    if (cid === '_schema' || !Array.isArray(arr)) continue;
+    msgs[cid] = arr.slice(-45); // pesan terakhir per chat
+  }
+  return {
+    at: Date.now(),
+    users: db.users, chats: db.chats, messages: msgs,
+    calls: (db.calls ?? []).slice(0, 60),
+    notifications: (db.notifications ?? []).slice(0, 60),
+    stories: (db.stories ?? []).slice(0, 60),
+    stickers: (db.stickers ?? []).slice(0, 200),
+    announcements: (db.announcements ?? []).slice(0, 30),
+    appeals: (db.appeals ?? []).filter((a) => a.id === uid0),
+    aiProfile: db.aiProfile ?? null,
+  };
+}
+
+function scheduleCacheSave() {
+  if (!uid0) return;
+  if (cacheTimer) clearTimeout(cacheTimer);
+  cacheTimer = setTimeout(() => {
+    cacheTimer = null;
+    try {
+      const snap = cacheSnapshot();
+      if (!snap) return;
+      let json = JSON.stringify(snap);
+      // jaga-jaga kuota penyimpanan: kalau terlalu besar, buang sebagian pesan
+      if (json.length > 1_600_000) {
+        for (const cid of Object.keys(snap.messages)) snap.messages[cid] = snap.messages[cid].slice(-18);
+        json = JSON.stringify(snap);
+      }
+      AsyncStorage.setItem(CACHE_PREFIX + uid0, json).catch(() => {});
+    } catch { /* penyimpanan penuh / diblokir — abaikan, app tetap jalan */ }
+  }, 1500);
+}
+
+async function hydrateCache(uid: string) {
+  try {
+    const raw = await AsyncStorage.getItem(CACHE_PREFIX + uid);
+    if (!raw) return;
+    const c = JSON.parse(raw);
+    if (!c || typeof c !== 'object') return;
+    // hanya isi kalau memori masih kosong (auth callback baru mereset db)
+    db.users = { ...c.users, ...db.users };
+    db.chats = { ...c.chats, ...db.chats };
+    const cachedMsgs = c.messages && typeof c.messages === 'object' ? c.messages : {};
+    for (const [cid, arr] of Object.entries(cachedMsgs)) {
+      if (Array.isArray(arr) && arr.length && !(db.messages[cid] ?? []).length) db.messages[cid] = arr as any[];
+    }
+    if ((db.calls ?? []).length === 0 && Array.isArray(c.calls)) db.calls = c.calls;
+    if ((db.notifications ?? []).length === 0 && Array.isArray(c.notifications)) db.notifications = c.notifications;
+    if ((db.stories ?? []).length === 0 && Array.isArray(c.stories)) db.stories = c.stories;
+    if ((db.stickers ?? []).length === 0 && Array.isArray(c.stickers)) db.stickers = c.stickers;
+    if ((db.announcements ?? []).length === 0 && Array.isArray(c.announcements)) db.announcements = c.announcements;
+    if ((db.appeals ?? []).length === 0 && Array.isArray(c.appeals)) db.appeals = c.appeals;
+    if (!db.aiProfile && c.aiProfile) db.aiProfile = c.aiProfile;
+    bump();
+  } catch { /* cache rusak → abaikan */ }
+}
 
 // ============================ helpers ============================
 
@@ -282,6 +357,10 @@ function mapCall(id: string, d: DocumentData): Call {
     id, chatId: d.chatId, callerId: d.callerId, calleeIds: d.calleeIds ?? [], video: !!d.video,
     status: d.status ?? 'ringing', startedAt: ts(d.startedAt), connectedAt: ts(d.connectedAt) || undefined,
     endedAt: ts(d.endedAt) || undefined,
+    // PENTING — riwayat panggilan yang dihapus “hidup lagi”: hiddenFor TIDAK
+    // ikut dipetakan, jadi setiap snapshot server menimpa objek lokal versi
+    // baru TANPA hiddenFor → filter daftar menganggapnya masih terlihat.
+    hiddenFor: Array.isArray(d.hiddenFor) ? d.hiddenFor : [],
   };
 }
 
@@ -765,6 +844,10 @@ export async function initStore() {
     db = { ...EMPTY };
     uid0 = u?.uid ?? null;
     if (!u) { ready = true; bump(); return; }
+    // PENYIMPANAN HP — angkat cache data sesi terakhir dari storage perangkat
+    // SEBELUM subscription Firestore jalan: chat, pesan, panggilan, dll. langsung
+    // tampil instan (mantap saat sinyal lemah), lalu server menyegarkan semuanya.
+    await hydrateCache(u.uid);
 
     // ensure profile doc exists (first login / Google sign-in)
     const ref = doc(fb.db, C.users, u.uid);
@@ -1768,14 +1851,10 @@ export async function askAssistant(chatId: string, prompt: string, opts: AskOpts
   const me = getMe();
   if (!me) return;
   const history = opts.history ?? [];
-  routingKe = true;
-  try {
-    await sendMessage(chatId, opts.imageUrl ? { type: 'image', uri: opts.imageUrl, text: prompt || undefined } : { text: prompt });
-  } finally {
-    routingKe = false;
-  }
-  // TYPING AI — animasi "Zeroid sedang mengetik…" muncul SEKETIKA di header,
-  // gelembung chat & daftar chat (dulu: cuma gelembung '…' statis tanpa animasi).
+  // TYPING AI — animasi "Zeroid sedang mengetik…" muncul DETIK INI juga (sebelum
+  // pesan pengguna selesai terkirim ke server — dulu baru muncul setelah write
+  // Firestore selesai, di jaringan lambat terasa seperti tidak pernah mengetik).
+  // Indikator baru hilang TEPAT saat balasan/pesan galat mendarat di chat.
   const setAiTyping = (on: boolean) => {
     const next = { ...(db.aiTyping ?? {}) };
     if (on) next[chatId] = Date.now(); else delete next[chatId];
@@ -1783,7 +1862,12 @@ export async function askAssistant(chatId: string, prompt: string, opts: AskOpts
     bump();
   };
   setAiTyping(true);
-  const dropTyping = () => setAiTyping(false);
+  routingKe = true;
+  try {
+    await sendMessage(chatId, opts.imageUrl ? { type: 'image', uri: opts.imageUrl, text: prompt || undefined } : { text: prompt });
+  } finally {
+    routingKe = false;
+  }
   try {
     const persona = { aiName: db.aiProfile?.name?.trim() || 'Zeroid AI', aiBio: db.aiProfile?.bio?.trim() || '' };
     const r = opts.imageUrl
@@ -1791,11 +1875,11 @@ export async function askAssistant(chatId: string, prompt: string, opts: AskOpts
       : opts.thinking
       ? await thinkAI(prompt, { search: opts.search, sessionId: chatId, ...persona })
       : await askAI(prompt, { history, model: opts.model, sessionId: chatId, ...persona });
-    dropTyping();
     await sendMessage(chatId, { text: r.text, assistant: true, reasoning: r.reasoning });
   } catch (e: any) {
-    dropTyping();
     await sendMessage(chatId, { text: `AI belum bisa menjawab sekarang. ${String(e?.message ?? 'Coba lagi beberapa saat lagi.').slice(0, 160)}` });
+  } finally {
+    setAiTyping(false);
   }
 }
 
@@ -2294,6 +2378,13 @@ export async function submitAppeal(message: string): Promise<{ ok: boolean; erro
   const text = message.trim();
   if (!me || !fb) return { ok: false, error: 'Belum masuk.' };
   if (text.length < 10) return { ok: false, error: 'Tulis keterangan minimal 10 karakter.' };
+  // ANTI SPAM PENINJAUAN — banding hanya boleh dikirim SEKALI per masa ban:
+  // kalau sudah ada banding pending (atau sudah diputus), jangan timpa.
+  const existing = db.appeals.find((a) => a.id === me.id);
+  if (existing) {
+    if (existing.status === 'pending') return { ok: false, error: 'Keterangan sudah dikirim — tunggu tinjauan admin.' };
+    return { ok: false, error: 'Banding untuk ban ini sudah pernah dikirim (1x per masa ban).' };
+  }
   try {
     await setDoc(doc(fb.db, C.appeals, me.id), {
       uid: me.id, name: me.name, message: text.slice(0, 600),
