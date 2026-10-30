@@ -71,6 +71,13 @@ export async function fcmAccessToken(): Promise<string | null> {
   }
   const jwt = `${header}.${claims}.${signature}`;
 
+  // DIAG v4: claims JWT tidak rahasia (email SA + scope) — catat utk diagnosis.
+  // Ini menjawab: SA mana yang dipakai produksi & scope apa yang terkirim.
+  try {
+    const claimsDecoded = JSON.parse(Buffer.from(claims.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
+    lastOauthDiag = `jwt iss=${String(claimsDecoded.iss).slice(0, 40)} scope=${String(claimsDecoded.scope ?? '(KOSONG)').slice(0, 60)}`;
+  } catch { lastOauthDiag = 'jwt decode gagal'; }
+
   const r = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
