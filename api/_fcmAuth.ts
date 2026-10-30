@@ -71,17 +71,15 @@ export async function fcmAccessToken(): Promise<string | null> {
   }
   const jwt = `${header}.${claims}.${signature}`;
 
-  // DIAG v4: claims JWT tidak rahasia (email SA + scope) — catat utk diagnosis.
-  // Ini menjawab: SA mana yang dipakai produksi & scope apa yang terkirim.
-  try {
-    const claimsDecoded = JSON.parse(Buffer.from(claims.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'));
-    lastOauthDiag = `jwt iss=${String(claimsDecoded.iss).slice(0, 40)} scope=${String(claimsDecoded.scope ?? '(KOSONG)').slice(0, 60)}`;
-  } catch { lastOauthDiag = 'jwt decode gagal'; }
-
+  // v20 FIX: body = URLSearchParams OBJECT (bukan .toString()).
+  // Produksi: ban-gate (objek) selalu sukses, fcmAuth (string) selalu dapat
+  // "200 tanpa access_token (keys=[id_token])" — Google memperlakukan body
+  // string ini berbeda di runtime Vercel. Bentuk objek = identik dgn ban-gate
+  // & CI yang terbukti dapat access_token.
   const r = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt }).toString(),
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: jwt }),
     signal: AbortSignal.timeout(10_000),
   });
   if (!r.ok) {
