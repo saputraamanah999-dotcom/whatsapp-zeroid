@@ -40,7 +40,7 @@
     method: 'POST', headers: H,
     body: JSON.stringify({
       name: 'whatsapp-zeroid', project: PROJ, target: 'production',
-      gitSource: { type: 'branch', org: 'saputraamanah999-dotcom', repo: 'whatsapp-zeroid', ref: 'main' },
+      gitSource: { type: 'github', org: 'saputraamanah999-dotcom', repo: 'whatsapp-zeroid', ref: 'main' },
     }),
   });
   const dj = await d.json().catch(() => ({}));
