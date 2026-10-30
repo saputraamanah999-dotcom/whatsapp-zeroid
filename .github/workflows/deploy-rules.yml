@@ -31,4 +31,8 @@ jobs:
       - name: Deploy rules via Rules API (tanpa firebase-tools — cukup izin firebaserules)
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          SYLVATICA_APIKEY: ${{ secrets.SYLVATICA_APIKEY }}
+          JEREXD_APIKEY: ${{ secrets.JEREXD_APIKEY }}
+          VEXO_APIKEY: ${{ secrets.VEXO_APIKEY }}
+          IMGBB_KEY: ${{ secrets.IMGBB_KEY }}
         run: node scripts/ci-deploy-rules.mjs

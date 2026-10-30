@@ -77,8 +77,45 @@ async function publish(token, project, release, fileName, filePath) {
     search: { stringValue: 'vexo-google → vexo-ddg → ddg-langsung' },
     prompt: { stringValue: 'Zeroid persona v3 — manusiawi, berpikir, analisis web, akurat, sebut sumber' },
   });
+  // ---- SEED KUNCI SERVER (secrets/ai) — hanya field yang MASIH KOSONG ----
+  // Kunci datang dari GitHub Actions secrets (terenkripsi) — TIDAK pernah
+  // ditulis di repo. Field yang sudah terisi TIDAK ditimpa (admin bisa saja
+  // me-rotate kunci langsung di Firestore). Nilai kunci tidak pernah di-log.
+  await seedServerSecrets(token, proj, {
+    SYLVATICA_APIKEY: process.env.SYLVATICA_APIKEY || '',
+    JEREXD_APIKEY: process.env.JEREXD_APIKEY || '',
+    VEXO_APIKEY: process.env.VEXO_APIKEY || '',
+    IMGBB_KEY: process.env.IMGBB_KEY || '',
+  });
   console.log('✅ DEPLOY RULES + SEED SELESAI.');
 })().catch((e) => { console.error('FATAL:', e?.message ?? e); process.exit(1); });
+
+/** Isi field kunci yang kosong di dokumen secrets/ai (PATCH per field —
+ *  field terisi dibiarkan; nilai tidak pernah dicetak ke log). */
+async function seedServerSecrets(token, project, kv) {
+  const docUrl = `https://firestore.googleapis.com/v1/projects/${project}/databases/(default)/documents/secrets/ai`;
+  let existing = {};
+  try {
+    const g = await fetch(docUrl, { headers: { Authorization: `Bearer ${token}` } });
+    if (g.ok) existing = (await g.json())?.fields ?? {};
+  } catch { /* dokumen mungkin belum ada */ }
+  const updates = {};
+  const mask = [];
+  for (const [k, v] of Object.entries(kv)) {
+    if (!v) continue;
+    const cur = existing[k]?.stringValue;
+    if (typeof cur === 'string' && cur.trim()) { console.log(`↷ secrets/ai.${k} sudah terisi — dilewati.`); continue; }
+    updates[k] = { stringValue: v.trim() };
+    mask.push(`updateMask.fieldPaths=${encodeURIComponent(k)}`);
+  }
+  if (!mask.length) { console.log('↷ secrets/ai: tidak ada field baru untuk diisi.'); return; }
+  const r = await fetch(`${docUrl}?${mask.join('&')}`, {
+    method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: updates }),
+  });
+  if (r.ok) console.log(`✅ secrets/ai: ${mask.length} kunci server terisi (nama field saja yang di-log).`);
+  else console.log(`⚠️ secrets/ai gagal (HTTP ${r.status}) — kunci tetap aman di env Vercel.`);
+}
 
 /** Buat dokumen seed HANYA bila BELUM ada (GET dulu — jangan pernah menimpa
  *  pengaturan yang sudah diubah admin dari panel, mis. guardconfig). */

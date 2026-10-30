@@ -18,9 +18,9 @@ Supabase digabungkan dengan Firebase dengan pembagian tugas:
 
 ## LANGKAH 1 — Ambil kunci Supabase (2 menit)
 
-1. Buka https://supabase.com/dashboard → project kamu (`abbbqjahqehewyvkzoro`) → **Project Settings → API**.
+1. Buka https://supabase.com/dashboard → project kamu (`<project-ref>`) → **Project Settings → API**.
 2. Salin 3 nilai:
-   - **Project URL** → `https://abbbqjahqehewyvkzoro.supabase.co`
+   - **Project URL** → `https://<project-ref>.supabase.co`
    - **anon / public key** (aman di client)
    - **service_role key** (RAHASIA — jangan pernah di EXPO_PUBLIC_*)
 
@@ -29,12 +29,12 @@ Supabase digabungkan dengan Firebase dengan pembagian tugas:
 Vercel Dashboard → project ZEROID → **Settings → Environment Variables** → tambahkan SEMUA ini → **Production + Preview + Development**:
 
 ```
-EXPO_PUBLIC_SUPABASE_URL      = https://abbbqjahqehewyvkzoro.supabase.co
+EXPO_PUBLIC_SUPABASE_URL      = https://<project-ref>.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY = <anon key kamu>
-SUPABASE_URL                  = https://abbbqjahqehewyvkzoro.supabase.co
+SUPABASE_URL                  = https://<project-ref>.supabase.co
 SUPABASE_SERVICE_ROLE_KEY     = <service_role key kamu>
-SYLVATICA_APIKEY              = sylva-630679ece126c6283d0f42c4da6cce53
-POSTGRES_URL_NON_POOLING      = postgres://postgres.abbbqjahqehewyvkzoro:<PASSWORD>@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres?sslmode=require
+SYLVATICA_APIKEY              = <kunci dari dashboard Sylvatica — JANGAN ditulis di repo>
+POSTGRES_URL_NON_POOLING      = postgres://postgres.<project-ref>:<PASSWORD>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
 ```
 
 > `POSTGRES_URL_NON_POOLING` ada di **Project Settings → Database → Connection string → URI** (pilih **Direct connection / port 5432**, bukan pooler 6543). Password database ada di halaman yang sama.

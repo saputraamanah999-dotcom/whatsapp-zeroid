@@ -4,13 +4,19 @@ Penyedia AI/brat/search ke-3 sudah digabung ke Zeroid: rantai failover sekarang
 **Sylvatica → JEREXD → Vexo** (penyedia yang terakhir berhasil dicoba lebih dulu).
 Stiker Brat memakai urutan **Vexo → siputzx → Sylvatica**.
 
-## Kunci (hanya server — JANGAN pernah EXPO_PUBLIC_)
+## Kunci (hanya server — JANGAN pernah EXPO_PUBLIC_, JANGAN pernah ditulis di repo)
+
+> ⚠️ KEAMANAN: kunci TIDAK PERNAH ditulis di file repo apa pun (repo ini publik).
+> Kunci hidup di dua tempat: env Vercel (server) dan Firestore `secrets/ai`
+> (dibaca service account; rules melarang total klien). Isi kunci via
+> GitHub Actions secrets (SYLVATICA_APIKEY, JEREXD_APIKEY, VEXO_APIKEY,
+> IMGBB_KEY) — CI otomatis menyemaimya ke `secrets/ai`.
 
 ```
-SYLVATICA_APIKEY=sylva-630679ece126c6283d0f42c4da6cce53
-JEREXD_APIKEY=jere_ebhzcs-KVLg2
-VEXO_APIKEY=l3-Kb-aRMGFeb_Kv
-IMGBB_KEY=ae271538eef73c1305493b82bf34b9d5
+SYLVATICA_APIKEY=<lihat GitHub Actions secrets / dashboard penyedia>
+JEREXD_APIKEY=<lihat GitHub Actions secrets / dashboard penyedia>
+VEXO_APIKEY=<lihat GitHub Actions secrets / dashboard penyedia>
+IMGBB_KEY=<lihat GitHub Actions secrets / dashboard penyedia>
 ```
 
 ## BARU (batch 9): kunci kini punya CADANGAN OTOMATIS — tidak wajib isi Vercel
@@ -33,9 +39,12 @@ Menambah/berganti kunci di masa depan: jalankan ulang seed (atau tulis dokumen
 
 1. Buka https://vercel.com → project **whatsapp-zeroid**.
 2. **Settings → Environment Variables → Add New**:
-   - Name: `VEXO_APIKEY`, Value: `l3-Kb-aRMGFeb_Kv`, Environments: Production
+   - Name: `VEXO_APIKEY`, Value: (kunci dari dashboard Vexo), Environments: Production
    - (sama untuk `SYLVATICA_APIKEY` bila belum ada)
 3. **Deployments → Redeploy** (centang "Use existing build cache" bebas).
+
+> Cara LEBIH MUDAH & aman: cukup taruh kunci di GitHub Actions secrets —
+> CI menyemaimya ke Firestore `secrets/ai` otomatis, tanpa buka Vercel.
 
 ## WAJIB setelah batch 9: Redeploy web sekali
 
