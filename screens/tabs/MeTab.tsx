@@ -9,6 +9,11 @@ import { Confirm } from '../../components/Sheet';
 import { useTheme, useThemeMode, R, ThemeMode } from '../../lib/theme';
 import { useStore, logout, setTheme, backendMode, updateMe } from '../../lib/store';
 
+// Versi aplikasi ikut app.json (satu sumber untuk web & APK — tidak lagi ketertinggalan).
+const appVersion: string = (() => {
+  try { return (require('../../app.json') as any)?.expo?.version ?? '1.2.0'; } catch { return '1.2.0'; }
+})();
+
 export default function MeTab() {
   const t = useTheme();
   const mode = useThemeMode();
@@ -158,7 +163,7 @@ export default function MeTab() {
         <Row icon="log-out" title="Keluar" danger onPress={() => setAskLogout(true)} />
       </Card>
       <T v="caption" color={t.faint} style={{ textAlign: 'center' }}>
-        Zeroid-whatsapp v1.0.0 · com.zeroid.whatsapp
+        Zeroid-whatsapp v{appVersion} · com.zeroid.whatsapp
       </T>
       <Confirm visible={askAdmin} title="Masuk ke Admin Panel?" body="Kamu akan masuk ke area administrator. Semua tindakan tercatat." confirm="Masuk" onConfirm={() => nav.navigate('Admin')} onClose={() => setAskAdmin(false)} />
       <Confirm visible={askLogout} title="Keluar dari akun?" body="Kamu bisa masuk lagi kapan saja." confirm="Keluar" danger onConfirm={logout} onClose={() => setAskLogout(false)} />

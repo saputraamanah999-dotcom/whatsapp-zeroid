@@ -23,6 +23,40 @@ import { VerifiedBadge, VipBadge, PremiumBadge, SecurityBadge, DeveloperBadge, A
 
 export type IconName = React.ComponentProps<typeof Ionicons>['name'];
 
+// ---------- CoverImage ----------
+/**
+ * Sampul lagu/artis/playlist yang tangguh:
+ *  - expo-image dengan cache disk (thumbnail tidak diunduh ulang terus)
+ *  - placeholder rapi saat URL kosong / masih memuat / gagal (ikon fallback)
+ *  - round=true → bulat (gaya daftar putar), round=false → sudut membulat
+ */
+export function CoverImage({ uri, size = 48, round = true, fallbackIcon = 'musical-note' }: { uri?: string; size?: number; round?: boolean; fallbackIcon?: IconName }) {
+  const t = useTheme();
+  const [bad, setBad] = React.useState(false);
+  React.useEffect(() => { setBad(false); }, [uri]);
+  const radius = round ? size / 2 : Math.round(size * 0.24);
+  if (!uri || bad) {
+    return (
+      <View style={{ width: size, height: size, borderRadius: radius, backgroundColor: t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)', alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name={fallbackIcon} size={Math.round(size * 0.44)} color={t.faint} />
+      </View>
+    );
+  }
+  return (
+    <View style={{ width: size, height: size, borderRadius: radius, overflow: 'hidden', backgroundColor: t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.05)' }}>
+      <Image
+        source={{ uri }}
+        style={{ width: size, height: size }}
+        contentFit="cover"
+        cachePolicy="disk"
+        recyclingKey={uri}
+        onError={() => setBad(true)}
+        transition={140}
+      />
+    </View>
+  );
+}
+
 // ---------- Text ----------
 type TV = 'h1' | 'h2' | 'h3' | 'body' | 'sub' | 'caption' | 'label';
 const sizes: Record<TV, TextStyle> = {
@@ -299,13 +333,17 @@ export function Empty({ icon, title, body, action }: { icon: IconName; title: st
   );
 }
 
-export function Row({ icon, iconColor, title, subtitle, right, onPress, danger, chevron = true }: { icon: IconName; iconColor?: string; title: string; subtitle?: string; right?: ReactNode; onPress?: () => void; danger?: boolean; chevron?: boolean }) {
+export function Row({ icon, iconColor, title, subtitle, right, onPress, danger, chevron = true, image, imageRound = true }: { icon: IconName; iconColor?: string; title: string; subtitle?: string; right?: ReactNode; onPress?: () => void; danger?: boolean; chevron?: boolean; image?: string; imageRound?: boolean }) {
   const t = useTheme();
   return (
     <Pressable onPress={onPress} disabled={!onPress} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 14, gap: 14, borderRadius: R.md, backgroundColor: pressed ? t.accentSoft : 'transparent' })}>
-      <Neu small radius={14} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-        <Ionicons name={icon} size={20} color={danger ? t.danger : iconColor ?? t.accent} />
-      </Neu>
+      {image ? (
+        <CoverImage uri={image} size={48} round={imageRound} fallbackIcon={icon} />
+      ) : (
+        <Neu small radius={14} style={{ width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name={icon} size={20} color={danger ? t.danger : iconColor ?? t.accent} />
+        </Neu>
+      )}
       <View style={{ flex: 1 }}>
         <T v="body" color={danger ? t.danger : t.text} style={{ fontWeight: '500' }}>
           {title}

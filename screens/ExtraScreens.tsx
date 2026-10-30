@@ -4,7 +4,7 @@ import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Header, Screen, Avatar, T, Neu, Card, Row, Btn, NeuInput, Empty, UserBadges, IconBtn } from '../components/ui';
+import { Header, Screen, Avatar, T, Neu, Card, Row, Btn, NeuInput, Empty, UserBadges, IconBtn, CoverImage } from '../components/ui';
 import { Sheet, Confirm } from '../components/Sheet';
 import MediaPlayer from '../components/MediaPlayer';
 import BannerMedia from '../components/BannerMedia';
@@ -572,18 +572,33 @@ export function MusicScreen() {
 
         {!!songs.length && (
           <View style={{ gap: 2 }}>
+            <T v="label" style={{ marginLeft: 8, marginTop: 4 }}>Lagu · {songs.length}</T>
             {songs.map((s, i) => {
               const active = st.current?.videoId === s.videoId;
               return (
                 <Row
                   key={`${s.videoId}-${i}`}
                   icon="musical-note"
-                  iconColor="#1DB954"
-                  title={s.title}
-                  subtitle={[s.artist, s.duration].filter(Boolean).join(' · ') || 'Lagu'}
+                  image={s.thumb}
+                  chevron={false}
+                  title={active && st.playing ? `${s.title}  ♪` : s.title}
+                  subtitle={[s.artist, s.album, s.duration].filter(Boolean).join(' · ') || 'Lagu'}
                   onPress={() => openSong(s)}
                   right={
-                    active ? <Ionicons name="volume-high" size={18} color="#1DB954" /> : <Ionicons name="play-circle" size={24} color={t.faint} />
+                    <Pressable
+                      onPress={() => openSong(s)}
+                      hitSlop={8}
+                      accessibilityLabel={active ? 'Sedang diputar' : 'Putar lagu'}
+                      style={({ pressed }) => ({ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: active ? 'rgba(29,185,84,0.14)' : 'transparent', transform: [{ scale: pressed ? 0.9 : 1 }] })}
+                    >
+                      {active && st.loading ? (
+                        <ActivityIndicator size="small" color="#1DB954" />
+                      ) : active ? (
+                        <Ionicons name={st.playing ? 'volume-high' : 'play'} size={20} color="#1DB954" />
+                      ) : (
+                        <Ionicons name="play-circle" size={30} color="#1DB954" />
+                      )}
+                    </Pressable>
                   }
                 />
               );
@@ -596,13 +611,7 @@ export function MusicScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, padding: 8 }}>
               {arts.map((a) => (
                 <Pressable key={a.browseId} onPress={() => { setQ(a.name); void runSearch(a.name); }} style={{ alignItems: 'center', width: 86, gap: 6 }}>
-                  {a.thumb ? (
-                    <Image source={{ uri: a.thumb }} style={{ width: 74, height: 74, borderRadius: 37 }} contentFit="cover" />
-                  ) : (
-                    <View style={{ width: 74, height: 74, borderRadius: 37, backgroundColor: t.bg2, alignItems: 'center', justifyContent: 'center' }}>
-                      <Ionicons name="person" size={30} color={t.faint} />
-                    </View>
-                  )}
+                  <CoverImage uri={a.thumb} size={74} round fallbackIcon="person" />
                   <T v="caption" numberOfLines={2} style={{ textAlign: 'center', fontWeight: '700' }}>{a.name}</T>
                 </Pressable>
               ))}
@@ -615,13 +624,7 @@ export function MusicScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, padding: 8 }}>
               {pls.map((p) => (
                 <Pressable key={p.browseId} onPress={() => void runSearch(p.title)} style={{ width: 132, gap: 6 }}>
-                  {p.thumb ? (
-                    <Image source={{ uri: p.thumb }} style={{ width: 132, height: 132, borderRadius: 16 }} contentFit="cover" />
-                  ) : (
-                    <View style={{ width: 132, height: 132, borderRadius: 16, backgroundColor: t.bg2, alignItems: 'center', justifyContent: 'center' }}>
-                      <Ionicons name="list" size={40} color={t.faint} />
-                    </View>
-                  )}
+                  <CoverImage uri={p.thumb} size={132} round={false} fallbackIcon="list" />
                   <T v="caption" numberOfLines={2} style={{ fontWeight: '700' }}>{p.title}</T>
                   {!!p.author && <T v="caption" color={t.faint} numberOfLines={1}>{p.author}</T>}
                 </Pressable>

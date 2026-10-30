@@ -65,7 +65,23 @@ const runs = (o: any): string =>
 function thumbs(o: any): string | undefined {
   const th = o?.musicThumbnailRenderer?.thumbnail?.thumbnails;
   if (!Array.isArray(th) || !th.length) return undefined;
-  return th[th.length - 1]?.url;
+  return bigThumb(th[th.length - 1]?.url);
+}
+
+/**
+ * Thumbnail YouTube Music default sering cuma w120-h120 → pecah/blur di
+ * pemutar penuh (260px). Googleusercontent menerima parameter ukuran, jadi
+ * tinggal dinaikkan ke w544-h544 (URL sama, gambar tajam). URL lain dibiarkan.
+ */
+function bigThumb(url?: string): string | undefined {
+  if (!url || typeof url !== 'string') return url;
+  if (/googleusercontent\.com/.test(url) && /=w\d+-h\d+/.test(url)) {
+    return url.replace(/=w\d+-h\d+[^/]*$/, '=w544-h544-l90-rj');
+  }
+  if (/i\.ytimg\.com\/.+\/default\.jpg$/.test(url)) {
+    return url.replace(/default\.jpg$/, 'hqdefault.jpg');
+  }
+  return url;
 }
 
 function parseShelf(shelf: any): { songs: Song[]; albums: Album[]; playlists: Playlist[]; artists: Artist[] } {
@@ -86,7 +102,7 @@ function parseShelf(shelf: any): { songs: Song[]; albums: Album[]; playlists: Pl
     const browse = it?.navigationEndpoint?.browseEndpoint?.browseId
       ?? cellRuns(cols[0])[0]?.navigationEndpoint?.browseEndpoint?.browseId
       ?? '';
-    const thumb = thumbs(it) ?? it?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)?.[0]?.url;
+    const thumb = bigThumb(thumbs(it) ?? it?.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails?.slice(-1)?.[0]?.url);
     // kolom 2: runs = [artist, ' • ', album, ' • ', durasi/rating] — artis = run pertama
     const subCols: any[][] = cols.slice(1).map(cellRuns);
     const artist = subCols[0]?.[0]?.text?.replace(/\s*•\s*$/, '').trim() || undefined;
