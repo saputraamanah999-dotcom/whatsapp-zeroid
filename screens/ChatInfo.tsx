@@ -17,6 +17,7 @@ import {
   toggleBlock,
   clearChat,
   removeMember,
+  leaveGroup,
   toggleAdmin,
   addMembers,
   updateChat,
@@ -273,6 +274,7 @@ export default function ChatInfo() {
             {chat.members.map((id) => {
               const u = db.users[id];
               if (!u) return null;
+              const isOwner = chat.createdBy === id; // admin utama (pembuat grup)
               return (
                 <Pressable key={id} onPress={() => id !== me.id && setMemberSel(id)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10, borderRadius: R.md, backgroundColor: pressed ? t.accentSoft : 'transparent' })}>
                   <Avatar uri={canSee(me, u, u.privacy.profilePhoto) ? u.avatar : null} name={u.name} color={u.color} size={42} online={isOnline(u)} />
@@ -288,13 +290,21 @@ export default function ChatInfo() {
                       {u.about}
                     </T>
                   </View>
-                  {chat.admins.includes(id) && (
+                  {/* v17: PEMILIK (admin utama) dapat lencana khusus — tidak bisa
+                      dikeluarkan/diturunkan admin lain, hanya dia sendiri yang bisa keluar */}
+                  {isOwner ? (
+                    <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: 'rgba(0,149,246,0.12)', borderWidth: 1, borderColor: 'rgba(0,149,246,0.35)' }}>
+                      <T v="caption" color={t.accent} style={{ fontWeight: '700' }}>
+                        Pemilik
+                      </T>
+                    </View>
+                  ) : chat.admins.includes(id) ? (
                     <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: t.accentSoft }}>
                       <T v="caption" color={t.accent} style={{ fontWeight: '700' }}>
                         Admin
                       </T>
                     </View>
-                  )}
+                  ) : null}
                 </Pressable>
               );
             })}
@@ -324,8 +334,27 @@ export default function ChatInfo() {
             ? [
                 { icon: 'chatbubble', label: 'Kirim pesan', onPress: () => nav.navigate('ChatRoom', { chatId: openDirect(memberSel) }) },
                 { icon: 'call', label: 'Telepon', onPress: () => placeCall(nav, openDirect(memberSel), false) },
-                ...(isAdmin ? [{ icon: 'shield' as const, label: chat.admins.includes(memberSel) ? 'Hapus sebagai admin' : 'Jadikan admin', onPress: () => toggleAdmin(chat.id, memberSel) }] : []),
-                ...(isAdmin ? [{ icon: 'person-remove' as const, label: 'Keluarkan dari grup', danger: true, onPress: () => removeMember(chat.id, memberSel) }] : []),
+                // v17: PEMILIK GRUP tidak bisa diturunkan/dikeluarkan admin lain —
+                // opsi itu disembunyikan dari lembar anggota (kecuali admin global)
+                ...(isAdmin && !(chat.createdBy === memberSel && memberSel !== me.id && !isFullAdmin(me))
+                  ? [{ icon: 'shield' as const, label: chat.admins.includes(memberSel) ? 'Hapus sebagai admin' : 'Jadikan admin', onPress: () => toggleAdmin(chat.id, memberSel) }]
+                  : []),
+                ...(isAdmin && !(chat.createdBy === memberSel && memberSel !== me.id && !isFullAdmin(me))
+                  ? [{
+                      icon: 'person-remove' as const,
+                      label: 'Keluarkan dari grup',
+                      danger: true,
+                      onPress: async () => {
+                        const nm = db.users[memberSel]?.name ?? 'anggota';
+                        const r = await removeMember(chat.id, memberSel);
+                        if (r.ok) pushBanner({ title: 'Anggota dikeluarkan', body: `${nm} tidak bisa chat di grup ini lagi.`, icon: 'person-remove' });
+                        else pushBanner({ title: 'Gagal mengeluarkan', body: r.error ?? 'Coba lagi.', icon: 'alert' });
+                      },
+                    }]
+                  : []),
+                ...(chat.createdBy === memberSel && memberSel !== me.id && !isFullAdmin(me)
+                  ? [{ icon: 'shield-checkmark' as const, label: 'Pemilik grup — tidak bisa dikeluarkan', onPress: () => {} }]
+                  : []),
               ]
             : []
         }
@@ -394,11 +423,19 @@ export default function ChatInfo() {
       <Confirm
         visible={confirm === 'leave'}
         title="Keluar dari grup?"
+        body={chat.createdBy === me.id && chat.members.length > 1 ? 'Kamu admin utama grup ini. Kalau keluar, posisi admin utama otomatis pindah ke anggota yang tersisa.' : undefined}
         confirm="Keluar"
         danger
-        onConfirm={() => {
-          removeMember(chat.id, me.id);
-          nav.navigate('Main');
+        onConfirm={async () => {
+          // v17: keluar BENAR-BENAR diverifikasi server (dulu update ditelan
+          // diam-diam → notif "keluar" muncul tapi masih nyangkut bisa chat)
+          const r = await leaveGroup(chat.id);
+          if (r.ok) {
+            pushBanner({ title: 'Keluar dari grup', body: 'Kamu keluar dan tidak bisa chat di grup ini lagi.', icon: 'exit' });
+            nav.navigate('Main');
+          } else {
+            pushBanner({ title: 'Gagal keluar', body: r.error ?? 'Coba lagi.', icon: 'alert' });
+          }
         }}
         onClose={() => setConfirm(null)}
       />

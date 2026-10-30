@@ -130,6 +130,16 @@ export default function ChatRoom() {
 
   if (!me) return null;
   if (!chat || !isMember(chat, me.id) && chat.type !== 'channel') {
+    // v17: grup masih ada tapi saya bukan anggota → saya KELUAR/DIKELUARKAN
+    // (bukan lagi "chat tidak tersedia" yang membingungkan)
+    if (chat && chat.type === 'group') {
+      return (
+        <Screen>
+          <Header title={chat.name ?? 'Grup'} />
+          <Empty icon="exit-outline" title="Kamu keluar dari grup ini" body="Kamu keluar atau dikeluarkan dari grup ini, jadi tidak bisa melihat atau mengirim pesan di sini lagi." />
+        </Screen>
+      );
+    }
     return (
       <Screen>
         <Header title="Chat" />

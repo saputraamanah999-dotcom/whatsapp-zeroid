@@ -1,6 +1,6 @@
 {
   "name": "zeroid-whatsapp",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "main": "index.ts",
   "dependencies": {
     "@config-plugins/react-native-webrtc": "^15.0.2",

@@ -99,7 +99,7 @@ export default function FeedbackScreen() {
                 borderRadius: R.lg,
                 padding: 14,
                 gap: 8,
-                backgroundColor: t.card,
+                backgroundColor: t.bg2,
                 borderWidth: isNew ? 2 : 0,
                 borderColor: t.accent,
               }}

@@ -32,7 +32,7 @@ import {
 } from 'firebase/auth';
 import {
   doc, setDoc, addDoc, updateDoc, deleteDoc, getDoc, getDocs, collection, query, where, orderBy, limit as fsLimit,
-  onSnapshot, serverTimestamp, arrayUnion, arrayRemove, increment, writeBatch, Timestamp, type DocumentData,
+  onSnapshot, serverTimestamp, arrayUnion, arrayRemove, increment, writeBatch, Timestamp, runTransaction, type DocumentData,
 } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -1427,23 +1427,146 @@ export function addMembers(chatId: string, ids: string[]) {
   }
 }
 
-export function removeMember(chatId: string, userId: string) {
-  const me = getMe()!;
+/**
+ * ADMIN mengeluarkan anggota dari grup (kick).
+ * v17 FIX "di kick tetap bisa chat": dulu tulisan members(+admins) ditulis
+ * membuto (error rules ditelan .catch kosong) → di server anggota LAMA ADA,
+ * sementara notif "mengeluarkan" tetap muncul → korban masih bisa chat.
+ * Sekarang: baca dokumen TERBARU dulu, lindungi PEMILIK grup (admin utama
+ * tidak bisa dikeluarkan siapa pun kecuali dirinya sendiri / admin global),
+ * tunggu hasil, baru tulis pesan sistem + notifikasi. Gagal = pesan error
+ * JUJUR tampil (tidak ada lagi notif keluar palsu).
+ */
+export async function removeMember(chatId: string, userId: string): Promise<{ ok: boolean; error?: string }> {
+  const me = getMe();
   const fb = firebase();
-  if (!fb) return;
+  if (!me || !fb) return { ok: false, error: 'Belum masuk.' };
   const c = db.chats[chatId];
-  updateDoc(doc(fb.db, C.chats, chatId), {
-    members: arrayRemove(userId), ...(c?.admins.includes(userId) ? { admins: arrayRemove(userId) } : {}),
-  }).catch(() => {});
-  sysMsg(chatId, userId === me.id ? `${me.name} keluar` : `${me.name} mengeluarkan ${db.users[userId]?.name ?? 'anggota'}`, me.id);
+  if (!c) return { ok: false, error: 'Grup tidak ditemukan.' };
+  try {
+    // server-first: jangan percaya state lokal yang bisa basi
+    const snap = await getDoc(doc(fb.db, C.chats, chatId));
+    const fresh = snap.data() as Chat | undefined;
+    if (!fresh) return { ok: false, error: 'Grup tidak ditemukan.' };
+    if (!(fresh.members ?? []).includes(userId)) return { ok: true }; // memang sudah keluar
+    const actorIsChatAdmin = (fresh.admins ?? []).includes(me.id);
+    if (!actorIsChatAdmin && !isFullAdmin(me)) return { ok: false, error: 'Hanya admin grup yang bisa mengeluarkan anggota.' };
+    // PEMILIK GRUP (admin utama) dilindungi — kecuali dia keluar sendiri
+    if (fresh.createdBy === userId && userId !== me.id && !isFullAdmin(me)) {
+      return { ok: false, error: 'Admin utama (pembuat grup) tidak bisa dikeluarkan — hanya dia sendiri yang bisa keluar.' };
+    }
+    const nextMembers = (fresh.members ?? []).filter((u) => u !== userId);
+    const nextAdmins = (fresh.admins ?? []).filter((u) => u !== userId);
+    const patch: Record<string, unknown> = { members: nextMembers };
+    if (nextAdmins.length !== (fresh.admins ?? []).length) patch.admins = nextAdmins;
+    await updateDoc(doc(fb.db, C.chats, chatId), patch);
+    // tulis jejak HANYA sesudah keluar benar-benar berhasil (tidak ada lagi notif palsu)
+    sysMsg(chatId, `${me.name} mengeluarkan ${db.users[userId]?.name ?? 'anggota'}`, me.id);
+    notifyFor(userId, 'group', 'Kamu dikeluarkan dari grup', `Kamu dikeluarkan dari "${fresh.name ?? 'grup'}" oleh ${me.name}.`, { chatId });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: fbError(e) };
+  }
+}
+
+/**
+ * KELUAR dari grup (sendiri).
+ * v17 FIX "keluar gagal, masih nyangkut bisa chat":
+ *  - baca dokumen TERBARU dari server dulu (state lokal basi = biang keroknya),
+ *  - PEMILIK yang keluar → admin utama OTOMATIS pindah ke anggota tersisa
+ *    (utamakan admin lain yang sudah ada, kalau tidak ada: anggota teratas)
+ *    dalam SATU tulisan (members+admins+createdBy — rules v17 jalur 6c),
+ *  - pesan sistem "X keluar" ditulis dalam TRANSAKSI yang sama dengan
+ *    perubahan anggota → jika keluar gagal, notif palsu TIDAK ikut terkirim,
+ *  - UI diperbarui optimistis seketika + error jujur kalau server menolak.
+ */
+export async function leaveGroup(chatId: string): Promise<{ ok: boolean; error?: string }> {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb) return { ok: false, error: 'Belum masuk.' };
+  const c = db.chats[chatId];
+  if (!c) return { ok: false, error: 'Grup tidak ditemukan.' };
+  if (c.type !== 'group') return { ok: false, error: 'Hanya grup yang bisa ditinggalkan.' };
+  try {
+    const snap = await getDoc(doc(fb.db, C.chats, chatId));
+    const fresh = snap.data() as Chat | undefined;
+    if (!fresh) return { ok: false, error: 'Grup tidak ditemukan.' };
+    if (!(fresh.members ?? []).includes(me.id)) return { ok: true }; // memang sudah keluar
+    const wasOwner = fresh.createdBy === me.id;
+    const wasAdmin = (fresh.admins ?? []).includes(me.id);
+    const others = (fresh.members ?? []).filter((u) => u !== me.id);
+    // suksesor admin utama: admin lain dulu, kalau tidak ada → anggota teratas tersisa
+    const successor = wasOwner && others.length ? (others.find((u) => (fresh.admins ?? []).includes(u)) ?? others[0]) : null;
+    const nextAdmins = (fresh.admins ?? []).filter((u) => u !== me.id);
+    if (successor && !nextAdmins.includes(successor)) nextAdmins.push(successor);
+    const patch: Record<string, unknown> = { members: others };
+    if (wasAdmin) patch.admins = nextAdmins;
+    if (successor) patch.createdBy = successor;
+
+    const chatRef = doc(fb.db, C.chats, chatId);
+    // GRUP DITANGGUHKAN/DIBANNED: anggota tidak boleh menulis pesan apa pun
+    // (rules) → keluar lewat jalur polos TANPA pesan sistem (kalau tidak,
+    // transaksi ditolak semua → "gak keluar-keluar" lagi di grup tangguhan)
+    if (chatBannedNow(fresh)) {
+      await updateDoc(chatRef, patch);
+      db.chats = {
+        ...db.chats,
+        [chatId]: { ...fresh, members: others, admins: nextAdmins, createdBy: successor ?? fresh.createdBy },
+      };
+      bump();
+      if (successor) {
+        notifyFor(successor, 'group', 'Kamu sekarang admin utama', `${me.name} keluar dan memindahkan admin utama "${fresh.name ?? 'grup'}" ke kamu.`, { chatId });
+      }
+      return { ok: true };
+    }
+    // pesan sistem + perubahan anggota = SATU transaksi atomik:
+    // gagal keluar → "X keluar" tidak pernah muncul (tidak ada lagi notif bohong)
+    await runTransaction(fb.db, async (tx) => {
+      tx.update(chatRef, patch);
+      const leaveRef = doc(collection(fb.db, C.chats, chatId, 'messages'));
+      tx.set(leaveRef, {
+        chatId, senderId: me.id, type: 'system', text: `${me.name} keluar`,
+        clientTime: Date.now(), createdAt: serverTimestamp(),
+        deletedFor: [], reactions: {}, starredBy: [],
+      });
+      if (successor) {
+        const promoRef = doc(collection(fb.db, C.chats, chatId, 'messages'));
+        tx.set(promoRef, {
+          chatId, senderId: me.id, type: 'system',
+          text: `${db.users[successor]?.name ?? 'Anggota'} sekarang admin utama grup`,
+          clientTime: Date.now() + 1, createdAt: serverTimestamp(),
+          deletedFor: [], reactions: {}, starredBy: [],
+        });
+      }
+    });
+    // UI instan: keluar dari daftar anggota lokal, chat menghilang dari daftar
+    db.chats = {
+      ...db.chats,
+      [chatId]: { ...fresh, members: others, admins: nextAdmins, createdBy: successor ?? fresh.createdBy },
+    };
+    bump();
+    if (successor) {
+      notifyFor(successor, 'group', 'Kamu sekarang admin utama', `${me.name} keluar dan memindahkan admin utama "${fresh.name ?? 'grup'}" ke kamu.`, { chatId });
+    }
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: fbError(e) };
+  }
 }
 
 export function toggleAdmin(chatId: string, userId: string) {
+  const me = getMe()!;
   const c = db.chats[chatId];
   const fb = firebase();
   if (!c || !fb) return;
-  updateDoc(doc(fb.db, C.chats, chatId), { admins: c.admins.includes(userId) ? arrayRemove(userId) : arrayUnion(userId) }).catch(() => {});
-  sysMsg(chatId, `${db.users[userId]?.name ?? 'Anggota'} ${c.admins.includes(userId) ? 'bukan admin lagi' : 'sekarang admin'}`, getMe()!.id);
+  // v17 PEMILIK GRUP dilindungi: admin utama (pembuat grup) tidak bisa diturunkan
+  // oleh admin kedua/user lain — hanya dia sendiri (keluar) atau admin global.
+  if (c.createdBy === userId && userId !== me.id && !isFullAdmin(me)) {
+    pushBanner({ title: 'Tidak diizinkan', body: 'Admin utama (pembuat grup) tidak bisa diturunkan — hanya dia sendiri yang bisa melepas posisinya.', icon: 'shield' });
+    return;
+  }
+  updateDoc(doc(fb.db, C.chats, chatId), { admins: c.admins.includes(userId) ? arrayRemove(userId) : arrayUnion(userId) }).catch((e) => pushBanner({ title: 'Gagal', body: fbError(e), icon: 'alert' }));
+  sysMsg(chatId, `${db.users[userId]?.name ?? 'Anggota'} ${c.admins.includes(userId) ? 'bukan admin lagi' : 'sekarang admin'}`, me.id);
 }
 
 export function toggleChatFlag(chatId: string, flag: 'pinnedBy' | 'mutedBy' | 'archivedBy') {
@@ -1507,7 +1630,10 @@ export async function deleteChat(chatId: string) {
   const me = getMe()!;
   const c = db.chats[chatId];
   clearChat(chatId);
-  if (c?.type === 'group' || c?.type === 'channel') removeMember(chatId, me.id);
+  // v17: keluar grup lewat jalur leaveGroup (pemilik → transfer otomatis,
+  // error jujur) — bukan lagi removeMember membuto
+  if (c?.type === 'group') void leaveGroup(chatId);
+  else if (c?.type === 'channel') void removeMember(chatId, me.id);
   else if (c && !c.archivedBy.includes(me.id)) toggleChatFlag(chatId, 'archivedBy');
 }
 
@@ -1606,13 +1732,26 @@ function spamCheck(): boolean {
 }
 
 // ---------- mentions: @username / @semua ----------
-/** Resolve mention dari teks pesan → uid target + referensi utk disimpan di pesan. */
+/**
+ * Resolve mention dari teks pesan → uid target + referensi utk disimpan di pesan.
+ * v17:
+ *  - CHAT GLOBAL: kandidat mention = SEMUA PENGGUNA (dulu anggota global yang
+ *    jumlahnya kosong/parsial → "gak bisa tag siapa-siapa di global") — tag
+ *    tanpa perlu simpan kontak.
+ *  - GRUP/SALURAN: kandidat = anggota (tag tanpa simpan kontak — tetap jalan).
+ *  - @semua/@all/@everyone/@sini HANYA admin grup / admin global; user biasa
+ *    yang mengetiknya → diperlakukan teks biasa, mention individu tetap jalan.
+ */
 function resolveMsgMentions(chat: Chat, text: string): MentionResolution {
   const empty: MentionResolution = { uids: [], refs: [], all: false };
-  if (!text || (chat.type !== 'group' && chat.type !== 'global')) return empty;
-  const sender = getMe()?.id ?? '';
-  const candidates = (chat.members ?? []).map((uid) => db.users[uid]).filter(Boolean);
-  return resolveMentions(text, candidates, sender);
+  if (!text || (chat.type !== 'group' && chat.type !== 'global' && chat.type !== 'channel')) return empty;
+  const me = getMe();
+  if (!me) return empty;
+  const pool = chat.type === 'global'
+    ? Object.values(db.users)
+    : (chat.members ?? []).map((uid) => db.users[uid]).filter(Boolean);
+  const allowAll = (chat.admins ?? []).includes(me.id) || isFullAdmin(me);
+  return resolveMentions(text, pool, me.id, allowAll);
 }
 
 
@@ -1937,8 +2076,9 @@ export function postStory(s: Pick<Story, 'type' | 'text' | 'bg' | 'uri'>) {
   const fb = firebase();
   if (!me || !fb) return;
   // SW mention: @username di teks/caption SW → simpan uid + notif ke yang disebut
+  // (v17: alias @semua di SW juga khusus admin global — user biasa hanya tag individu)
   const candidates = Object.values(db.users).filter(Boolean);
-  const men = resolveMentions(s.text ?? '', candidates, me.id);
+  const men = resolveMentions(s.text ?? '', candidates, me.id, isFullAdmin(me));
   addDoc(collection(fb.db, C.stories), {
     userId: me.id, type: s.type, text: s.text ?? null, bg: s.bg ?? null, uri: s.uri ?? null,
     createdAt: serverTimestamp(), expiresAt: Date.now() + 24 * 3600000, viewers: [], likes: [],

@@ -39,14 +39,17 @@ export type MentionResolution = {
 
 /**
  * Resolve teks → daftar target mention.
- * @param candidates user yang BOLEH disebut (anggota grup / semua user di SW)
+ * @param candidates user yang BOLEH disebut (anggota grup / semua user di global & SW)
  * @param meId pengirim (tidak menyebut diri sendiri)
+ * @param allowAll v17: @semua/@all/@everyone/@sini HANYA untuk admin grup & admin
+ *        global — user biasa yang mengetik alias itu diperlakukan teks biasa
+ *        (tidak ada lagi tag-all oleh user biasa), mention individu tetap jalan.
  */
-export function resolveMentions(text: string, candidates: User[], meId: string): MentionResolution {
+export function resolveMentions(text: string, candidates: User[], meId: string, allowAll = true): MentionResolution {
   if (!text || !text.includes('@')) return { uids: [], refs: [], all: false };
   const handles = mentionHandles(text);
   if (!handles.length) return { uids: [], refs: [], all: false };
-  const all = handles.some((h) => MENTION_ALL_ALIASES.includes(h));
+  const all = allowAll && handles.some((h) => MENTION_ALL_ALIASES.includes(h));
   const byName = new Map<string, User>();
   for (const u of candidates) {
     if (!u || u.id === meId || u.banned) continue;

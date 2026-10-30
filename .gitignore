@@ -27,3 +27,4 @@ bun.lock
 secrets/
 *.jks
 *.keystore
+tool-results/

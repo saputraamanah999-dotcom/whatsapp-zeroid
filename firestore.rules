@@ -1,5 +1,17 @@
 rules_version = '2';
-// ZEROID WHATSAPP — FIRESTORE RULES v15 (FIX CHECK-IN SEMUA USER: syarat ekonomi berbasis affectedKeys — 'in request.resource.data' ternyata selalu kena dokumen gabungan fieldMask → referralCode/lastCheckinAt menolak semua tulisan ekonomi user biasa; pola sama dibersihkan di streakChatUpdate & hiddenFor)
+// ZEROID WHATSAPP — FIRESTORE RULES v17 (GRUP: KEPEMILIKAN & KELUAR MASUK)
+//  1. PEMILIK GRUP (createdBy = admin utama) DilindUNGI: admin kedua/user lain
+//     TIDAK bisa menendang, menurunkan, atau mengalihkan kepemilikan pemilik —
+//     hanya pemilik sendiri (atau admin global) yang bisa.
+//  2. KELUAR GRUP anti "gak keluar-keluar": jalur keluar-sendiri sekarang PENUH —
+//     anggota biasa (members saja), admin grup (members+admins sekaligus), dan
+//     PEMILIK yang keluar + pindah admin utama OTOMATIS (members+admins+createdBy
+//     dalam SATU tulisan; pemilik baru wajib anggota lama & terdaftar admin).
+//  3. Transfer createdBy hanya boleh oleh pemilik lama / admin global, target
+//     baru wajib masih jadi anggota grup hasil perubahan.
+//  4. Penangguhan grup TIDAK menghalangi keluar-sendiri (anggota bebas pergi).
+// v16: + links/bubble/wallpapers/chatTheme, feedback, bot guard (zeroid-bot).
+// v15: ekonomi check-in berbasis affectedKeys.
 // WAJIB terpasang di Firebase Console (atau otomatis via GitHub Actions).
 // Cek status izin live: /seed.html (tes izin server) atau /rules.html (panduan pasang).
 service cloud.firestore {
@@ -123,14 +135,33 @@ service cloud.firestore {
     }
 
     // Which chat fields ONLY chat admins (or global admins) may touch.
-    // v16 BOT GUARD: menambahkan 'zeroid-bot' ke anggota HANYA boleh oleh admin global
-    // (admin Developer). Chat admin biasa tetap bisa mengatur anggota manusia.
+    // v17 OWNER GUARD: pemilik grup (createdBy) tidak bisa ditendang, diturunkan,
+    // atau diganti oleh admin kedua/user lain. 'createdBy' kini boleh ditulis —
+    // tapi HANYA oleh pemilik lama sendiri / admin global, dan pemilik baru
+    // wajib masih terdaftar anggota (hasil perubahan). Menambahkan bot resmi
+    // 'zeroid-bot' HANYA boleh oleh admin global (admin Developer).
     function adminChatUpdate() {
       let k = request.resource.data.diff(resource.data).affectedKeys();
       let addsBot = request.resource.data.get('members', []).hasAny(['zeroid-bot'])
                     && !resource.data.get('members', []).hasAny(['zeroid-bot']);
-      return k.hasOnly(['members','admins','name','description','avatar','postPolicy','inviteCode','disappearing'])
-        && (!addsBot || isAdmin());
+      let owner = resource.data.get('createdBy', '');
+      // pemilik terdampak: dikeluarkan dari anggota / diturunkan dari admin /
+      // kepemilikannya dipindahkan orang lain
+      let ownerTouched = owner != '' && (
+            !(owner in request.resource.data.get('members', []))
+            || (owner in resource.data.get('admins', [])
+                && !(owner in request.resource.data.get('admins', [])))
+            || (k.hasAny(['createdBy'])
+                && request.resource.data.get('createdBy', '') != owner));
+      return k.hasOnly(['members','admins','name','description','avatar','postPolicy','inviteCode','disappearing','createdBy'])
+        && (!addsBot || isAdmin())
+        // transfer kepemilikan: hanya pemilik lama sendiri / admin global;
+        // pemilik baru wajib anggota grup hasil perubahan
+        && (!k.hasAny(['createdBy'])
+            || ((owner == '' || owner == me() || isAdmin())
+                && request.resource.data.get('createdBy', '') in request.resource.data.get('members', [])))
+        // pelindung pemilik: admin kedua tidak bisa menyentuh posisi pemilik
+        && (!ownerTouched || owner == me() || isAdmin());
     }
     // Message fields any member may touch (receipts, reactions, own stars, poll votes,
     // view-once open receipts).
@@ -226,11 +257,38 @@ service cloud.firestore {
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
                         && request.resource.data.get('members', []).hasAll(resource.data.get('members', []))
                         && request.resource.data.get('members', []).size() == resource.data.get('members', []).size() + 1)
+                    // 6a. anggota biasa keluar sendiri / unfollow saluran (hanya members, berkurang 1: saya)
                     || (signedIn() && me() in resource.data.get('members', [])
                         && !(me() in request.resource.data.get('members', []))
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
                         && resource.data.get('members', []).hasAll(request.resource.data.get('members', []))
-                        && resource.data.get('members', []).size() == request.resource.data.get('members', []).size() + 1);
+                        && resource.data.get('members', []).size() == request.resource.data.get('members', []).size() + 1)
+                    // 6b. v17 ADMIN GRUP keluar sendiri — keluar dari anggota + turun
+                    //     dari admin dalam SATU tulisan (dulu: hanya 'members' yang
+                    //     diizinkan → admin yang keluar SELALU DITOLAK → "gak keluar-
+                    //     keluar, masih bisa chat lagi")
+                    || (signedIn() && me() in resource.data.get('members', [])
+                        && me() in resource.data.get('admins', [])
+                        && !(me() in request.resource.data.get('members', []))
+                        && !(me() in request.resource.data.get('admins', []))
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members','admins'])
+                        && resource.data.get('members', []).hasAll(request.resource.data.get('members', []))
+                        && resource.data.get('members', []).size() == request.resource.data.get('members', []).size() + 1
+                        && resource.data.get('admins', []).hasAll(request.resource.data.get('admins', []))
+                        && resource.data.get('admins', []).size() == request.resource.data.get('admins', []).size() + 1)
+                    // 6c. v17 PEMILIK keluar + pindah admin utama OTOMATIS ke anggota
+                    //     lain dalam satu tulisan (suksesor wajib anggota lama yang
+                    //     jadi admin; tidak ada anggota lain yang ikut terbuang)
+                    || (signedIn() && resource.data.get('createdBy', '') == me()
+                        && me() in resource.data.get('members', [])
+                        && !(me() in request.resource.data.get('members', []))
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members','admins','createdBy'])
+                        && resource.data.get('members', []).hasAll(request.resource.data.get('members', []))
+                        && resource.data.get('members', []).size() == request.resource.data.get('members', []).size() + 1
+                        && request.resource.data.get('createdBy', '') != me()
+                        && request.resource.data.get('createdBy', '') in request.resource.data.get('members', [])
+                        && request.resource.data.get('createdBy', '') in request.resource.data.get('admins', [])
+                        && resource.data.get('members', []).hasAll(request.resource.data.get('admins', [])));
       allow delete: if isAdmin(); // hard delete: admins only (request.resource is null on delete)
 
       match /messages/{mid} {

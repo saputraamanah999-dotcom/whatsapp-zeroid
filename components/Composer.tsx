@@ -91,10 +91,17 @@ export default function Composer({
   // mention: query @ aktif (null = tidak sedang mengetik @)
   const [mentionQ, setMentionQ] = useState<string | null>(null);
   const chat = db.chats[chatId];
-  const mentionAllowAll = chat?.type === 'group' || chat?.type === 'global';
+  // v17: @semua (tag semua) HANYA muncul untuk ADMIN GRUP / ADMIN GLOBAL —
+  // user biasa cukup tag individu (semua orang boleh, tanpa simpan kontak).
+  const mentionAllowAll =
+    (!!chat && (chat.admins ?? []).includes(me.id)) || me.role === 'admin' || me.role === 'developer';
+  // v17: CHAT GLOBAL → kandidat tag = SEMUA PENGGUNA (dulu hanya "anggota"
+  // global yang kosong → tidak bisa tag siapa pun); grup/saluran → anggota.
+  const mentionPool: string[] | undefined =
+    chat?.type === 'global' ? Object.keys(db.users) : chat?.members;
   const mentionOptions: MentionOption[] =
     mentionQ !== null && (chat?.type === 'group' || chat?.type === 'global' || chat?.type === 'channel')
-      ? mentionCandidates(chat?.members, db.users, mentionQ, mentionAllowAll)
+      ? mentionCandidates(mentionPool, db.users, mentionQ, mentionAllowAll)
       : [];
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
