@@ -88,13 +88,13 @@ export async function fcmAccessToken(): Promise<string | null> {
     const txt = await r.text().catch(() => '');
     let code = '';
     try { code = String(JSON.parse(txt)?.error ?? txt).slice(0, 80); } catch { code = txt.slice(0, 80); }
-    lastOauthDiag = `HTTP ${r.status} ${code}`;
+    lastOauthDiag = `${lastOauthDiag} → HTTP ${r.status} ${code}`;
     return null;
   }
   const data: any = await r.json().catch(() => ({}));
   if (!data.access_token) {
     // AMAN: pada jalur gagal, body hanya berisi error_code/field non-rahasia
-    lastOauthDiag = `respons 200 tanpa access_token — keys=[${Object.keys(data ?? {}).join(',')}] err=${String(data?.error ?? '')}:${String(data?.error_description ?? '').slice(0, 100)}`;
+    lastOauthDiag = `${lastOauthDiag} → respons 200 tanpa access_token — keys=[${Object.keys(data ?? {}).join(',')}] err=${String(data?.error ?? '')}:${String(data?.error_description ?? '').slice(0, 100)}`;
     return null;
   }
   cached = { token: data.access_token, exp: Date.now() + (data.expires_in ?? 3600) * 1000 };
