@@ -79,6 +79,19 @@ async function tokenVariant(SA, scope, useStringBody) {
     const v = await tokenVariant(SA, scope, strBody);
     console.log(`  [${label}] HTTP ${v.status} | keys=[${v.keys}] | access_token=${v.hasAccess} | err=${v.err}`);
   }
+  // === TES IID API dengan token scope FCM saja (yg dipakai subscribe/unsubscribe) ===
+  const tOk = await token(SA, 'https://www.googleapis.com/auth/firebase.messaging');
+  if (tOk.ok) {
+    const H = { Authorization: `Bearer ${tOk.body.access_token}` };
+    const r1 = await fetch('https://iid.googleapis.com/iid/v1/testtoken0123456789/rel/topics/all', { method: 'DELETE', headers: H }).catch(() => null);
+    console.log(`IID DELETE dgn token FCM-scope: HTTP ${r1?.status ?? 'ERR'} (400/404=diterima, 401/403=ditolak)`);
+    const tCp = await token(SA, 'https://www.googleapis.com/auth/cloud-platform');
+    console.log(`token cloud-platform: access_token=${tCp.ok ? !!tCp.body.access_token : 'FAIL ' + tCp.status}`);
+    if (tCp.ok && tCp.body.access_token) {
+      const r2 = await fetch('https://iid.googleapis.com/iid/v1/testtoken0123456789/rel/topics/all', { method: 'DELETE', headers: { Authorization: `Bearer ${tCp.body.access_token}` } }).catch(() => null);
+      console.log(`IID DELETE dgn token cloud-platform: HTTP ${r2?.status ?? 'ERR'}`);
+    }
+  }
   let t = await token(SA, FCM_SCOPE);
   if (t.ok) { console.log('✅ token FCM v1 SUKSES — push seharusnya hidup.'); return; }
   console.log(`⚠️ token FCM gagal: HTTP ${t.status} — body: ${JSON.stringify(t.body).slice(0, 300)}`);
