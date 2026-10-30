@@ -46,9 +46,13 @@ Menambah/berganti kunci di masa depan: jalankan ulang seed (atau tulis dokumen
 > Cara LEBIH MUDAH & aman: cukup taruh kunci di GitHub Actions secrets —
 > CI menyemaimya ke Firestore `secrets/ai` otomatis, tanpa buka Vercel.
 
-## WAJIB setelah batch 9: Redeploy web sekali
+## Deploy web: OTOMATIS sejak batch 10
 
-Deployment Vercel terakhir masih commit lama (webhook GitHub↔Vercel tidak
+Dulu webhook GitHub↔Vercel macet dan build pernah gagal (kuota 12 serverless
+functions Hobby — kini api/ hanya 10 setelah penggabungan guard/fcm). Setiap
+push ke main kini otomatis dibangun Vercel (Git integration) dan dipantau CI
+(deploy-web.yml: READY=sukses, ERROR=laporan di Actions). Tidak perlu
+redeploy manual lagi. Catatan lama:
 menembak untuk push batch 9 — sudah dicoba picu ulang via push kosong).
 Satu langkah manual:
 
