@@ -16,8 +16,8 @@
  * URL lama (/api/fcm-subscribe, /api/fcm-unsubscribe) tetap jalan via rewrites.
  */
 import crypto from 'node:crypto';
-import { parseServiceAccount, serviceAccountProject } from './_fcmAuth';
-import { fbPatchDoc, fbDeleteDoc } from './_fbrest';
+import { parseServiceAccount, serviceAccountProject, } from './_fcmAuth';
+import { fbPatchDoc, fbDeleteDoc, verifyIdToken } from './_fbrest';
 
 export const config = { runtime: 'nodejs' };
 
@@ -30,6 +30,17 @@ function json(res: any, code: number, data: any) {
 /** id dokumen token — hash saja (token asli tidak jadi id; tetap tersimpan sebagai field). */
 function tokenId(token: string): string {
   return 't_' + crypto.createHash('sha256').update(token, 'utf8').digest('hex').slice(0, 24);
+}
+
+// rate limit per IP (anti banjir tulis Firestore): 30 subscribe / 5 menit
+const hits = new Map<string, number[]>();
+function rateLimited(ip: string): boolean {
+  const now = Date.now();
+  if (hits.size > 8000) hits.clear();
+  const arr = (hits.get(ip) ?? []).filter((t) => now - t < 5 * 60_000);
+  if (arr.length >= 30) { hits.set(ip, arr); return true; }
+  arr.push(now); hits.set(ip, arr);
+  return false;
 }
 
 export default async function handler(req: any, res: any) {
@@ -56,6 +67,25 @@ export default async function handler(req: any, res: any) {
   if (!token || token.length < 20 || token.length > 4096) return json(res, 400, { ok: false, error: 'token wajib (20-4096 karakter).' });
   if (mode === 'subscribe' && !uid) return json(res, 400, { ok: false, error: 'uid wajib untuk subscribe.' });
 
+  // AUDIT v20 ANTI PENYADAPAN: token push = kredensial kirim pesan ke perangkat.
+  // Tanpa verifikasi, penyerang bisa memasang token-nya sendiri atas nama uid
+  // KORBAN → menerima notifikasi korban. Kini:
+  //  - Bearer ID token ADA & valid → caller.uid WAJIB == uid (403 kalau beda);
+  //  - tanpa header (APK lama) → diterima tapi ditandai unverified:true;
+  //    /api/notify melewatinya utk konten pribadi (message/group/call).
+  let verified = false;
+  const auth = String(req.headers.authorization ?? '');
+  const bearer = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  if (bearer) {
+    const caller = await verifyIdToken(bearer);
+    if (!caller) return json(res, 401, { ok: false, error: 'Sesi tidak valid — masuk ulang.' });
+    if (mode === 'subscribe' && caller.uid !== uid) return json(res, 403, { ok: false, error: 'Token hanya boleh dipasang untuk akun sendiri.' });
+    verified = true;
+  } else {
+    const ip = String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() || 'unknown';
+    if (rateLimited(ip)) return json(res, 429, { ok: false, error: 'Terlalu banyak permintaan.' });
+  }
+
   try {
     if (mode === 'unsubscribe') {
       const ok = await fbDeleteDoc(project, `fcmtokens/${tokenId(token)}`);
@@ -68,8 +98,9 @@ export default async function handler(req: any, res: any) {
       uid: { stringValue: uid },
       token: { stringValue: token },
       at: { integerValue: String(Date.now()) },
+      unverified: { booleanValue: !verified },
     });
-    return json(res, 200, { ok, mode: 'subscribe', topics: [], store: 'fcmtokens' });
+    return json(res, 200, { ok, mode: 'subscribe', topics: [], store: 'fcmtokens', verified });
   } catch (e: any) {
     return json(res, 200, { ok: false, error: String(e?.message ?? 'store failed').slice(0, 160) });
   }

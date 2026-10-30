@@ -514,3 +514,13 @@
   token developer langsung; broadcast 'all' = semua token (maks 500).
 - FIREBASE_SERVICE_ACCOUNT di env Vercel disinkronkan dari CI (PATCH env id
   bkBcTAe4rhchKy0I) + diagnosa oauth lengkap (status/keys/jwt iss+scope).
+
+### AUDIT push v20 → HARDENING (anti penyadapan notifikasi)
+- Celah: /api/fcm?action=subscribe menerima {uid, token} TANPA verifikasi —
+  penyerang bisa memasang token-nya atas nama uid korban → menerima push
+  pribadi korban. FIX: Bearer ID token wajib saat ada (caller.uid == uid,
+  403 bila beda); tanpa header (APK lama) → diterima tapi unverified:true;
+  /api/notify melewatkan token unverified untuk kind pribadi (message/group/
+  call) — hanya pengumuman admin yang sampai. Klien kini selalu kirim header.
+- Rate limit subscribe per IP: 30/5 menit.
+- APK 1.6.2 (versionCode 9): client kirim ID token saat subscribe.

@@ -54,15 +54,20 @@ function tokenId(token: string): string {
   return 't_' + crypto.createHash('sha256').update(token, 'utf8').digest('hex').slice(0, 24);
 }
 
-/** Ambil semua token FCM milik uid-uid ini (query koleksi fcmtokens, SA). */
-async function tokensForUids(project: string, uids: string[]): Promise<string[]> {
+/** Ambil semua token FCM milik uid-uid ini (query koleksi fcmtokens, SA).
+ *  AUDIT v20: token unverified (dipasang tanpa ID token — APK lama) hanya
+ *  boleh menerima push NON-pribadi (pengumuman admin); konten pribadi
+ *  (message/group/call) WAJIB token terverifikasi — anti penyadapan. */
+async function tokensForUids(project: string, uids: string[], allowUnverified: boolean): Promise<string[]> {
   const out: string[] = [];
   for (const uid of uids.slice(0, 60)) {
     try {
       const docs = await fbQuery(project, 'fcmtokens', [{ field: 'uid', op: 'EQUAL', value: { stringValue: uid } }], 60);
       for (const d of docs) {
         const t = String(d.fields?.token ?? '');
-        if (t && t.length >= 20) out.push(t);
+        if (!t || t.length < 20) continue;
+        if (d.fields?.unverified?.booleanValue === true && !allowUnverified) continue;
+        out.push(t);
       }
     } catch { /* lanjut uid berikutnya */ }
   }
@@ -213,9 +218,12 @@ export default async function handler(req: any, res: any) {
 
   // PATH UTAMA v20 — token langsung (saOk). Legacy server-key tetap topic.
   if (saOk && project) {
+    // konten pribadi (pesan/grup/panggilan) hanya ke token TERVERIFIKASI;
+    // pengumuman admin (kind 'admin'/'story') boleh ke semua token.
+    const privateKind = kind === 'message' || kind === 'group' || kind === 'call';
     let targets: string[] = [];
     if (topics.includes('all')) targets = await allTokens(project);
-    if (targetUids.length) targets = targets.concat(await tokensForUids(project, targetUids));
+    if (targetUids.length) targets = targets.concat(await tokensForUids(project, targetUids, !privateKind));
     targets = [...new Set(targets)].slice(0, 500);
     if (!targets.length) return json(res, 200, { ok: false, sent: 0, failed: 0, reason: 'tidak ada token terdaftar untuk penerima' });
     await Promise.all(targets.map(async (tk) => {

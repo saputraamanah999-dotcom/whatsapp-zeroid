@@ -13,12 +13,29 @@
  */
 import { Platform } from 'react-native';
 import { proxyPost } from './proxy';
+import { firebase } from './firebase';
 
 export type PushKind = 'message' | 'story' | 'call' | 'group' | 'system' | 'admin';
 
 let webMessaging: any = null;
 let webToken: string | null = null;
 let fbGetToken: ((m: any, o: any) => Promise<string>) | null = null;
+
+/** AUDIT v20: Bearer ID token utk /api/fcm — server wajib memverifikasi bahwa
+ *  token push hanya dipasang untuk akun sendiri (anti penyadapan notifikasi).
+ *  APK lama tanpa header tetap diterima server (unverified, konten pribadi
+ *  tidak dikirim ke sana) — klien baru SELALU mengirim header ini. */
+async function authHeader(): Promise<Record<string, string>> {
+  try {
+    const fb = firebase();
+    const u = (fb as any)?.auth?.currentUser;
+    if (u?.getIdToken) {
+      const t = await u.getIdToken();
+      if (t) return { authorization: `Bearer ${t}` };
+    }
+  } catch {}
+  return {};
+}
 
 /** Web: ambil token FCM browser + daftarkan ke topic user (via server). */
 export async function registerWebFcm(uid: string): Promise<string | null> {
@@ -59,8 +76,8 @@ export async function registerWebFcm(uid: string): Promise<string | null> {
       serviceWorkerRegistration: swReg,
     } as any);
     if (webToken) {
-      // daftarkan topic lewat server (FCM_SERVER_KEY hidup di sana)
-      await proxyPost('/api/fcm?action=subscribe', { token: webToken, uid }, 20000).catch(() => {});
+      // simpan token di server (fcmtokens, terverifikasi via ID token)
+      await proxyPost('/api/fcm?action=subscribe', { token: webToken, uid }, 20000, await authHeader()).catch(() => {});
     }
     return webToken;
   } catch {
@@ -77,10 +94,10 @@ export async function unregisterWebFcm() {
   } catch {}
 }
 
-/** Native: daftarkan token expo-notifications (FCM) ke topic lewat server. */
+/** Native: simpan token expo-notifications (FCM) ke store server (terverifikasi). */
 export async function proxySubscribeNative(token: string, uid: string) {
   if (!token || !uid) return;
-  await proxyPost('/api/fcm?action=subscribe', { token, uid }, 20000).catch(() => {});
+  await proxyPost('/api/fcm?action=subscribe', { token, uid }, 20000, await authHeader()).catch(() => {});
 }
 
 export type FcmPushInput = {
