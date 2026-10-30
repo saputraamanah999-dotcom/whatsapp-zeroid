@@ -1,4 +1,4 @@
-# Vexo API — pasang kunci & langkah Vercel (ditulis otomatis)
+# Vexo API + kunci server otomatis (ditulis ulang batch 9)
 
 Penyedia AI/brat/search ke-3 sudah digabung ke Zeroid: rantai failover sekarang
 **Sylvatica → JEREXD → Vexo** (penyedia yang terakhir berhasil dicoba lebih dulu).
@@ -7,41 +7,48 @@ Stiker Brat memakai urutan **Vexo → siputzx → Sylvatica**.
 ## Kunci (hanya server — JANGAN pernah EXPO_PUBLIC_)
 
 ```
+SYLVATICA_APIKEY=sylva-630679ece126c6283d0f42c4da6cce53
+JEREXD_APIKEY=jere_ebhzcs-KVLg2
 VEXO_APIKEY=l3-Kb-aRMGFeb_Kv
+IMGBB_KEY=ae271538eef73c1305493b82bf34b9d5
 ```
 
-Sudah ditulis di `.env` lokal dan `.env.example` repo.
+## BARU (batch 9): kunci kini punya CADANGAN OTOMATIS — tidak wajib isi Vercel
 
-## Langkah memasang di Vercel (±2 menit)
+Semua `/api/*` membaca kunci dengan urutan:
 
-1. Buka https://vercel.com → project **whatsapp-zeroid** (atau nama project-mu).
-2. Tab **Settings** → menu kiri **Environment Variables**.
-3. Klik **Add New**:
-   - Name: `VEXO_APIKEY`
-   - Value: `l3-Kb-aRMGFeb_Kv`
-   - Environments: centang **Production**, **Preview**, **Development**
-   - Save.
-4. (Cek sekaligus variabel lama masih ada:) `SYLVATICA_APIKEY`, `JEREXD_APIKEY`,
-   `IMGBB_KEY`, `FIREBASE_SERVICE_ACCOUNT`, `SUPABASE_URL`,
-   `SUPABASE_SERVICE_ROLE_KEY`, `POSTGRES_URL_NON_POOLING`,
-   `EXPO_PUBLIC_FIREBASE_API_KEY` (dipakai server untuk verifikasi sesi bot).
-5. Tab **Deployments** → cari deployment teratas → menu ⋯ → **Redeploy**
-   (centang *Use existing Build Cache* boleh). Tanpa redeploy, kunci baru belum
-   terbaca server.
-6. Verifikasi: buka `https://whatsapp-zeroid.vercel.app/api/ai` — bagian
-   `providers` harus menampilkan `"vexo": true`.
+1. **env Vercel** (jika pernah diisi), lalu
+2. **Firestore `secrets/ai`** (dibaca service account; rules melarang TOTAL
+   klien membaca/menulis koleksi `secrets`).
 
-> Saya tidak menyimpan kredensial Vercel-mu, jadi langkah ini sekali jalan dari
-> HP/laptop saja. Setelah itu semua update berikutnya otomatis memakai kunci itu.
+Koleksi `secrets/ai` SUDAH DIISI otomatis via service account (seed batch 9)
+dengan keempat kunci di atas → begitu web ter-deploy, Vexo langsung hidup
+**tanpa menyentuh dashboard Vercel sama sekali**. Cek status:
+`GET /api/ai` → `providers: { sylvatica, jerexd, vexo }`.
 
-## Apa yang didapat setelah aktif
+Menambah/berganti kunci di masa depan: jalankan ulang seed (atau tulis dokumen
+`secrets/ai` lewat service account) — tidak perlu buka Vercel.
 
-- **AI Zeroid anti-limit**: satu penyedia limit/500/timeout → otomatis pindah
-  penyedia berikutnya tanpa pesan apa pun ke pengguna (sticky: yang sehat diingat).
-- **Bot Zeroid di grup**: sebut `@zeroid` (atau mention) → bot menjawab dari
-  SERVER, walaupun tidak ada perangkat developer yang online dan walaupun
-  developer sudah keluar grup. Bot masuk sendiri ke grup saat pertama disebut.
-- **Cari di Google**: di chat AI ketik `cari <topik>` → hasil + ringkasan AI +
-  daftar sumber.
-- **Brat**: pembuatan stiker memakai Vexo lebih dulu (endpoint terverifikasi),
-  dengan cadangan otomatis.
+## Opsional: tetap ingin isi env Vercel? (±2 menit)
+
+1. Buka https://vercel.com → project **whatsapp-zeroid**.
+2. **Settings → Environment Variables → Add New**:
+   - Name: `VEXO_APIKEY`, Value: `l3-Kb-aRMGFeb_Kv`, Environments: Production
+   - (sama untuk `SYLVATICA_APIKEY` bila belum ada)
+3. **Deployments → Redeploy** (centang "Use existing build cache" bebas).
+
+## WAJIB setelah batch 9: Redeploy web sekali
+
+Deployment Vercel terakhir masih commit lama (webhook GitHub↔Vercel tidak
+menembak untuk push batch 9 — sudah dicoba picu ulang via push kosong).
+Satu langkah manual:
+
+1. https://vercel.com → project **whatsapp-zeroid** → tab **Deployments**.
+2. Cari build teratas → kalau status **Error/Cancelled**, lihat lognya;
+   kalau tidak ada build baru sama sekali → **Settings → Git** → pastikan
+   repo `saputraamanah999-dotcom/whatsapp-zeroid` branch `main` terhubung.
+3. Klik **⋯ → Redeploy** pada commit teratas ("BATCH 9…") → tunggu ±3 menit.
+
+Setelah itu: AI 3 penyedia + guard-enforce + login-guard + bot-welcome +
+voucher + semua fitur batch 9 langsung aktif di web & APK (APK 1.6.0 sudah
+terbit di GitHub Release `apk-latest` dan mengarah ke domain ini).
