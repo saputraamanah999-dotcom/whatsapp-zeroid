@@ -16,6 +16,7 @@ import React, { useEffect, useState } from 'react';
 import { View, TextInput, Pressable, Platform } from 'react-native';
 import Svg, { Circle, Line, Path, G } from 'react-native-svg';
 import { Avatar, T, Btn } from '../components/ui';
+import BanGlyph from '../components/BanGlyph';
 import { useTheme, R } from '../lib/theme';
 import { User, Appeal } from '../lib/types';
 import { banRemaining, submitAppeal, logout } from '../lib/store';
@@ -33,16 +34,9 @@ function dur(ms: number): string {
   return `${sec} detik`;
 }
 
-/** Ikon LARANGAN merah (lingkaran + garis miring) — digambar di atas avatar. */
+/** Ikon LARANGAN merah (SVG v22 — gradasi + glow, gaya layar blokir) di atas avatar. */
 function ProhibitionOverlay({ size = 96 }: { size?: number }) {
-  const red = '#EA4335';
-  return (
-    <Svg width={size} height={size} viewBox="0 0 96 96" fill="none">
-      {/* lingkaran larangan */}
-      <Circle cx="48" cy="48" r="40" stroke={red} strokeWidth="9" />
-      <Line x1="20" y1="20" x2="76" y2="76" stroke={red} strokeWidth="9" strokeLinecap="round" />
-    </Svg>
-  );
+  return <BanGlyph size={size} />;
 }
 
 /** Ikon perisai (keamanan) untuk baris keterangan. */

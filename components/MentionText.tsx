@@ -8,6 +8,7 @@ import React from 'react';
 import { Text, Pressable } from 'react-native';
 import { useTheme } from '../lib/theme';
 import { MentionPart, splitMentionParts } from '../lib/mentions';
+import EmojiText from './EmojiText';
 
 export default function MentionText({
   text,
@@ -26,6 +27,7 @@ export default function MentionText({
 }) {
   const t = useTheme();
   const parts: MentionPart[] = splitMentionParts(text, mentions);
+  const es = Math.round((((style as any)?.fontSize as number) ?? 15) * 1.06);
   return (
     <Text numberOfLines={numberOfLines} style={[{ color: color ?? t.text }, style as any]}>
       {parts.map((p, i) =>
@@ -38,7 +40,7 @@ export default function MentionText({
             {p.text}
           </Text>
         ) : (
-          <Text key={`t-${i}`}>{p.text}</Text>
+          <EmojiText key={`t-${i}`} text={p.text} size={es} />
         ),
       )}
     </Text>

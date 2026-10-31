@@ -35,6 +35,38 @@ Lingkungan pengerjaan **tidak memiliki** kredensial Firebase/API/perangkat. Item
 | OTP Gmail | pengiriman lewat Trigger Email extension | pasang ekstensi + SMTP |
 | APK | build EAS + instalasi perangkat | `eas build -p android` |
 
+## 2b. Batch v22 — hasil uji di CI (GitHub Actions, project LIVE) ✅
+
+Dijalankan lewat workflow `Zeroid Maintenance` (workflow_dispatch, hanya pemilik repo) memakai akun uji sementara yang dibuat & dihapus otomatis. Sumber hasil: log run Actions (jejak audit permanen).
+
+| Uji (Firestore REST dgn ID token akun nyata → rules dievaluasi sungguhan) | Hasil |
+|---|---|
+| Create profil sendiri (role user) — 2 akun | ✅ PASS |
+| **GAYA BALON** — update `users/{uid}.bubble` oleh pemilik | ✅ PASS |
+| ANTI-ESKALASI — user biasa set `banned=true` sendiri | ✅ DITOLAK (403) |
+| usermeta — catat perangkat sendiri | ✅ PASS |
+| **CHECK-IN** — koin +1.000 + bukti ledger dalam 1 transaksi | ✅ PASS |
+| ANTI-SPAM CHECK-IN — tap kedua 1 menit kemudian | ✅ DITOLAK (403) |
+| ANTI-CETAK-KOIN — `points +999.999` tanpa bukti ledger | ✅ DITOLAK (403) |
+| Buat chat langsung (members memuat saya) | ✅ PASS |
+| **KIRIM PESAN** — teks normal tersimpan | ✅ PASS |
+| ANTI-VIRTEX — teks 8.001 karakter | ✅ DITOLAK (403) |
+| Receipt — penerima set `deliveredAt` | ✅ PASS |
+| PRIVASI — chat pribadi dibaca non-anggota | ✅ DITOLAK (403) |
+| **MASUKAN** — user kirim feedback | ✅ PASS |
+| NOTIFIKASI — dokumen notifikasi dibuat anggota | ✅ PASS |
+| STORY — kirim story 24 jam | ✅ PASS |
+| LEDGER — catat belanja koin | ✅ PASS |
+| KEAMANAN — akun lain mengubah profil saya | ✅ DITOLAK (403) |
+
+**Total: 18 PASS / 0 FAIL.** Pembersihan pasca-uji: semua dokumen uji + kedua akun uji DIHAPUS (terverifikasi di log).
+
+Perbaikan ikut batch v22 yang teruji typecheck + build produksi:
+- Typecheck `tsc --noEmit`: **0 error**; build web `npm run build:web`: **LULUS**.
+- Lift ban nyata via CI (inspect → liftban): users.banned→false, bans.active→false, 3 banips + 1 devices dihapus — log run tersimpan.
+
+Belum dapat diuji di sini (butuh perangkat fisik): instal APK 1.6.4 di HP, background music saat layar terkunci (implementasi: expo-audio `shouldPlayInBackground` + `FOREGROUND_SERVICE_MEDIA_PLAYBACK` — butuh uji di Android nyata), push FCM di APK, WebRTC antar jaringan.
+
 ## 3. Pengujian negatif yang diverifikasi lewat kode/rules
 
 - **Privilege escalation**: rules `users/{uid}` membatasi field self-write; `role`, `vipUntil`, `blueCheck`, `banned` hanya lewat `isAdmin()`.

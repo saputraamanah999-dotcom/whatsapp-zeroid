@@ -607,3 +607,37 @@
   Poster onError → cari poster via Jikan sekali per judul (cache, CORS publik,
   pakai IP pemakai sendiri). Server tetap berbatas waktu 8 dtk paralel.
 - APK 1.6.3 (code 10) dibangun ulang dari f0249ee (semua fitur v21 + fallback).
+
+## v22 (31 Okt 2026) — AKAR MASALAH "SERVER MENOLAK" DIBUKTIKAN & DIBERESKAN + CI MAINTENANCE
+
+- AKAR MASALAH DITEMUKAN: akun saputraamanah999@gmail.com masih `users.banned=true`
+  ("Test ban permanen guys wkwkw") — klik unban lama tidak pernah membersihkan field
+  ini + perangkat & IP developer ikut terkunci (ban dari perangkat sendiri). Semua
+  tulisan Firestore (gaya balon, check-in, referral, kirim pesan, masukan) DITOLAK
+  rules `notBanned()` → itulah "Server menolak aksi ini" di semua layar.
+- DIBUKA VIA CI: `.github/workflows/maintenance.yml` + `scripts/admin_maintenance.mjs`
+  (inspect / liftban / setrole / verifyrules; rahasia tidak pernah dicetak).
+  Hasil liftban: users.banned→false + bans.active→false + 3 banips + 1 devices HAPUS.
+- UJI RULES NYATA (verifyrules, akun sementara identitytoolkit → Firestore REST):
+  **18/18 PASS** — create profil, gaya balon, check-in +1000 dgn bukti ledger,
+  anti-spam tap kedua DITOLAK, anti-cetak-koin DITOLAK, chat+pesan tersimpan,
+  deliveredAt, ANTI-VIRTEX 8001 karakter DITOLAK, privasi chat non-anggota DITOLAK,
+  masukan, notifikasi, story, ledger, perlindungan profil antar-akun. Cleanup jalan.
+- STAF BEBAS GERBANG BAN: /api/guard ban-gate mengizinkan email ber-role
+  admin/developer/moderator (butuh kredensial akun staf tetap). Klien: penolakan
+  login dipindah ke post-auth (role sudah diketahui) → developer TIDAK lagi
+  terkunci dari Admin Panel; akun biasa di perangkat terblokir TETAP ditolak.
+- ANTI-MACET BOOT (APK tidak berhenti di logo): initStore try/finally ready=true,
+  hydrateCache/getDoc/banGate diberi batas waktu (5-8 dtk), splash ditutup paksa
+  12 dtk + layar "Aplikasi lambat merespons" dgn tombol Coba Lagi (web reload,
+  native initStore ulang). Tidak ada loading tanpa batas.
+- EMOJI iPHONE TAHAN BANTING: jsDelivr → unpkg → glyph bawaan (tak pernah kotak),
+  native pakai expo-image cache disk; EmojiText baru dipakai MdText + MentionText;
+  reaksi pesan dirender AppleEmoji. Input TETAP teks biasa.
+- STIKER: ukuran disatukan di lib/sticker.ts (STICKER_SIZE 112 chat, preview 116,
+  viewer max 320, contentFit contain).
+- MUSIK: izin Android 14+ FOREGROUND_SERVICE_MEDIA_PLAYBACK + APK 1.6.4 (code 11);
+  mesin global + MediaSession + notifikasi media (play/pause/next/prev) tetap.
+- Kirim ulang pesan: idempoten (doc id sama), gagal lagi → status failed + alasan.
+- Ikon ban baru (BanGlyph SVG gradasi+glow) di layar blokir perangkat & akun.
+- Typecheck 0 error; build produksi web LULUS.

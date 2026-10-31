@@ -15,6 +15,8 @@ import LivePhotoBubble from './LivePhotoBubble';
 import { Ticks } from './ChatRow';
 import MentionText from './MentionText';
 import MdText from './MdText';
+import { AppleEmoji } from './Emoji';
+import { STICKER_SIZE } from '../lib/sticker';
 import { useTheme, R } from '../lib/theme';
 import { resolveBubble } from '../lib/bubbles';
 import BubbleDecor from './BubbleDecor';
@@ -132,9 +134,9 @@ export default function MessageBubble({
           )}
           <Pressable onLongPress={onLongPress} delayLongPress={300} style={{ alignItems: 'center' }}>
             {m.type === 'brat' ? (
-              <BratView text={m.bratText ?? m.text ?? ''} size={116} />
+              <BratView text={m.bratText ?? m.text ?? ''} size={STICKER_SIZE} />
             ) : m.uri ? (
-              <Image source={{ uri: m.uri }} style={{ width: 116, height: 116 }} contentFit="contain" transition={150} />
+              <Image source={{ uri: m.uri }} style={{ width: STICKER_SIZE, height: STICKER_SIZE }} contentFit="contain" transition={150} />
             ) : null}
           </Pressable>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingTop: 2 }}>
@@ -144,9 +146,14 @@ export default function MessageBubble({
             {mine && <Ticks status={status} />}
           </View>
           {reactions.length > 0 && (
-            <T v="caption" style={{ fontSize: 13, marginTop: 2 }}>
-              {Object.keys(grouped).join(' ')}
-            </T>
+            <View style={{ flexDirection: 'row', gap: 2, marginTop: 2 }}>
+              {Object.entries(grouped).map(([e, n]) => (
+                <View key={e} style={{ flexDirection: 'row', alignItems: 'center', gap: 1 }}>
+                  <AppleEmoji e={e} size={13} />
+                  {n > 1 ? <T v="caption" style={{ fontSize: 11.5, opacity: 0.8 }}>{n}</T> : null}
+                </View>
+              ))}
+            </View>
           )}
         </View>
       </SwipeReply>
@@ -480,10 +487,10 @@ export default function MessageBubble({
       {reactions.length > 0 && (
         <View style={{ flexDirection: 'row', gap: 2, marginTop: -6, marginHorizontal: 10, backgroundColor: t.bg, borderRadius: R.pill, paddingHorizontal: 7, paddingVertical: 2, boxShadow: t.raisedSm } as any}>
           {Object.entries(grouped).map(([e, n]) => (
-            <T key={e} v="caption" style={{ fontSize: 13 }}>
-              {e}
-              {n > 1 ? ` ${n}` : ''}
-            </T>
+            <View key={e} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+              <AppleEmoji e={e} size={15} />
+              {n > 1 ? <T v="caption" style={{ fontSize: 12.5, fontWeight: '700' }}>{n}</T> : null}
+            </View>
           ))}
         </View>
       )}

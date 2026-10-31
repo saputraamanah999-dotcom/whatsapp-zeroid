@@ -20,6 +20,7 @@ import { Message, DB, User } from '../lib/types';
 import { messagePreview, sendMessage, editMessage, setTyping, clearTyping, retryMessage, OutMsg, stickersFor, createSticker } from '../lib/store';
 import { bratSticker } from '../lib/supabase';
 import { bratStickerLocal } from '../lib/brat';
+import { STICKER_PREVIEW_SIZE } from '../lib/sticker';
 import MentionSuggestions, { MentionOption } from './MentionSuggestions';
 import { activeMentionQuery, applyMention, mentionCandidates } from '../lib/mentions';
 import { ensurePermission } from '../lib/permissions';
@@ -695,7 +696,7 @@ export default function Composer({
               </View>
               {!!bratUrl && (
                 <View style={{ alignItems: 'center', gap: 10 }}>
-                  <Image source={{ uri: bratUrl }} style={{ width: 150, height: 150, borderRadius: 14, backgroundColor: t.bg2 }} contentFit="contain" />
+                  <Image source={{ uri: bratUrl }} style={{ width: STICKER_PREVIEW_SIZE, height: STICKER_PREVIEW_SIZE, borderRadius: 14, backgroundColor: t.bg2 }} contentFit="contain" />
                   <View style={{ flexDirection: 'row', gap: 8 }}>
                     <Btn
                       small

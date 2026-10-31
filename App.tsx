@@ -24,6 +24,7 @@ import MusicBar from './components/MusicBar';
 import VoiceBar from './components/VoiceBar';
 import CallBar from './components/CallBar';
 import ErrorBoundary from './components/ErrorBoundary';
+import BanGlyph from './components/BanGlyph';
 import BannedScreen from './screens/BannedScreen';
 import { LoginScreen, RegisterScreen, ForgotScreen, VerifyEmailScreen } from './screens/AuthScreens';
 import MainScreen from './screens/MainScreen';
@@ -327,9 +328,8 @@ function DeviceBanGate({ children }: { children: React.ReactNode }) {
   const cd = deviceBan.until > 0 ? (d > 0 ? `${d} hari ${h} jam` : h > 0 ? `${h} jam ${m} menit` : `${m} menit ${s} detik`) : '';
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.bg, padding: 30, gap: 14 }}>
-      <View style={{ width: 88, height: 88, borderRadius: 44, backgroundColor: 'rgba(255,59,92,0.14)', alignItems: 'center', justifyContent: 'center' }}>
-        <Ionicons name="ban" size={44} color={t.danger} />
-      </View>
+      {/* v22 ikon larangan SVG bergaya baru (gradasi + glow) — bukan ikon datar */}
+      <BanGlyph size={104} />
       <T v="h1" style={{ textAlign: 'center' }}>Perangkat ini diblokir</T>
       <T v="sub" style={{ textAlign: 'center', maxWidth: 400 }}>
         {deviceBan.reason ?? 'Tercatat pada akun yang diblokir admin.'} Membuat akun baru atau ganti akun TIDAK akan membantu — tidak ada celah akun baru di perangkat/IP ini.
@@ -342,7 +342,7 @@ function DeviceBanGate({ children }: { children: React.ReactNode }) {
       ) : (
         <View style={{ paddingHorizontal: 18, paddingVertical: 10, borderRadius: 14, backgroundColor: t.bg, boxShadow: t.raisedSm } as any}>
           <T v="h2" color={t.danger} style={{ textAlign: 'center' }}>Blokir permanen</T>
-          <T v="caption" color={t.faint} style={{ textAlign: 'center' }}>hanya admin yang bisa membuka blokir ini — kalau sudah dibuka, layar ini hilang sendiri</T>
+          <T v="caption" color={t.faint} style={{ textAlign: 'center' }}>hanya admin yang bisa membuka blokir ini — kalau sudah dibuka, layar ini hilang sendiri (cek otomatis tiap 15 detik)</T>
         </View>
       )}
       {!!deviceBan.ownEmail && (
@@ -357,15 +357,52 @@ function DeviceBanGate({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * v22 LAYAR GALAT BOOT — tidak ada lagi loading tanpa batas: kalau aplikasi
+ * belum siap juga setelah 12 detik (internet mati / jaringan menggantung /
+ * Firebase tak terjangkau), tampilkan layar jelas dengan tombol COBA LAGI.
+ */
+function BootError({ onRetry }: { onRetry: () => void }) {
+  const t = useTheme();
+  return (
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: t.bg, padding: 30, gap: 16 }}>
+      <View style={{ width: 92, height: 92, borderRadius: 46, backgroundColor: 'rgba(255,159,28,0.14)', alignItems: 'center', justifyContent: 'center' }}>
+        <Ionicons name="cloud-offline" size={44} color={t.warning} />
+      </View>
+      <T v="h2" style={{ textAlign: 'center' }}>Aplikasi lambat merespons</T>
+      <T v="sub" style={{ textAlign: 'center', maxWidth: 380 }}>
+        Koneksi ke server tidak terjangkau. Periksa internet kamu (Wi-Fi/kuota), lalu coba lagi —
+        data tidak hilang, akun tetap aman.
+      </T>
+      <Btn title="Coba lagi" icon="refresh" variant="primary" onPress={onRetry} style={{ minWidth: 220 }} />
+      <T v="caption" color={t.faint} style={{ textAlign: 'center' }}>
+        Masih gagal? Nyalakan ulang aplikasi atau periksa jaringan kamu.
+      </T>
+    </View>
+  );
+}
+
 export default function App() {
   const [fontsLoaded] = useFonts({ ...Ionicons.font });
   const { ready, me, locked, config } = useStore();
   const t = useTheme();
   const tokenFor = useRef<string | null>(null);
   const [dismissedNotices, setDismissedNotices] = useState<string[]>([]);
+  const [bootStuck, setBootStuck] = useState(false);
+  const [, forceBoot] = useState(0);
   const onNavStateChange = useWebHistorySync();
   useAntiCopy();
   useViewportLock();
+
+  // v22 ANTI-MACET SPLASH: setelah 12 detik belum siap → splash DITUTUP PAKSA
+  // dan layar galat dengan tombol coba lagi tampil (tidak ada loading abadi).
+  useEffect(() => {
+    const tm = setTimeout(() => {
+      SplashScreen.hideAsync().catch(() => {});
+      setBootStuck(true);
+    }, 12000);
+    return () => clearTimeout(tm);
+  }, []);
 
   /** dipanggil setiap navigasi: sinkronkan history web + publikasikan route aktif */
   const handleNavStateChange = useCallback(() => {
@@ -426,6 +463,18 @@ export default function App() {
   useNotificationResponses(ready);
 
   if (!fontsLoaded || !ready) {
+    if (bootStuck) {
+      return (
+        <BootError
+          onRetry={() => {
+            setBootStuck(false);
+            forceBoot((x) => x + 1);
+            if (Platform.OS === 'web') window.location.reload();
+            else initStore(); // auth listener sudah terpasang → sesi tersimpan diteruskan
+          }}
+        />
+      );
+    }
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E9EDF3' }}>
         <ActivityIndicator color="#1E6BFF" />

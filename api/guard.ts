@@ -150,6 +150,33 @@ async function fsDoc(token: string, pid: string, col: string, id: string): Promi
   } catch { return null; }
 }
 
+async function fsQueryRoleByEmail(token: string, pid: string, email: string): Promise<string | null> {
+  // v22: GERBANG TETAP MEMBIARAKAN STAF MASUK — admin/developer/moderator yang
+  // login di perangkat yang tercatat diblokir TETAP bisa masuk supaya bisa
+  // membuka ban / memperbaiki dari Admin Panel (pengalaman nyata: developer
+  // menguji ban di perangkat sendiri → tidak bisa membuka Admin Panel).
+  // Keamanan tetap terjaga: butuh KREDENSIAL akun staf untuk lolos.
+  if (!email) return null;
+  try {
+    const body = {
+      structuredQuery: {
+        from: [{ collectionId: 'users', allDescendants: false }],
+        where: { fieldFilter: { field: { fieldPath: 'email' }, op: 'EQUAL', value: { stringValue: email } } },
+        select: { fields: [{ fieldPath: 'role' }] },
+        limit: { value: 1 },
+      },
+    };
+    const r = await fetch(`https://firestore.googleapis.com/v1/projects/${pid}/databases/(default)/documents:runQuery`, {
+      method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) return null;
+    const j: any[] = await r.json();
+    const doc = j.find((x) => x.document);
+    return doc?.document?.fields?.role?.stringValue ?? 'user';
+  } catch { return null; }
+}
+
 async function actionBanGate(req: any, res: any): Promise<void> {
   const ip = clientIp(req);
   const body = typeof req.body === 'string' ? safeJson(req.body) : req.body ?? {};
@@ -164,6 +191,12 @@ async function actionBanGate(req: any, res: any): Promise<void> {
   const token = await datastoreToken();
   if (!token) return void res.status(200).json({ blocked: false, degraded: true, ipHash: ip ? sha(ip) : '' });
   const pid = sa.project_id!;
+  // v22: staf (admin/developer/moderator) bebas gerbang — dicek SEKALI di awal
+  const role = await fsQueryRoleByEmail(token, pid, email);
+  const isStaff = role === 'admin' || role === 'developer' || role === 'moderator';
+  if (isStaff) {
+    return void res.status(200).json({ blocked: false, staff: true, ipHash: ip ? sha(ip) : '' });
+  }
 
   const ids: [string, string, string][] = [
     ...ipHashes(ip).map((h) => ['banips', h, ip.includes('.') && h.startsWith('s24_') ? 'subnet' : 'ip'] as [string, string, string]),

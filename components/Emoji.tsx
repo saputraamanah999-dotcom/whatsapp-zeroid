@@ -1,8 +1,15 @@
 import React, { useState } from 'react';
-import { Image, Platform, Text, TextStyle, StyleProp } from 'react-native';
+import { Platform, Text, TextStyle, StyleProp } from 'react-native';
 
-/** Apple (iPhone) emoji artwork served from the emoji-datasource-apple package on jsDelivr. */
-const CDN = 'https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.1.2/img/apple/64/';
+/**
+ * Apple (iPhone) emoji artwork via emoji-datasource-apple on TWO CDN mirrors —
+ * kalau jsDelivr diblokir/lambat, otomatis coba unpkg, baru fallback ke glyph
+ * bawaan perangkat (tidak pernah kotak kosong).
+ */
+const CDNS = [
+  'https://cdn.jsdelivr.net/npm/emoji-datasource-apple@15.1.2/img/apple/64/',
+  'https://unpkg.com/emoji-datasource-apple@15.1.2/img/apple/64/',
+];
 
 let EMOJI_RE: RegExp | null = null;
 try {
@@ -26,15 +33,17 @@ export function emojiCode(e: string) {
     .join('-');
 }
 
+/** Daftar URL kandidat: kedua CDN × varian fe0f (emoji "hilang" biasanya karena varian). */
 function candidates(e: string) {
   const full = emojiCode(e);
   const stripped = full
     .split('-')
     .filter((x) => x !== 'fe0f')
     .join('-');
-  const out = [full, stripped];
-  if (!full.includes('fe0f')) out.push(full + '-fe0f');
-  return Array.from(new Set(out)).map((c) => CDN + c + '.png');
+  const codes = Array.from(new Set([full, stripped, full + '-fe0f']));
+  const out: string[] = [];
+  for (const cdn of CDNS) for (const c of codes) out.push(cdn + c + '.png');
+  return out;
 }
 
 export function emojiUrl(e: string) {
@@ -51,11 +60,22 @@ export function AppleEmoji({ e, size }: { e: string; size: number }) {
       src: urls[i],
       alt: e,
       draggable: false,
+      loading: 'eager',
       onError: () => setI(i + 1),
       style: { width: size, height: size, verticalAlign: '-0.2em', margin: '0 0.04em', display: 'inline-block' },
     });
   }
-  return <Image source={{ uri: urls[i] }} onError={() => setI(i + 1)} style={{ width: size, height: size }} />;
+  // native: expo-image → cache disk permanen (stiker emoji tak diunduh ulang tiap chat dibuka)
+  const ExpoImage = require('expo-image').default;
+  return (
+    <ExpoImage
+      source={{ uri: urls[i] }}
+      cachePolicy="disk"
+      recyclingKey={`em-${urls[i]}`}
+      onError={() => setI(i + 1)}
+      style={{ width: size, height: size, marginHorizontal: size * 0.04 }}
+    />
+  );
 }
 
 /** Splits a string into text + Apple emoji pieces. */

@@ -12,6 +12,10 @@ import { Platform, Text } from 'react-native';
 import { useTheme } from '../lib/theme';
 import { parseMd, hasMd } from '../lib/md';
 import { splitMentionParts } from '../lib/mentions';
+import EmojiText from './EmojiText';
+
+/** ukuran emoji = ukuran font teks di sekitarnya (fallback 15) */
+const emojiSizeOf = (style?: any) => Math.round(((style?.fontSize as number) ?? 15) * 1.06);
 
 export default function MdText({
   text,
@@ -31,7 +35,7 @@ export default function MdText({
   const t = useTheme();
   const base = { color: color ?? t.text } as any;
   if (!hasMd(text)) {
-    // jalur cepat: tanpa format → renderer mention lama
+    // jalur cepat: tanpa format → renderer mention lama + emoji iPhone
     const parts = splitMentionParts(text, mentions);
     return (
       <Text numberOfLines={numberOfLines} style={[base, style]}>
@@ -45,7 +49,7 @@ export default function MdText({
               {p.text}
             </Text>
           ) : (
-            <Text key={`t-${i}`}>{p.text}</Text>
+            <EmojiText key={`t-${i}`} text={p.text} size={emojiSizeOf(style)} />
           ),
         )}
       </Text>
@@ -93,7 +97,7 @@ export default function MdText({
                   {p.text}
                 </Text>
               ) : (
-                <Text key={`s-${i}-${j}`}>{p.text}</Text>
+                <EmojiText key={`s-${i}-${j}`} text={p.text} size={emojiSizeOf(style)} />
               ),
             )}
           </Text>

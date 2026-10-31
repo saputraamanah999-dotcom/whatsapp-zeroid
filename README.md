@@ -100,9 +100,22 @@ Role **tidak dapat** diberikan lewat form atau mengubah request frontend — Fir
 
 Setiap tindakan sensitif admin tercatat di koleksi `audit_logs` (append-only).
 
+## Alat Admin Darurat (CI)
+
+Workflow **Zeroid Maintenance** (tab Actions → Run workflow, hanya pemilik repo) memakai secret `FIREBASE_SERVICE_ACCOUNT` tanpa pernah mencetaknya:
+
+| Perintah | Fungsi |
+|---|---|
+| `inspect` | Lihat status ban: users/bans/banips/devices |
+| `liftban` | Buka ban akun (field + dokumen perangkat/IP dihapus) — tanggap darurat bila Admin Panel tak terjangkau |
+| `setrole` | Ubah role akun (admin/developer/moderator/user) |
+| `verifyrules` | Uji rules Firestore dengan akun nyata sementara → laporan PASS/FAIL (18 uji) |
+
+Staf (admin/developer/moderator) selalu bisa masuk dari perangkat mana pun — gerbang blokir perangkat tidak mengunci akun staf, sehingga Admin Panel selalu terjangkau untuk membuka ban.
+
 ## Pengujian
 
-Lihat [docs/TESTING.md](docs/TESTING.md) untuk daftar pengujian yang **sudah dijalankan** (TypeScript strict, build produksi web, smoke test browser, uji PWA aset) dan yang **memerlukan kredensial/layanan eksternal** (realtime Firestore dengan kredensial nyata, FCM, WebRTC antar-perangkat, proxy AI dengan kunci aktif). Kami tidak mengarang hasil pengujian.
+Lihat [docs/TESTING.md](docs/TESTING.md) untuk daftar pengujian yang **sudah dijalankan** (TypeScript strict, build produksi web, smoke test browser, uji PWA aset, **uji rules Firestore 18/18 PASS via CI**) dan yang **memerlukan kredensial/layanan eksternal** (realtime Firestore dengan kredensial nyata, FCM, WebRTC antar-perangkat, proxy AI dengan kunci aktif). Kami tidak mengarang hasil pengujian.
 
 ## Lisensi
 

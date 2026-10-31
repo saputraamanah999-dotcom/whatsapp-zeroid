@@ -785,6 +785,18 @@ function stopGuard() { guardReady = false; guardSeen.clear(); }
 type GateVerdict = { blocked: boolean; until: number; reason?: string; bannedEmail?: string; own?: boolean };
 const gateCache = new Map<string, GateVerdict & { _at: number }>();
 
+/** v22 ANTI-MACET BOOT: promise yang tidak pernah selesai (jaringan mati total,
+ *  endpoint menggantung) TIDAK BOLEH membuat splash berputar selamanya. Setiap
+ *  langkah bootstrap diberi batas waktu — kegagalan = lanjut dengan fallback. */
+function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    let done = false;
+    const t = setTimeout(() => { if (!done) { done = true; resolve(fallback); } }, ms);
+    p.then((v) => { if (!done) { done = true; clearTimeout(t); resolve(v); } })
+      .catch(() => { if (!done) { done = true; clearTimeout(t); resolve(fallback); } });
+  });
+}
+
 async function banGateCheck(email?: string, opts: { fresh?: boolean } = {}): Promise<GateVerdict> {
   const fb = firebase();
   if (!fb || !isFirebaseConfigured) return { blocked: false, until: 0 };
@@ -801,6 +813,7 @@ async function banGateCheck(email?: string, opts: { fresh?: boolean } = {}): Pro
       const r = await fetch('/api/guard?action=ban-gate', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ deviceHash: dh, email: email ?? '' }), cache: 'no-store',
+        signal: AbortSignal.timeout(7000),
       });
       if (r.ok) {
         const j = await r.json();
@@ -813,7 +826,7 @@ async function banGateCheck(email?: string, opts: { fresh?: boolean } = {}): Pro
     try {
       let ipHash = '';
       if (Platform.OS === 'web') {
-        const r0 = await fetch('/api/guard?action=ip-ban', { cache: 'no-store' }).catch(() => null);
+        const r0 = await fetch('/api/guard?action=ip-ban', { cache: 'no-store', signal: AbortSignal.timeout(5000) }).catch(() => null);
         if (r0?.ok) { const j0 = await r0.json().catch(() => ({} as any)); ipHash = String(j0.hash ?? ''); }
       }
       const now = Date.now();
@@ -821,7 +834,7 @@ async function banGateCheck(email?: string, opts: { fresh?: boolean } = {}): Pro
         ipHash ? doc(fb.db, 'banips', ipHash) : null,
         dh && dh !== 'unknown-device' ? doc(fb.db, 'devices', dh) : null,
       ].filter(Boolean) as ReturnType<typeof doc>[];
-      const docs = await Promise.all(refs.map((d) => getDoc(d).catch(() => null)));
+      const docs = await Promise.all(refs.map((d) => withTimeout(getDoc(d).catch(() => null), 6000, null)));
       for (const bd of docs) {
         if (!bd || !bd.exists()) continue;
         const until = Number(bd.data().until ?? 0);
@@ -864,6 +877,11 @@ async function refuseSession(g: GateVerdict, opts: { deleteU?: FBUser | null } =
 export async function recheckDeviceBan(): Promise<boolean> {
   if (!deviceBan) return true;
   const me = getMe();
+  // v22: staf selalu lolos — layar blokir hilang begitu admin membuka panel
+  if (me && ['admin', 'developer', 'moderator'].includes(me.role)) {
+    setDeviceBan(null);
+    return true;
+  }
   const g = await banGateCheck(me?.email ?? deviceBan.ownEmail ?? undefined, { fresh: true });
   if (!g.blocked) {
     setDeviceBan(null);
@@ -918,6 +936,9 @@ export async function initStore() {
 
   // restore theme-persisted session is handled by Firebase persistence; just observe.
   onAuthStateChanged(fb.auth, async (u: FBUser | null) => {
+    // v22 ANTI-MACET: galat apa pun di bootstrap TIDAK boleh membuat splash
+    // berputar selamanya — ready SELALU true di akhir (finally).
+    try {
     clearAllSubs();
     stopGuard();
     if (presenceTimer) { clearInterval(presenceTimer); presenceTimer = null; }
@@ -928,11 +949,11 @@ export async function initStore() {
     // PENYIMPANAN HP — angkat cache data sesi terakhir dari storage perangkat
     // SEBELUM subscription Firestore jalan: chat, pesan, panggilan, dll. langsung
     // tampil instan (mantap saat sinyal lemah), lalu server menyegarkan semuanya.
-    await hydrateCache(u.uid);
+    await withTimeout(hydrateCache(u.uid), 6000, undefined as unknown as void);
 
     // ensure profile doc exists (first login / Google sign-in)
     const ref = doc(fb.db, C.users, u.uid);
-    const snap = await getDoc(ref).catch(() => null);
+    const snap = await withTimeout(getDoc(ref).catch(() => null), 8000, null);
     const existed = !!(snap && snap.exists());
     if (!existed) {
       // akun BARU: gerbang ban SEBELUM profil dibuat (blokir pendaftaran baru)
@@ -960,15 +981,20 @@ export async function initStore() {
       });
     } else {
       // akun LAMA yang tidak sedang dibanned: pastikan bukan akun lain di
-      // perangkat/IP terblokir — HANYA pemilik Gmail yang dibanned boleh lewat.
+      // perangkat/IP terblokir — HANYA pemilik Gmail yang dibanned + STAF
+      // (admin/developer/moderator) yang boleh lewat.
+      // v22: staf bebas gerbang supaya selalu bisa membuka Admin Panel
+      // (kasus nyata: developer menguji ban di perangkatnya sendiri).
       const prof = snap!.data() as any;
-      if (!prof.banned) {
+      const staff = ['admin', 'developer', 'moderator'].includes(String(prof.role ?? ''));
+      if (!prof.banned && !staff) {
         const g = await banGateCheck(u.email ?? undefined);
         if (g.blocked && !g.own) {
           await refuseSession(g);
           ready = true; bump(); return;
         }
       }
+      if (staff) setDeviceBan(null); // staf: kunci lokal perangkat dilepas
       // pastikan SEMUA user punya kode referral (sekali)
       if (prof && !prof.referralCode) updateDoc(ref, { referralCode: refCodeFor(u.uid) }).catch(() => {});
       void recordUsermeta(u.uid);
@@ -995,6 +1021,14 @@ export async function initStore() {
     startPresence();
     startGuard();
     ready = true; bump();
+    } catch (e: any) {
+      // v22: bootstrap gagal (jaringan/rules) → aplikasi TETAP terbuka, bukan
+      // splash selamanya. Pesan jelas diberikan sebagai banner.
+      try {
+        pushBanner({ title: 'Data awal gagal dimuat', body: 'Koneksi ke server kurang stabil — beberapa data mungkin belum lengkap. Coba keluar-masuk akun atau ulangi nanti.', icon: 'alert' });
+      } catch { /* ignore */ }
+      if (!ready) { ready = true; bump(); }
+    }
   });
 }
 
@@ -1245,13 +1279,11 @@ export async function login(email: string, password: string): Promise<{ ok: bool
   if (!isEmail(email)) return { ok: false, error: 'Format email tidak valid.' };
   const fb = firebase();
   if (!fb) return { ok: false, error: 'Firebase belum dikonfigurasi.' };
-  // ===== GERBANG BAN: perangkat/IP terblokir → HANYA Gmail yang dibanned sendiri
-  // yang boleh masuk (melihat info ban + banding). Akun lain / akun baru DITOLAK.
-  const g = await banGateCheck(email);
-  if (g.blocked && !g.own) {
-    setDeviceBan({ uid: '', until: g.until, reason: g.reason, ownEmail: g.bannedEmail });
-    return { ok: false, error: `Perangkat/IP ini diblokir admin. Login hanya bisa dengan akun yang dibanned (${g.bannedEmail ?? 'tercatat'}) untuk melihat info & mengirim banding — akun lain tidak bisa dibuka di sini.` };
-  }
+  // ===== GERBANG BAN v22: login TETAP dijalankan — penolakan dipindah ke
+  // onAuthStateChanged yang SUDAH tahu role akun. Alasan: developer/admin yang
+  // menguji ban di perangkat sendiri harus tetap bisa masuk (membuka Admin
+  // Panel). Akun biasa di perangkat/IP terblokir TETAP ditolak + ditandatangani
+  // keluar oleh refuseSession (anti ban-evasion tidak berubah).
   try {
     await signInWithEmailAndPassword(fb.auth, email, password);
     return { ok: true };
@@ -1302,15 +1334,10 @@ export async function sendAiWelcome(u: FBUser | { uid: string; getIdToken?: (f?:
 export async function loginGoogle(): Promise<{ ok: boolean; error?: string }> {
   const fb = firebase();
   if (!fb) return { ok: false, error: 'Firebase belum dikonfigurasi.' };
-  // ===== GERBANG BAN (pre-flight): perangkat/IP terblokir → login Google akun
-  // mana pun DITOLAK di sini. Gmail yang dibanned tetap bisa masuk lewat jalur
-  // email/password (gate memberi izin ke emailnya sendiri); akun baru DITOLAK
-  // lagi di onAuthStateChanged (profil baru dihapus otomatis).
-  const g = await banGateCheck();
-  if (g.blocked) {
-    setDeviceBan({ uid: '', until: g.until, reason: g.reason, ownEmail: g.bannedEmail });
-    return { ok: false, error: `Perangkat/IP ini diblokir admin${g.bannedEmail ? ` — hanya ${g.bannedEmail} yang bisa masuk untuk lihat info & banding (pakai jalur email)` : ''}. Login Google dengan akun lain tidak bisa dibuka di sini.` };
-  }
+  // ===== GERBANG BAN v22: pre-flight Google DILEPAS — penolakan akun biasa
+  // tetap terjadi di onAuthStateChanged (akun baru dihapus otomatis, akun lama
+  // ditandatangani keluar). Dengan ini STAF tetap bisa masuk Google di
+  // perangkat yang tercatat (untuk membuka Admin Panel & membuka ban).
   try {
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
@@ -2075,6 +2102,8 @@ export function retryMessage(chatId: string, id: string) {
   bump();
   const ref = doc(fb.db, C.chats, chatId, 'messages', id);
   const rm = resolveMsgMentions(db.chats[chatId] ?? { type: 'direct' } as Chat, m.text ?? '');
+  // KIRIM ULANG IDEMPOTEN: doc id SAMA (bukan dokumen baru) → tidak mungkin
+  // muncul pesan duplikat di penerima walau tombol ditekan berkali-kali.
   setDoc(ref, clean({
     chatId, senderId: me.id, type: m.type, text: m.text, uri: m.uri, fileName: m.fileName, fileSize: m.fileSize,
     duration: m.duration, mime: m.mime, width: m.width, height: m.height, thumb: m.thumb, storagePath: m.storagePath,
@@ -2083,7 +2112,13 @@ export function retryMessage(chatId: string, id: string) {
     mediaExpiresAt: m.mediaExpiresAt ?? null, viewOnce: !!m.viewOnce, viewedBy: m.viewedBy ?? [],
     mentions: rm.refs, mentionsAll: rm.all,
     clientTime: m.createdAt, createdAt: serverTimestamp(), deletedFor: [], reactions: {}, starredBy: [],
-  })).catch(() => {});
+  }))
+    .catch((e: any) => {
+      // gagal lagi → status KEMBALI 'failed' + alasannya jelas (tidak diam-diam)
+      db.messages = { ...db.messages, [chatId]: (db.messages[chatId] ?? []).map((x) => (x.id === id ? { ...x, status: 'failed' as const } : x)) };
+      bump();
+      pushBanner({ title: 'Kirim ulang gagal', body: fbError(e), icon: 'alert' });
+    });
 }
 
 export function editMessage(chatId: string, id: string, text: string) {
