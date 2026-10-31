@@ -60,6 +60,89 @@ function aiBioOf(body: any): string {
   return sanitizePersonaText(body?.aiBio, 220);
 }
 
+// ---------------------------------------------------------------------------
+// PEMBERSIH METADATA INTERNAL (BAGIAN 5)
+// Beberapa model upstream membocorkan format alat internal seperti
+//   :::writing{variant="chat_message" ...}\nIsi jawaban\n:::
+//   <think>penalaran internal</think>Isi jawaban
+// Metadata ini TIDAK BOLEH tampil ke pengguna. Isi jawaban yang sebenarnya
+// TETAP DIPERTAHANKAN — hanya pembungkusnya yang dibuang.
+// ---------------------------------------------------------------------------
+
+/** Ambil isi jawaban dari dalam metadata pseudo-JSON (key="value" / key: value). */
+function extractInner(jsonish: string): string {
+  try {
+    const obj = JSON.parse(`{${jsonish}}`);
+    const cand = obj?.content ?? obj?.text ?? obj?.message ?? '';
+    if (typeof cand === 'string' && cand.trim()) return cand.trim();
+  } catch { /* pseudo-JSON — lanjut regex */ }
+  const m = jsonish.match(/\b(?:content|text|message)\s*[:=]\s*("|'|`)((?:[^\\]|\\.)*?)\1/i);
+  if (m?.[2]) {
+    return m[2]
+      .replace(/\\n/g, '\n').replace(/\\r/g, '')
+      .replace(/\\t/g, '\t').replace(/\\(.)/g, '$1')
+      .trim();
+  }
+  return '';
+}
+
+/** Hapus satu blok `:::tag{...}` mulai posisi `start`; ambil isi "content"/"text" bila model menaruhnya di dalam metadata. */
+function eatDirective(src: string, start: number): { inner: string; next: number } {
+  const brace = src.indexOf('{', start);
+  if (brace === -1) return { inner: '', next: start + 3 };
+  let depth = 0;
+  let inStr: string | null = null;
+  for (let i = brace; i < src.length; i++) {
+    const c = src[i];
+    if (inStr) {
+      if (c === '\\') i++;
+      else if (c === inStr) inStr = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === '`') { inStr = c; continue; }
+    if (c === '{') depth++;
+    else if (c === '}') {
+      depth--;
+      if (depth === 0) {
+        const extracted = extractInner(src.slice(brace + 1, i));
+        let j = i + 1;
+        const closeM = src.slice(j, j + 12).match(/^\s*:::/);
+        if (closeM) j += closeM[0].length;
+        return { inner: extracted, next: j };
+      }
+    }
+  }
+  return { inner: '', next: src.length };
+}
+
+/** Bersihkan metadata internal dari jawaban AI tanpa menghapus isinya. */
+function stripInternalMarkup(input: string): string {
+  let t = String(input ?? '');
+  if (!t) return '';
+  let changed = false;
+  const thinkRe = /<think>[\s\S]*?<\/think>/gi;
+  if (thinkRe.test(t)) { t = t.replace(thinkRe, ''); changed = true; }
+  if (/<think>[\s\S]*$/i.test(t)) { t = t.replace(/<think>[\s\S]*$/i, ''); changed = true; }
+  const dirRe = /:::\s*[A-Za-z_-]+\s*\{/g;
+  let m: RegExpExecArray | null;
+  while ((m = dirRe.exec(t))) {
+    const { inner, next } = eatDirective(t, m.index);
+    const before = t.slice(0, m.index);
+    const after = t.slice(next);
+    t = (inner ? `${before}${before && !before.endsWith('\n') ? '\n' : ''}${inner}\n` : before) + after;
+    changed = true;
+    dirRe.lastIndex = 0;
+    if (t.length > 200000) break;
+  }
+  if (/^\s*:::\s*$/m.test(t)) { t = t.replace(/^\s*:::\s*$/gm, ''); changed = true; }
+  if (/^\s*\[(?:TOOL_CALL|FUNCTION_CALL|INST|SYSTEM)\b/i.test(t)) {
+    t = t.replace(/^\s*\[(?:TOOL_CALL|FUNCTION_CALL|INST|SYSTEM)\b[^\n]*(?:\n|$)/i, '');
+    changed = true;
+  }
+  if (changed) t = t.replace(/\n{3,}/g, '\n\n').trim();
+  return t;
+}
+
 /**
  * System prompt khusus Zeroid WhatsApp (v3):
  * seperti manusia, bisa berpikir, bisa menganalisis situs/web, akurat,
@@ -392,12 +475,12 @@ export default async function handler(req: any, res: any) {
       // percobaan pertama pada model pilihan (jika JEREXD yang menang, dipakai; provider lain mengabaikan)
       const first = await chatFullPrompt(full, s(body?.model, 60), 50000);
       if (first) {
-        return res.status(200).json({ ok: true, text: sanitizeIdentity(first.text, aiName).slice(0, 8000), provider: first.provider });
+        return res.status(200).json({ ok: true, text: sanitizeIdentity(stripInternalMarkup(first.text), aiName).slice(0, 8000), provider: first.provider });
       }
       // satu percobaan ulang singkat (upstream kadang gagal sesaat)
       await sleep(1000);
       const second = await chatFullPrompt(full, s(body?.model, 60), Math.max(8000, 56000 - (Date.now() - t0)));
-      if (second) return res.status(200).json({ ok: true, text: sanitizeIdentity(second.text, aiName).slice(0, 8000), provider: second.provider });
+      if (second) return res.status(200).json({ ok: true, text: sanitizeIdentity(stripInternalMarkup(second.text), aiName).slice(0, 8000), provider: second.provider });
       return bad(res, 502, 'Semua penyedia AI sedang tidak bisa menjawab. Coba lagi beberapa saat lagi.');
     }
 
@@ -419,13 +502,13 @@ export default async function handler(req: any, res: any) {
       if (text.trim()) {
         return res.status(200).json({
           ok: true,
-          text: sanitizeIdentity(text, aiName).slice(0, 12000),
+          text: sanitizeIdentity(stripInternalMarkup(text), aiName).slice(0, 12000),
           reasoning: pickThinking(r.data).slice(0, 12000) || undefined,
           provider: 'jerexd',
         });
       }
       const alt = await chatFullPrompt(sys.slice(0, 3400), '', 22000);
-      if (alt) return res.status(200).json({ ok: true, text: sanitizeIdentity(alt.text, aiName).slice(0, 12000), provider: alt.provider });
+      if (alt) return res.status(200).json({ ok: true, text: sanitizeIdentity(stripInternalMarkup(alt.text), aiName).slice(0, 12000), provider: alt.provider });
       return bad(res, 502, 'Semua penyedia AI sedang tidak bisa menjawab. Coba lagi beberapa saat lagi.');
     }
 
@@ -437,7 +520,7 @@ export default async function handler(req: any, res: any) {
       if (!r.ok) return bad(res, 502, `Layanan AI gagal: ${String(r.data?.error ?? r.data?.message ?? `HTTP ${r.status}`).slice(0, 160)}`);
       const text = pickText(r.data);
       if (!text) return bad(res, 502, 'Respons AI tidak dapat dibaca.');
-      return res.status(200).json({ ok: true, text: sanitizeIdentity(text, aiNameOf(body)).slice(0, 8000) });
+      return res.status(200).json({ ok: true, text: sanitizeIdentity(stripInternalMarkup(text), aiNameOf(body)).slice(0, 8000) });
     }
 
     // ---------------- PENCARIAN WEB (fitur baru) ----------------
@@ -498,7 +581,7 @@ export default async function handler(req: any, res: any) {
       const prompt = `[Di ${ctype === 'global' ? 'obrolan global' : 'chat'}, ${senderName} menulis]: ${text}`;
       const full = `${systemPrompt(body)}\n\nINGAT: kamu sedang berbicara di ruang chat bersama. Jawaban SINGKAT (maksimal 6 baris), santai, tanpa format rumit.\n${hist ? hist + '\n\n' : ''}${prompt}\n\nAssistant:`;
       const out = await chatFullPrompt(full, '', 50000);
-      const answer = out ? sanitizeIdentity(out.text, aiNameOf(body)).trim().slice(0, 3000) : '';
+      const answer = out ? sanitizeIdentity(stripInternalMarkup(out.text), aiNameOf(body)).trim().slice(0, 3000) : '';
       if (!answer) {
         await fbCreateDoc(project, `chats/${chatId}/messages`, `bot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, {
           chatId: fsStr(chatId), senderId: fsStr(BOT_UID), type: fsStr('text'),

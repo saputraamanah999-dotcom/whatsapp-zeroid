@@ -192,6 +192,15 @@ async function userFetch(idToken, path, method, body) {
 
 // ---------------- commands ----------------
 
+/** Samarkan email di log Actions (repo publik — log bisa dibaca siapa pun). */
+function maskEmail(e) {
+  const s = String(e ?? '');
+  if (!s || s === 'undefined') return '-';
+  const at = s.lastIndexOf('@');
+  if (at <= 0) return s.slice(0, 2) + '***';
+  return `${s.slice(0, Math.min(3, at))}***@${s.slice(at + 1)}`;
+}
+
 async function cmdInspect() {
   console.log('=== USERS (yang relevan ban) ===');
   const users = await listDocs('users');
@@ -200,23 +209,23 @@ async function cmdInspect() {
     const banUntil = fv(u, 'banUntil') ?? 0;
     const susp = fv(u, 'suspendedUntil') ?? 0;
     if (banned || banUntil > Date.now() || susp > Date.now()) {
-      console.log(`BANNED uid=${docId(u).replace('users/', '')} email=${fv(u, 'email')} role=${fv(u, 'role')} banned=${banned} banUntil=${banUntil} suspendedUntil=${susp} reason=${fv(u, 'banReason')}`);
+      console.log(`BANNED uid=${docId(u).replace('users/', '')} email=${maskEmail(fv(u, 'email'))} role=${fv(u, 'role')} banned=${banned} banUntil=${banUntil} suspendedUntil=${susp} reason=${fv(u, 'banReason')}`);
     }
   }
   console.log('=== bans (buku admin) ===');
   const bans = await listDocs('bans');
   for (const b of bans) {
-    console.log(`bans uid=${docId(b).replace('bans/', '')} active=${fv(b, 'active')} until=${fv(b, 'until')} reason=${fv(b, 'reason')} email=${fv(b, 'email')}`);
+    console.log(`bans uid=${docId(b).replace('bans/', '')} active=${fv(b, 'active')} until=${fv(b, 'until')} reason=${fv(b, 'reason')} email=${maskEmail(fv(b, 'email'))}`);
   }
   console.log('=== banips ===');
   try {
     const ips = await listDocs('banips');
-    for (const i of ips) console.log(`banips id=${docId(i).replace('banips/', '').slice(0, 18)}… uid=${fv(i, 'uid')} email=${fv(i, 'email')} until=${fv(i, 'until')}`);
+    for (const i of ips) console.log(`banips id=${docId(i).replace('banips/', '').slice(0, 18)}… uid=${fv(i, 'uid')} email=${maskEmail(fv(i, 'email'))} until=${fv(i, 'until')}`);
   } catch (e) { console.log('banips list gagal:', e.message); }
   console.log('=== devices ===');
   try {
     const devs = await listDocs('devices');
-    for (const d of devs) console.log(`devices id=${docId(d).replace('devices/', '').slice(0, 18)}… uid=${fv(d, 'uid')} email=${fv(d, 'email')} until=${fv(d, 'until')}`);
+    for (const d of devs) console.log(`devices id=${docId(d).replace('devices/', '').slice(0, 18)}… uid=${fv(d, 'uid')} email=${maskEmail(fv(d, 'email'))} until=${fv(d, 'until')}`);
   } catch (e) { console.log('devices list gagal:', e.message); }
   console.log('=== usermeta (hash terakhir per akun) ===');
   try {
@@ -224,6 +233,33 @@ async function cmdInspect() {
     for (const m of metas) console.log(`usermeta uid=${docId(m).replace('usermeta/', '')} lastDeviceHash=${String(fv(m, 'lastDeviceHash') ?? '').slice(0, 14)}… lastIpHash=${String(fv(m, 'lastIpHash') ?? '').slice(0, 14)}…`);
   } catch (e) { console.log('usermeta list gagal:', e.message); }
   console.log('INSPECT_DONE');
+}
+
+/** whois — status ringkas akun spesifik (email/uid): role, ban, koin. Email disamarkan. */
+async function cmdWhois(args) {
+  const emails = args.filter((a) => a.startsWith('--email=')).map((a) => a.slice(8).toLowerCase());
+  const uids = args.filter((a) => a.startsWith('--uid=')).map((a) => a.slice(6));
+  const targets = new Map(); // uid → email (utk label)
+  for (const uid of uids) {
+    const d = await getDoc(`users/${uid}`);
+    if (d) targets.set(uid, fv(d, 'email'));
+    else console.log(`users/${uid}: TIDAK ADA`);
+  }
+  for (const em of emails) {
+    const hits = await runQuery('users', [fieldFilter('email', 'EQUAL', em)], []);
+    for (const h of hits) targets.set(docId(h).replace('users/', ''), em);
+  }
+  if (!targets.size) { console.log('TIDAK ADA target — berikan --email atau --uid'); process.exit(2); }
+  for (const [uid, em] of targets) {
+    const d = await getDoc(`users/${uid}`);
+    if (!d) { console.log(`users/${uid}: TIDAK ADA`); continue; }
+    const banned = fv(d, 'banned');
+    const banUntil = fv(d, 'banUntil') ?? 0;
+    const susp = fv(d, 'suspendedUntil') ?? 0;
+    const banActive = !!banned || banUntil > Date.now() || susp > Date.now();
+    console.log(`WHOIS uid=${uid} email=${maskEmail(em)} role=${fv(d, 'role')} banned=${banned} banUntil=${banUntil} suspendedUntil=${susp} banAktif=${banActive} points=${fv(d, 'points')} verified=${fv(d, 'verified')}`);
+  }
+  console.log('WHOIS_DONE');
 }
 
 async function liftOne(uid) {
@@ -487,6 +523,7 @@ async function cmdVerifyrules(args) {
   console.log('token OK — project:', PROJ);
   const [cmd, ...args] = process.argv.slice(2);
   if (cmd === 'inspect') await cmdInspect();
+  else if (cmd === 'whois') await cmdWhois(args);
   else if (cmd === 'liftban') await cmdLiftban(args);
   else if (cmd === 'setrole') await cmdSetrole(args);
   else if (cmd === 'verifyrules') await cmdVerifyrules(args);

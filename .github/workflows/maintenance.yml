@@ -2,24 +2,26 @@ name: Zeroid Maintenance
 
 # Alat admin darurat (HANYA bisa dijalankan pemilik repo — workflow_dispatch):
 #   inspect      — lihat status ban (users/bans/banips/devices)
+#   whois        — status ringkas akun spesifik: role, ban, koin (email disamarkan)
 #   liftban      — buka ban akun: users.banned=false + hapus banips/devices miliknya
 #   setrole      — ubah role akun (darurat)
 #   verifyrules  — uji rules Firestore DENGAN AKUN NYATA (REST + idToken) → PASS/FAIL
 #
 # Rahasia TIDAK PERNAH dicetak: skrip hanya menampilkan field non-rahasia
-# (uid, email, flag, id dokumen ber-hash). Setiap eksekusi tercatat di riwayat
-# Actions — jejak audit penuh (siapa, kapan, apa).
+# (uid, email DISAMARKAN, flag, id dokumen ber-hash). Setiap eksekusi tercatat
+# di riwayat Actions — jejak audit penuh (siapa, kapan, apa).
 
 on:
   workflow_dispatch:
     inputs:
       action:
-        description: 'Perintah: inspect | liftban | setrole | verifyrules'
+        description: 'Perintah: inspect | whois | liftban | setrole | verifyrules'
         required: true
         default: 'inspect'
         type: choice
         options:
           - inspect
+          - whois
           - liftban
           - setrole
           - verifyrules
@@ -65,7 +67,7 @@ jobs:
           fi
           ARGS=""
           case "$CMD_ACTION" in
-            liftban)
+            whois|liftban)
               [ -n "$CMD_EMAIL" ] && for e in $(echo "$CMD_EMAIL" | tr ',' ' '); do ARGS="$ARGS --email=$e"; done
               [ -n "$CMD_UID" ] && for u in $(echo "$CMD_UID" | tr ',' ' '); do ARGS="$ARGS --uid=$u"; done
               ;;

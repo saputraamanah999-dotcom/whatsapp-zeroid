@@ -12,6 +12,7 @@
 
 import { proxyPost } from './proxy';
 import { firebase } from './firebase';
+import { cleanAiText } from './aiText';
 
 /** Curated providers shown before the live model list loads. */
 export const AI_PROVIDERS = [
@@ -63,7 +64,7 @@ export async function askAI(
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const data = await post(body, 75000);
-      const text = String(data?.text ?? '').trim();
+      const text = cleanAiText(String(data?.text ?? ''));
       if (!text) throw new Error('Respons AI kosong.');
       return { text };
     } catch (e: any) {
@@ -82,7 +83,7 @@ export async function thinkAI(
   opts: { search?: boolean; sessionId?: string } & Persona = {}
 ): Promise<AiResult> {
   const data = await post({ action: 'thinking', prompt, search: !!opts.search, sessionId: opts.sessionId, aiName: opts.aiName, aiBio: opts.aiBio }, 90000);
-  const text = String(data?.text ?? '').trim();
+  const text = cleanAiText(String(data?.text ?? ''));
   if (!text) throw new Error('Respons AI kosong.');
   return { text, reasoning: data?.reasoning ? String(data.reasoning) : undefined };
 }
@@ -90,7 +91,7 @@ export async function thinkAI(
 /** Analyse an image (URL must be https — e.g. a Firebase Storage download URL). */
 export async function analyzeImage(url: string, prompt = 'Jelaskan gambar ini secara detail', persona?: Persona): Promise<AiResult> {
   const data = await post({ action: 'vision', url, prompt, ...(persona ?? {}) }, 75000);
-  const text = String(data?.text ?? '').trim();
+  const text = cleanAiText(String(data?.text ?? ''));
   if (!text) throw new Error('Respons AI kosong.');
   return { text };
 }

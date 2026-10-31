@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { View, Pressable, Linking, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -18,6 +18,7 @@ import MdText from './MdText';
 import { AppleEmoji } from './Emoji';
 import { STICKER_SIZE } from '../lib/sticker';
 import { useTheme, R } from '../lib/theme';
+import { cleanAiText, isAiText } from '../lib/aiText';
 import { resolveBubble } from '../lib/bubbles';
 import BubbleDecor from './BubbleDecor';
 import { Chat, DB, Message, User } from '../lib/types';
@@ -64,6 +65,10 @@ export default function MessageBubble({
   const senderName = m.assistant ? db.aiProfile?.name?.trim() || 'Zeroid AI' : sender?.name;
   const senderColor = m.assistant ? '#7B61FF' : sender?.color ?? t.accent;
   const [showThink, setShowThink] = useState(false);
+  // BAGIAN 5: metadata internal AI (:::writing{...}, <think>) TIDAK BOLEH tampil.
+  // Dibersihkan juga saat render supaya pesan LAMA yang tersimpan dengan
+  // metadata ikut rapi (server & klien baru sudah membersihkan saat masuk).
+  const mText = useMemo(() => (isAiText(m) ? cleanAiText(m.text ?? '') : m.text ?? ''), [m.text, m.assistant, m.senderId]);
 
   if (m.type === 'system') {
     return (
@@ -438,8 +443,8 @@ export default function MessageBubble({
                 <Ionicons name="download-outline" size={20} color={fg} />
               </Pressable>
             )}
-            {!!m.text && (
-              m.type === 'text' && (m.text?.length ?? 0) > 2600 ? (
+            {!!mText && (
+              m.type === 'text' && mText.length > 2600 ? (
                 // ANTI-BUG / VIRTEX (v21): teks raksasa (bom karakter yang bisa
                 // membuat aplikasi lag/crash) DISEMBUNYIKAN oleh AI Guard — semua
                 // penerima melihat label rapi, bukan teks raksasanya.
@@ -449,9 +454,9 @@ export default function MessageBubble({
                     Pesan virtext/bombing diblokir AI Guard — konten disembunyikan demi keamanan.
                   </T>
                 </View>
-              ) : m.mentions?.length && !/(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|~~[\s\S]+~~|`[^`\n]+`)/.test(m.text ?? '') ? (
+              ) : m.mentions?.length && !/(\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|~~[\s\S]+~~|`[^`\n]+`)/.test(mText) ? (
                 <MentionText
-                  text={m.text}
+                  text={mText}
                   mentions={m.mentions}
                   color={fg}
                   onOpenUser={onOpenUser}
@@ -459,7 +464,7 @@ export default function MessageBubble({
                 />
               ) : (
                 <MdText
-                  text={m.text}
+                  text={mText}
                   mentions={m.mentions}
                   color={fg}
                   onOpenUser={onOpenUser}
