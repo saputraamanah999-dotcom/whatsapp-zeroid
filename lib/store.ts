@@ -3148,7 +3148,8 @@ export function adminDecideOrder(orderId: string, approve: boolean) {
   const o = db.orders.find((x) => x.id === orderId);
   if (!o || o.status !== 'pending' || o.id === '_schema') return;
   const isApi = !!apiProductOf(o.product);
-  const p = productSafe(o.product);
+  // judul benar utk produk API (productSafe saja → 'Produk' generik)
+  const p = isApi ? ({ ...apiProductOf(o.product)!, icon: 'receipt' } as any) : productSafe(o.product);
   const batch = writeBatch(fb.db);
   batch.update(doc(fb.db, C.orders, orderId), { status: approve ? 'paid' : 'rejected', decidedAt: Date.now() });
   if (approve && !isApi) {

@@ -512,7 +512,7 @@ export function PremiumScreen() {
         {myOrders.length > 0 && (
           <Card title="Riwayat pesanan">
             {myOrders.filter((o) => o.id !== '_schema').map((o) => {
-            const po = productSafe(o.product);
+            const po = apiProductOf(o.product) ? ({ ...apiProductOf(o.product)!, icon: 'receipt' } as any) : productSafe(o.product);
             return (
               <View key={o.id} style={{ marginTop: 10 }}>
                 <Row
