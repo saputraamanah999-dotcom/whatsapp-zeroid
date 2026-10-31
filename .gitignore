@@ -28,3 +28,4 @@ secrets/
 *.jks
 *.keystore
 tool-results/
+download/
