@@ -71,6 +71,10 @@ export const fsNull = () => ({ nullValue: null });
 export const fsArr = (vals: any[]) => ({ arrayValue: { values: vals } });
 export const fsMap = (fields: Record<string, any>) => ({ mapValue: { fields } });
 export const fsServerTime = () => ({ serverValue: 'REQUEST_TIME' });
+/** Timestamp SAFI untuk documents:create (serverValue hanya sah di commit).
+ *  WAJIB dipakai utk createdAt pesan bot/guard — kalau integerValue, pesan
+ *  urut DI BAWAH semua pesan timestamp (tipe number < timestamp di Firestore). */
+export const fsTimeMs = (v?: number) => ({ timestampValue: new Date(Number(v) || Date.now()).toISOString() });
 
 // ---------- decoders ----------
 export function decodeFsValue(v: any): any {
@@ -140,14 +144,14 @@ function sanitizeCreateFields(fields: Record<string, any>): Record<string, any> 
   const out: Record<string, any> = {};
   for (const [k, v] of Object.entries(fields ?? {})) {
     if (v && typeof v === 'object' && !Array.isArray(v)) {
-      if ((v as any).serverValue === 'REQUEST_TIME') { out[k] = { integerValue: String(Date.now()) }; continue; }
+      if ((v as any).serverValue === 'REQUEST_TIME') { out[k] = { timestampValue: new Date().toISOString() }; continue; }
       if ((v as any).mapValue?.fields) {
         out[k] = { mapValue: { fields: sanitizeCreateFields((v as any).mapValue.fields) } };
         continue;
       }
       if ((v as any).arrayValue?.values) {
         out[k] = { arrayValue: { values: (v as any).arrayValue.values.map((x: any) => {
-          if (x && typeof x === 'object' && x.serverValue === 'REQUEST_TIME') return { integerValue: String(Date.now()) };
+          if (x && typeof x === 'object' && x.serverValue === 'REQUEST_TIME') return { timestampValue: new Date().toISOString() };
           if (x && typeof x === 'object' && x.mapValue?.fields) return { mapValue: { fields: sanitizeCreateFields(x.mapValue.fields) } };
           return x;
         }) } };
