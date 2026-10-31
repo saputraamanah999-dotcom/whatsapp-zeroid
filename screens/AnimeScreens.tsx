@@ -106,9 +106,9 @@ async function jikanSearch(q: string): Promise<Card[]> {
   if (!r?.data) throw new Error('Jikan limit');
   return (r?.data ?? []).map((a: any) => ({
     slug: `jikan:${a.mal_id}`,
-    title: a.title,
+    title: a.title ?? a.title_english ?? a.title_japanese,
     poster: a.images?.jpg?.large_image_url ?? a.images?.jpg?.image_url,
-    sub: a.score ? `★ ${a.score}` : [a.type, a.year].filter(Boolean).join(' · '),
+    sub: a.score && a.score !== 'N/A' ? `★ ${a.score}` : [a.type, a.year].filter(Boolean).join(' · '),
   })).filter((c: Card) => c.title && c.slug !== 'jikan:undefined');
 }
 
@@ -220,8 +220,8 @@ export function AnimeScreen() {
           cards = movies.map((m: AnimeInMovie) => ({ slug: `ain:${m.id}`, title: m.title, poster: m.image_poster, sub: [m.type, m.year].filter(Boolean).join(' · ') }));
         } catch {
           // animein mati → JIKAN langsung (hasil pencarian beneran) → jere
-          try { cards = await jikanSearch(q.trim()); }
-          catch { const list = await jereSearch(q.trim()); cards = list.map((a: AnimeCard) => ({ slug: a.slug, title: a.title, poster: a.poster, sub: a.rating ? `★ ${a.rating}` : undefined })); }
+          try { cards = (await jikanSearch(q.trim())).filter((c) => c.title.trim().length > 1); }
+          catch { const list = await jereSearch(q.trim()); cards = list.map((a: AnimeCard) => ({ slug: a.slug, title: a.title, poster: a.poster, sub: a.rating && a.rating !== 'N/A' ? `★ ${a.rating}` : undefined })).filter((c) => c.title.trim().length > 1); }
         }
         if (seq !== searchSeq.current) return;
         setSearchRes(cards);
