@@ -600,3 +600,10 @@
 - Tanpa kunci baru di repo (scan 0); rules hanya mengetat (cap 8000) & satu
   pelebaran terkendali (bot oleh admin grup).
 - tsc 0 error; expo export web sukses; build APK 1.6.3 via CI.
+
+### v21.1 (f0249ee) — poster anime pasti dirender
+- Server fixPosters ternyata selalu 429 (Jikan membatasi IP bersama Vercel) →
+  poster server-side 0/24 terganti. SOLUSI PASTI: fallback di sisi KLIEN —
+  Poster onError → cari poster via Jikan sekali per judul (cache, CORS publik,
+  pakai IP pemakai sendiri). Server tetap berbatas waktu 8 dtk paralel.
+- APK 1.6.3 (code 10) dibangun ulang dari f0249ee (semua fitur v21 + fallback).
