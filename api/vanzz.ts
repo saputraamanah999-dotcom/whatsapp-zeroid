@@ -326,6 +326,48 @@ async function bmkgDirect(): Promise<{ data?: any; error?: string }> {
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// BERITA FALLBACK RSS — endpoint Vanzz berita ikut flaky (404 terbukti live).
+// Cadangan: RSS resmi tiap media (publik, tanpa kunci) → bentuk respons sama
+// seperti Vanzz ({status, result:[{title,url,image,snippet,date}]}).
+// ---------------------------------------------------------------------------
+const BERITA_RSS: Record<string, string> = {
+  berita_kompas: 'https://www.kompas.com/feed/rss.xml',
+  berita_cnn: 'https://www.cnnindonesia.com/rss',
+  berita_liputan6: 'https://www.liputan6.com/rss/feed',
+  berita_antara: 'https://www.antaranews.com/rss/news',
+  berita_cnbc: 'https://www.cnbcindonesia.com/site/rss/news',
+  berita_sindonews: 'https://www.sindonews.com/feed',
+};
+function rssTag(block: string, tag: string): string {
+  const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+  return m ? m[1].replace(/<!\[CDATA\[|\]\]>/g, '').trim() : '';
+}
+async function beritaRss(feed: string): Promise<{ data?: any; error?: string }> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 12000);
+  try {
+    const xml = await fetch(feed, { signal: ctl.signal, headers: { accept: 'application/rss+xml,application/xml,text/xml', 'user-agent': 'Mozilla/5.0 zeroid-news/1.0' } }).then((x) => x.text());
+    const items = xml.match(/<item[\s\S]*?<\/item>/gi) ?? [];
+    const list = items.slice(0, 30).map((it) => {
+      const title = rssTag(it, 'title');
+      const link = rssTag(it, 'link');
+      const desc = rssTag(it, 'description').replace(/<[^>]+>/g, '').slice(0, 180);
+      const pub = rssTag(it, 'pubDate');
+      const imgM = it.match(/<enclosure[^>]*url="([^"]+)"|<media:content[^>]*url="([^"]+)"|<image[^>]*url="([^"]+)"/i);
+      const img = imgM ? (imgM[1] || imgM[2] || imgM[3] || '') : '';
+      return { title, url: link, snippet: desc, image: /^https?:/.test(img) ? img : undefined, date: pub };
+    }).filter((x) => x.title && x.url);
+    if (!list.length) return { error: 'Berita tidak terbaca dari sumbernya.' };
+    return { data: { status: true, result: list } };
+  } catch {
+    return { error: 'Gagal menghubungi sumber berita — coba lagi.' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Panggil endpoint Vanzz; gambar → data URL (maks ~6 MB). */
 async function vanzzGet(ep: Ep, params: Record<string, string>, key: string): Promise<{ ok: boolean; status: number; data?: any; dataUrl?: string; mime?: string; error?: string }> {
   const url = new URL(VANZZ_BASE + ep.path);
@@ -616,6 +658,12 @@ export default async function handler(req: any, res: any) {
   if (!r.ok && key2.startsWith('quotes_')) {
     const kind = key2.replace('quotes_', '');
     return res.status(200).json({ ok: true, data: { status: true, quotes: quotesFallback(kind) } });
+  }
+  // BERITA: Vanzz flaky → RSS resmi media
+  if (!r.ok && BERITA_RSS[key2]) {
+    const b = await beritaRss(BERITA_RSS[key2]);
+    if (b.data) return res.status(200).json({ ok: true, data: b.data });
+    return res.status(502).json({ error: b.error ?? 'Berita sedang tidak tersedia.' });
   }
   if (!r.ok) return res.status(502).json({ error: pickMsg(r.data) || r.error || `Layanan sedang tidak tersedia (HTTP ${r.status}).` });
   if (ep.img || r.dataUrl) {
