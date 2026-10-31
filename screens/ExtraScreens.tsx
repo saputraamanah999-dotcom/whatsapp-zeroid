@@ -35,7 +35,7 @@ import {
   orderLimitRemaining,
 } from '../lib/store';
 import { spendKoin } from '../lib/points';
-import { attachOrderProof } from '../lib/store';
+import { attachOrderProof, adminUpdateOrder } from '../lib/store';
 import { getVoucher, voucherUsable, redeemVoucher, priceWithDiscount, Voucher } from '../lib/vouchers';
 import { PRODUCTS, PAYMENT_METHODS, rupiah, productOf, productSafe, API_PRODUCTS, apiProductOf } from '../lib/products';
 import { vanzzQris, vanzzCall } from '../lib/vanzz';
@@ -279,6 +279,18 @@ export function PremiumScreen() {
 
   // ================= ALUR PEMBAYARAN BARU (QRIS + DANA + BUKTI) =================
   const openBuy = (product: ProductKey, plan: number, meta?: { nomor?: string; email?: string } | null) => {
+    // DEVELOPER/ADMIN: fitur API berbayar (Cek Nomor dkk) GRATIS — order langsung
+    // ditandai lunas oleh admin sendiri → hasil API otomatis diproses server.
+    const staffFree = !!apiProductOf(product) && (me.role === 'admin' || !!me.developer);
+    if (staffFree) {
+      const r = createOrder(product, plan, 'qris', undefined, 0, undefined, meta ?? undefined);
+      if (r && 'error' in r) { pushBanner({ title: 'Gagal', body: r.error, icon: 'alert' }); return; }
+      if (r && 'orderId' in r) {
+        adminUpdateOrder(r.orderId, { status: 'paid', price: 0, adminNote: 'GRATIS — staff/admin (tanpa pembayaran)' });
+        pushBanner({ title: 'Diproses (gratis — akun staff)', body: 'Hasil muncul otomatis di riwayat pesanan.', icon: 'flash' });
+      }
+      return;
+    }
     setBuy({ product, plan, meta: meta ?? null });
     setPayStep('method');
     setActiveOrder(null);
@@ -495,6 +507,7 @@ export function PremiumScreen() {
                 />
               ))}
               <T v="caption" color={t.faint}>{ap.note}</T>
+              {(me.role === 'admin' || !!me.developer) && <T v="caption" color={t.success} style={{ fontWeight: '800' }}>GRATIS untuk admin/developer — langsung diproses tanpa bayar.</T>}
               <Btn
                 small
                 variant="primary"

@@ -21,9 +21,11 @@ rm -f "$STAGE/ZEROID-WHATSAPP-FIXED-COMPLETE/.env" 2>/dev/null || true
 
 # 3. APK hasil build CI ke folder release/
 mkdir -p "$STAGE/ZEROID-WHATSAPP-FIXED-COMPLETE/release"
-if [ -f /home/z/my-project/download/release/zeroid-1.6.5.apk ]; then
-  cp /home/z/my-project/download/release/zeroid-1.6.5.apk \
-     "$STAGE/ZEROID-WHATSAPP-FIXED-COMPLETE/release/zeroid-whatsapp-1.6.5.apk"
+# pakai APK TERBARU (versi dari app.json) di download/release/
+LATEST_APK=$(ls -t /home/z/my-project/download/release/zeroid-*.apk 2>/dev/null | head -1 || true)
+if [ -n "$LATEST_APK" ]; then
+  VER=$(node -p "require('/home/z/my-project/app.json').expo.version")
+  cp "$LATEST_APK" "$STAGE/ZEROID-WHATSAPP-FIXED-COMPLETE/release/zeroid-whatsapp-${VER}.apk"
 fi
 
 # 4. sanity: pastikan tidak ada file >20MB selain APK
