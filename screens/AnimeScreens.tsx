@@ -22,7 +22,7 @@ import { T, Btn, Card, Empty, Header, IconBtn, Neu, NeuInput, Row, Screen } from
 import VideoPlayer from '../components/VideoPlayer';
 import { useTheme, R } from '../lib/theme';
 import { isAnimeFav, toggleAnimeFav, useStore } from '../lib/store';
-import { animeSchedule, animeQuotes, animeNews, AnimeCard, AnimeQuote, AnimeNews } from '../lib/jere';
+import { animeSchedule, animeQuotes, animeNews, animeLatest as jereLatest, animeHot as jereHot, animeSearch as jereSearch, animeDetail as jereDetail, AnimeCard, AnimeQuote, AnimeNews, AnimeDetail as JereDetail } from '../lib/jere';
 import { animeInSearch, animeInInfo, animeInStreams, animeFyp, otakudesuLatest, AnimeInMovie, AnimeInEpisode } from '../lib/vanzz';
 
 /** Cache poster fallback per judul (Jikan/MyAnimeList — CORS publik). */
@@ -111,11 +111,22 @@ export function AnimeScreen() {
     try {
       let cards: Card[] = [];
       if (which === 'latest') {
-        const rows = await otakudesuLatest();
-        cards = rows.map((r) => ({ slug: `q:${cleanTitle(r.title)}`, title: r.title, poster: r.thumb, sub: r.episode ? `EP ${r.episode}` : undefined }));
+        // animein dulu; upstream mati (Vanzz DEPLOYMENT_NOT_FOUND terbukti) → Jikan
+        try {
+          const rows = await otakudesuLatest();
+          cards = rows.map((r) => ({ slug: `q:${cleanTitle(r.title)}`, title: r.title, poster: r.thumb, sub: r.episode ? `EP ${r.episode}` : undefined }));
+        } catch {
+          const list = await jereLatest();
+          cards = list.map((a: AnimeCard) => ({ slug: a.slug, title: a.title, poster: a.poster, sub: a.episode ? `EP ${a.episode}` : a.releaseDay }));
+        }
       } else if (which === 'hot') {
-        const rows = await animeFyp();
-        cards = rows.map((r) => ({ slug: r.id_movie ? `ain:${r.id_movie}` : `q:${r.anime}`, title: r.anime, poster: r.poster, sub: r.episode ? `EP ${r.episode}` : undefined }));
+        try {
+          const rows = await animeFyp();
+          cards = rows.map((r) => ({ slug: r.id_movie ? `ain:${r.id_movie}` : `q:${r.anime}`, title: r.anime, poster: r.poster, sub: r.episode ? `EP ${r.episode}` : undefined }));
+        } catch {
+          const list = await jereHot();
+          cards = list.map((a: AnimeCard) => ({ slug: a.slug, title: a.title, poster: a.poster, sub: a.rating ? `★ ${a.rating}` : undefined }));
+        }
       } else {
         const list = await animeSchedule(); // jere — fallback Jikan resmi masih hidup
         cards = list.map((a: AnimeCard) => ({ slug: a.slug, title: a.title, poster: a.poster, sub: a.episode ? `EP ${a.episode}` : a.releaseDay }));
@@ -174,9 +185,16 @@ export function AnimeScreen() {
       const seq = ++searchSeq.current;
       setLoading(true); setErr('');
       try {
-        const movies = await animeInSearch(q.trim());
+        let cards: Card[] = [];
+        try {
+          const movies = await animeInSearch(q.trim());
+          cards = movies.map((m: AnimeInMovie) => ({ slug: `ain:${m.id}`, title: m.title, poster: m.image_poster, sub: [m.type, m.year].filter(Boolean).join(' · ') }));
+        } catch {
+          // animein mati → Jikan (MyAnimeList) lewat /api/jere
+          const list = await jereSearch(q.trim());
+          cards = list.map((a: AnimeCard) => ({ slug: a.slug, title: a.title, poster: a.poster, sub: a.rating ? `★ ${a.rating}` : undefined }));
+        }
         if (seq !== searchSeq.current) return;
-        const cards: Card[] = movies.map((m: AnimeInMovie) => ({ slug: `ain:${m.id}`, title: m.title, poster: m.image_poster, sub: [m.type, m.year].filter(Boolean).join(' · ') }));
         setSearchRes(cards);
         if (!cards.length) setErr(`Tidak ada hasil untuk "${q.trim()}".`);
       } catch (e: any) {
@@ -292,7 +310,7 @@ export function AnimeDetailScreen() {
   const rt = useRoute<any>();
   const { width } = useWindowDimensions();
   const slug: string = rt.params?.slug ?? '';
-  const [d, setD] = useState<{ movie: AnimeInMovie; episodes: AnimeInEpisode[] } | null>(null);
+  const [d, setD] = useState<{ movie: AnimeInMovie; episodes: AnimeInEpisode[]; jikan?: boolean } | null>(null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
   const [fav, setFav] = useState(isAnimeFav(slug));
@@ -305,16 +323,42 @@ export function AnimeDetailScreen() {
         let id = '';
         let posterHint = rt.params?.poster;
         let titleHint = rt.params?.title ?? '';
-        if (slug.startsWith('ain:')) id = slug.slice(4);
-        else if (slug.startsWith('jikan:')) {
-          // favorit lama dari Jikan — coba cari di animein dengan judul param
-          const m = await animeInSearch(titleHint || slug.slice(6));
-          if (m[0]?.id) id = m[0].id;
+        if (slug.startsWith('ain:')) {
+          id = slug.slice(4);
+        } else if (slug.startsWith('jikan:')) {
+          // favorit/kartu dari Jikan — detail resmi via /api/jere (sinopsis + episode)
+          const j = await jereDetail(slug);
+          if (!alive) return;
+          if (!j) throw new Error('Detail tidak tersedia.');
+          const jd = j as JereDetail;
+          setD({
+            movie: {
+              id: slug,
+              title: jd.title || titleHint,
+              synopsis: jd.synopsis,
+              image_poster: jd.poster ?? posterHint,
+              status: jd.status,
+              type: 'TV',
+              year: (jd.released ?? '').slice(0, 4),
+              genre: (jd.genres ?? []).join(', '),
+              studio: jd.studio,
+            } as AnimeInMovie,
+            episodes: (jd.episodes ?? []).map((e) => ({ id: e.slug, index: '', title: e.title, id_movie: slug, key_time: e.date } as AnimeInEpisode)),
+            jikan: true,
+          });
+          setFav(isAnimeFav(slug));
+          setLoading(false);
+          return;
         } else {
-          // URL otakudesu lama / "q:" → cari dulu berdasarkan judul
+          // URL otakudesu lama / "q:" → cari dulu (animein dulu, lalu Jikan)
           const kw = slug.startsWith('q:') ? slug.slice(2) : decodeURIComponent(slug).replace(/^https?:\/\/[^/]+\/anime\//, '').replace(/\/$/, '').replace(/-/g, ' ');
-          const m = await animeInSearch(kw.slice(0, 70));
-          if (m[0]?.id) { id = m[0].id; titleHint = m[0].title; posterHint = m[0].image_poster ?? posterHint; }
+          try {
+            const m = await animeInSearch(kw.slice(0, 70));
+            if (m[0]?.id) { id = m[0].id; titleHint = m[0].title; posterHint = m[0].image_poster ?? posterHint; }
+          } catch {
+            const list = await jereSearch(kw.slice(0, 70));
+            if (list[0]?.slug) { nav.replace('AnimeDetail', { slug: list[0].slug, title: list[0].title, poster: list[0].poster }); return; }
+          }
         }
         if (!id) throw new Error('Judul tidak ditemukan di katalog — coba cari manual.');
         const info = await animeInInfo(id);
@@ -333,6 +377,7 @@ export function AnimeDetailScreen() {
   const movie = d?.movie;
   const poster = movie?.image_poster ?? rt.params?.poster;
   const title = movie?.title || rt.params?.title || 'Anime';
+  const isJikan = !!d?.jikan;
 
   if (loading)
     return (
@@ -425,6 +470,11 @@ export function AnimeDetailScreen() {
                   onPress={() => nav.navigate('AnimeWatch', { epId: e.id, title: `${title} — ${e.title}` })}
                 />
               ))}
+              {isJikan && (
+                <T v="caption" color={t.faint} style={{ marginTop: 6 }}>
+                  Streaming sumber utama sedang maintenance — daftar episode dari MyAnimeList. Coba lagi nanti untuk pemutar langsung.
+                </T>
+              )}
             </View>
           ) : (
             <T color={t.faint}>Daftar episode tidak tersedia.</T>
@@ -464,6 +514,11 @@ export function AnimeWatchScreen() {
     let alive = true;
     (async () => {
       try {
+        if (epId.startsWith('jikan:')) {
+          // episode dari sumber Jikan (upstream utama mati) — tidak ada server langsung
+          if (alive) { setErr('Pemutar langsung sedang tidak tersedia (sumber utama maintenance). Coba lagi nanti.'); setLoading(false); }
+          return;
+        }
         const r = await animeInStreams(epId);
         if (!alive) return;
         setServers(r.servers);
