@@ -651,14 +651,21 @@ function attachUserSubs(fbUid: string) {
   }, 1500);
 }
 
-/** Subscribe to a chat room's messages (paginated by bumping the limit). */
+/** Subscribe to a chat room's messages (paginated by bumping the limit).
+ *  v23 FIX KRITIS: dulu orderBy ASC + limit → query mengambil 60 pesan
+ *  TERLAMA; begitu chat punya >60 pesan, pesan BARU jatuh DI LUAR jendela
+ *  listener → tidak pernah masuk real-time (harus buka ulang chat) dan
+ *  balasan bot "hilang". Kini DESC + limit → selalu 60 pesan TERBARU dan
+ *  setiap pesan baru masuk jendela → real-time benar-benar real-time.
+ *  Disimpan ASCENDING (reverse) supaya seluruh UI (items, lastMessage,
+ *  pagination) tidak perlu diubah. */
 export function subscribeMessages(chatId: string) {
   const fb = firebase();
   if (!fb || msgSubs.has(chatId)) return;
   const lim = msgLimits.get(chatId) ?? 60;
-  const qy = query(collection(fb.db, C.chats, chatId, 'messages'), orderBy('createdAt', 'asc'), fsLimit(lim));
+  const qy = query(collection(fb.db, C.chats, chatId, 'messages'), orderBy('createdAt', 'desc'), fsLimit(lim));
   const un = onSnapshot(qy, (s) => {
-    const server = s.docs.map((d) => mapMessage(d.id, d.data()));
+    const server = s.docs.map((d) => mapMessage(d.id, d.data())).reverse(); // ascending
     const local = db.messages[chatId] ?? [];
     const serverIds = new Set(server.map((m) => m.id));
     // AI GUARD: periksa pesan BARU dari orang lain → tangguhkan grup bila 18+/spam
