@@ -407,9 +407,11 @@ function ResultCard({ order, title, color, icon }: { order: any; title: string; 
   } else {
     // fallback generik — tampil rapi per baris, BUKAN JSON mentah
     headline = title;
-    const flat = flatPairs(r);
-    rows = flat.slice(0, 8);
+    rows = flatPairs(r).slice(0, 8);
   }
+  // JIKA baris spesifik semuanya kosong (bentuk payload beda dari dugaan),
+  // pakai baris generik — hasil tetap terbaca cantik, tidak pernah kosong.
+  if (!rows.some(([, v]) => !!v)) rows = flatPairs(r).slice(0, 10);
   return (
     <Neu inset radius={R.lg} style={{ padding: 14, marginTop: 6, gap: 8, borderWidth: 1, borderColor: color + '44' }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
