@@ -8,7 +8,6 @@ import { Confirm, Sheet } from '../components/Sheet';
 import BannerMedia from '../components/BannerMedia';
 import { UserBadges } from '../components/ui';
 import { ProductIcon } from '../lib/icons';
-import { productOf, productSafe, rupiah } from '../lib/products';
 import { useTheme, R } from '../lib/theme';
 import {
   useStore, adminBan, adminUnban, adminSetRole, adminVerify, adminBroadcast, adminEndAnnouncement, adminResolveReport,
@@ -16,10 +15,10 @@ import {
   isOnline, activeStories, messagePreview, backendMode, adminDecideAppeal, bannedNow, banRemaining, mutedRemaining,
   adminBanChat, adminUnbanChat, adminDecideChatAppeal, adminVerifyChat, adminUnverifyChat,
   adminSetMuteOff, adminMessageAll, adminBotBroadcast, chatBannedNow, chatBanRemaining, chatVerified, chatBadge,
-  updateAiProfile, adminDeleteChat, adminUpdateOrder, adminDeleteOrder, adminSetPayments, isOwnerDev,
+  updateAiProfile, adminDeleteChat, adminUpdateOrder, adminDeleteOrder, adminSetPayments, adminSetPricing, isOwnerDev,
   adminGrowFollowers, adminGrowReactions, followersCount, subscribeMessages,
 } from '../lib/store';
-import { apiProductOf } from '../lib/products';
+import { apiProductOf, productOf, productSafe, rupiah, rupiahShort, PRODUCTS, API_PRODUCTS, apiPriceOf, planPriceOf, productPlans, productsWithPrices, pricingKomisiPercent } from '../lib/products';
 import { useBackendHealth, healthLabel, supabaseStatus } from '../lib/health';
 import { firebase, firebaseConfig } from '../lib/firebase';
 import { proxyPost } from '../lib/proxy';
@@ -637,6 +636,193 @@ const BAN_DURATIONS: { label: string; ms: number }[] = [
   { label: 'Permanen', ms: 0 },
 ];
 
+// ============================================================================
+// MONITORING PENJUALAN (v25) — komisi, terjual, produk terpopuler, total duit.
+// Semua dihitung dari order 'paid' (db.orders) + % komisi dari config/pricing.
+// ============================================================================
+function SalesMonitoringPanel() {
+  const t = useTheme();
+  const { db } = useStore();
+  const komisi = pricingKomisiPercent();
+  const paid = useMemo(() => db.orders.filter((o) => o.status === 'paid' && o.id !== '_schema'), [db.orders]);
+  const pending = db.orders.filter((o) => o.status === 'pending' && o.id !== '_schema').length;
+  const omzet = paid.reduce((s, o) => s + (Number(o.price) || 0), 0);
+  const fee = Math.round((omzet * komisi) / 100);
+  const netto = omzet - fee;
+  const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
+  const todayPaid = paid.filter((o) => (o.createdAt ?? 0) >= dayStart.getTime());
+  const omzetToday = todayPaid.reduce((s, o) => s + (Number(o.price) || 0), 0);
+
+  // per produk: jumlah terjual + omzet
+  const perProduct = useMemo(() => {
+    const m = new Map<string, { n: number; total: number }>();
+    for (const o of paid) {
+      const k = String(o.product ?? '?');
+      const e = m.get(k) ?? { n: 0, total: 0 };
+      e.n += 1; e.total += Number(o.price) || 0;
+      m.set(k, e);
+    }
+    return [...m.entries()].map(([k, v]) => ({ key: k, ...v })).sort((a, b) => b.n - a.n || b.total - a.total);
+  }, [paid]);
+  const maxN = Math.max(1, ...perProduct.map((p) => p.n));
+  const titleOf = (k: string) => apiProductOf(k)?.title ?? productSafe(k).title;
+
+  const Cell = ({ label, value, color, icon }: { label: string; value: string; color: string; icon: React.ComponentProps<typeof Ionicons>['name'] }) => (
+    <Neu radius={R.lg} style={{ flexBasis: '47%', flexGrow: 1, padding: 14, gap: 6 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+        <Ionicons name={icon} size={15} color={color} />
+        <T v="caption" color={t.faint} numberOfLines={1}>{label}</T>
+      </View>
+      <T v="h3" style={{ fontSize: 18 }} color={color}>{value}</T>
+    </Neu>
+  );
+
+  return (
+    <Card title="Penjualan & komisi">
+      <View style={{ padding: 10, gap: 12 }}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+          <Cell label="Total duit masuk (lunas)" value={rupiahShort(omzet)} color={t.success} icon="wallet" />
+          <Cell label={`Komisi kamu (${komisi}%)`} value={rupiahShort(fee)} color="#FFB300" icon="trending-up" />
+          <Cell label="Total terjual" value={`${paid.length} order`} color={t.accent} icon="cart" />
+          <Cell label="Masuk hari ini" value={`${todayPaid.length} · ${rupiahShort(omzetToday)}`} color="#7B61FF" icon="today" />
+          <Cell label="Netto setelah komisi" value={rupiahShort(netto)} color="#14C47A" icon="cash" />
+          <Cell label="Menunggu konfirmasi" value={`${pending} order`} color={t.warning} icon="hourglass" />
+        </View>
+
+        {/* PRODUK TERPOPULER */}
+        <View style={{ gap: 8 }}>
+          <T v="caption" style={{ fontWeight: '900', color: t.sub }}>PRODUK TERPOPULER</T>
+          {perProduct.length === 0 && <T v="caption" color={t.faint}>Belum ada penjualan lunas.</T>}
+          {perProduct.slice(0, 8).map((p, i) => {
+            const ap = apiProductOf(p.key);
+            const color = ap?.color ?? '#7B61FF';
+            return (
+              <View key={p.key} style={{ gap: 4 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  {i === 0 && <Ionicons name="trophy" size={14} color="#FFB300" />}
+                  <T v="caption" style={{ fontWeight: '800', flex: 1 }} numberOfLines={1}>{titleOf(p.key)}</T>
+                  <T v="caption" color={t.sub} style={{ fontWeight: '700' }}>{p.n}x · {rupiahShort(p.total)}</T>
+                </View>
+                <View style={{ height: 6, borderRadius: 3, backgroundColor: t.bg2, overflow: 'hidden' } as any}>
+                  <View style={{ width: `${Math.round((p.n / maxN) * 100)}%`, height: 6, borderRadius: 3, backgroundColor: color } as any} />
+                </View>
+              </View>
+            );
+          })}
+        </View>
+        <T v="caption" color={t.faint}>Komisi dihitung otomatis dari persen di panel "Harga produk" — ubah di sana sesuai kesepakatan.</T>
+      </View>
+    </Card>
+  );
+}
+
+// ============================================================================
+// EDITOR HARGA PRODUK BERBAYAR (v25) — SEMUA harga bisa diubah dari sini:
+// VIP/Member/Centang Biru/Keamanan (per paket) + semua produk API (Cek Nomor,
+// Cek Resi, Netflix, AlightMotion, IP Tracker, Followers, Reaksi) + % komisi.
+// Tersimpan di config/pricing — semua layar user langsung ikut harga baru.
+// ============================================================================
+function PricingPanel() {
+  const t = useTheme();
+  const { db } = useStore();
+  // nilai form diinisialisasi dari harga efektif (default kode / override admin)
+  const [apiPrices, setApiPrices] = useState<Record<string, string>>({});
+  const [planPrices, setPlanPrices] = useState<Record<string, string[]>>({});
+  const [komisi, setKomisi] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    const nextApi: Record<string, string> = {};
+    for (const ap of API_PRODUCTS) nextApi[ap.key] = String(apiPriceOf(ap.key));
+    setApiPrices(nextApi);
+    const nextPlans: Record<string, string[]> = {};
+    for (const p of PRODUCTS) nextPlans[p.key] = productPlans(p.key).map((pl) => String(pl.price));
+    setPlanPrices(nextPlans);
+    setKomisi(String(pricingKomisiPercent()));
+  }, [db.pricing?.updatedAt]);
+
+  const save = async () => {
+    setBusy(true); setMsg('');
+    const api: Record<string, number> = {};
+    for (const [k, v] of Object.entries(apiPrices)) api[k] = Number(String(v).replace(/[^0-9]/g, '')) || 0;
+    const plans: Record<string, number[]> = {};
+    for (const [k, arr] of Object.entries(planPrices)) plans[k] = arr.map((v) => Number(String(v).replace(/[^0-9]/g, '')) || 0);
+    const r = await adminSetPricing({ api, plans, komisiPercent: Number(String(komisi).replace(/[^0-9]/g, '')) || 0 });
+    setBusy(false);
+    setMsg(r.ok ? 'Tersimpan — harga terbaru langsung dipakai semua pengguna.' : `Gagal: ${r.error ?? 'coba lagi.'}`);
+    if (r.ok) pushBanner({ title: 'Harga diperbarui', body: 'Semua layar otomatis memakai harga terbaru.', icon: 'pricetag' });
+  };
+
+  return (
+    <Card title="Harga produk (ubah semua di sini)">
+      <View style={{ padding: 10, gap: 14 }}>
+        <T v="caption" color={t.sub}>
+          Harga tersimpan di server (config/pricing) — berlaku real-time ke semua pengguna tanpa update aplikasi. Kosongkan/0 memakai harga bawaan.
+        </T>
+
+        {/* produk API */}
+        <View style={{ gap: 8 }}>
+          <T v="caption" style={{ fontWeight: '900', color: t.sub }}>PRODUK API (sekali bayar)</T>
+          {API_PRODUCTS.map((ap) => (
+            <View key={ap.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <T v="caption" style={{ fontWeight: '800' }} numberOfLines={1}>{ap.title}</T>
+                <T v="caption" color={t.faint} numberOfLines={1}>{ap.unit ? `${rupiahShort(ap.price)}/${ap.unit} ${ap.unitLabel ?? ''} (bawaan)` : `bawaan ${rupiahShort(ap.price)}`}</T>
+              </View>
+              <View style={{ width: 110 }}>
+                <NeuInput
+                  value={apiPrices[ap.key] ?? ''}
+                  onChangeText={(v: string) => setApiPrices((x) => ({ ...x, [ap.key]: v.replace(/[^0-9]/g, '') }))}
+                  keyboardType="number-pad"
+                  placeholder={String(ap.price)}
+                />
+              </View>
+            </View>
+          ))}
+        </View>
+
+        {/* paket langganan */}
+        <View style={{ gap: 8 }}>
+          <T v="caption" style={{ fontWeight: '900', color: t.sub }}>PAKET LANGGANAN (VIP & kawan-kawan)</T>
+          {PRODUCTS.map((p) => (
+            <View key={p.key} style={{ gap: 6 }}>
+              <T v="caption" style={{ fontWeight: '800' }}>{p.title}</T>
+              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                {productPlans(p.key).map((pl, i) => (
+                  <View key={pl.label} style={{ flexBasis: '47%', flexGrow: 1, gap: 3 }}>
+                    <T v="caption" color={t.faint} numberOfLines={1}>{pl.label} (bawaan {rupiahShort(pl.price)})</T>
+                    <NeuInput
+                      value={planPrices[p.key]?.[i] ?? ''}
+                      onChangeText={(v: string) => setPlanPrices((x) => { const arr = [...(x[p.key] ?? [])]; arr[i] = v.replace(/[^0-9]/g, ''); return { ...x, [p.key]: arr }; })}
+                      keyboardType="number-pad"
+                      placeholder={String(pl.price)}
+                    />
+                  </View>
+                ))}
+              </View>
+            </View>
+          ))}
+        </View>
+
+        {/* komisi */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={{ flex: 1 }}>
+            <T v="caption" style={{ fontWeight: '800' }}>Persen komisi (monitoring penjualan)</T>
+            <T v="caption" color={t.faint}>Dipakai menghitung komisi kamu dari total penjualan.</T>
+          </View>
+          <View style={{ width: 90 }}>
+            <NeuInput value={komisi} onChangeText={(v: string) => setKomisi(v.replace(/[^0-9]/g, ''))} keyboardType="number-pad" placeholder="10" />
+          </View>
+        </View>
+
+        <Btn variant="primary" icon="save" title="Simpan semua harga" loading={busy} onPress={() => void save()} />
+        {!!msg && <T v="caption" color={msg.startsWith('Gagal') ? t.danger : t.success} style={{ fontWeight: '800' }}>{msg}</T>}
+      </View>
+    </Card>
+  );
+}
+
 /** Monitoring backend: Firebase kesehatan + fallback Supabase + FCM (admin panel). */
 function MonitoringCard() {
   const t = useTheme();
@@ -1072,6 +1258,10 @@ export default function AdminScreen() {
 
         {tab === 'orders' && (
           <>
+            {/* v25: MONITORING PENJUALAN — komisi, terjual, terpopuler, total duit */}
+            <SalesMonitoringPanel />
+            {/* v25: EDITOR HARGA — semua produk berbayar bisa diubah dari sini */}
+            <PricingPanel />
             <PaymentsConfigPanel />
             {db.orders.length === 0 && <Empty icon="receipt-outline" title="Belum ada transaksi" body="Pesanan VIP, Member, Centang biru, Keamanan, Cek Nomor, Netflix & AlightMotion akan muncul di sini." />}
             {db.orders.map((o) => {

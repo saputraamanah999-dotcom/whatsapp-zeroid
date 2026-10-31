@@ -37,7 +37,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { AppNotification, Call, Chat, ChatAppeal, DB, LeaderRow, Message, ModOffense, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav, Ban, Appeal, AiProfile } from './types';
-import { productOf, productSafe, rupiah, PAYMENT_METHODS, apiProductOf, API_PRODUCTS } from './products';
+import { productOf, productSafe, rupiah, PAYMENT_METHODS, apiProductOf, API_PRODUCTS, applyPricingConfig, apiPriceOf, planPriceOf } from './products';
 import { vanzzDeliver } from './vanzz';
 import { applyStreak } from './streak';
 import { voMarkOpened } from './viewonce';
@@ -106,7 +106,7 @@ let deviceBan: DeviceBan | null = isWeb ? readDeviceBan() : null;
 
 const EMPTY: DB = {
   version: 2, users: {}, chats: {}, messages: {}, stories: [], calls: [], notifications: [],
-  reports: [], stickers: [], orders: [], announcements: [], audit: [], animeFavs: [], bans: [], appeals: [], config: null, aiProfile: null, payments: null,
+  reports: [], stickers: [], orders: [], announcements: [], audit: [], animeFavs: [], bans: [], appeals: [], config: null, aiProfile: null, payments: null, pricing: null,
   aiTyping: {},
 };
 
@@ -482,7 +482,7 @@ function attachUserSubs(fbUid: string) {
     const chats = { ...db.chats };
     s.docChanges().forEach((c) => {
       if (c.type === 'removed') delete chats[c.doc.id];
-      else chats[c.doc.id] = mapChat(c.doc.id, c.doc.data());
+      else chats[c.doc.id] = mapChat(c.doc.id, applyFollowPending(c.doc.id, c.doc.data()));
     });
     db.chats = chats; bump();
     checkFireDead();
@@ -495,7 +495,7 @@ function attachUserSubs(fbUid: string) {
   // public discovery: global chat + channels
   chatSubs.push(onSnapshot(query(collection(fb.db, C.chats), where('type', 'in', ['global', 'channel']), fsLimit(100)), (s) => {
     const chats = { ...db.chats };
-    s.docChanges().forEach((c) => { chats[c.doc.id] = mapChat(c.doc.id, c.doc.data()); });
+    s.docChanges().forEach((c) => { chats[c.doc.id] = mapChat(c.doc.id, applyFollowPending(c.doc.id, c.doc.data())); });
     db.chats = chats; bump();
     syncMessageSubs();
   }, (e) => console.warn('public chats sub', e)));
@@ -623,6 +623,14 @@ function attachUserSubs(fbUid: string) {
   // semua pengguna membaca untuk header chat AI, info chat, dan Discover.
   miscSubs.push(onSnapshot(doc(fb.db, C.config, 'ai_profile'), (s) => {
     db.aiProfile = s.exists() ? (rawDoc(s) as unknown as AiProfile) : null;
+    bump();
+  }, () => {}));
+  // HARGA PRODUK BERBAYAR (config/pricing) — diatur admin panel; semua layar
+  // otomatis memakai harga terbaru tanpa update aplikasi (VIP..produk baru).
+  miscSubs.push(onSnapshot(doc(fb.db, C.config, 'pricing'), (s) => {
+    const d = s.exists() ? (s.data() as any) : null;
+    db.pricing = d ?? null;
+    applyPricingConfig(d);
     bump();
   }, () => {}));
   // KONFIGURASI AI GUARD — dibaca SEMUA klien (rules: read user login) supaya
@@ -1795,12 +1803,37 @@ export function toggleChatFlag(chatId: string, flag: 'pinnedBy' | 'mutedBy' | 'a
   });
 }
 
+/**
+ * IKUTI / BERHENTI IKUTI SALURAN — v25:
+ *  · OPTIMISTIK: tombol berubah SEKETIKA (dulu nunggu snapshot → terasa
+ *    "gak real-time", kadang balik ke "Ikuti" padahal sudah mengikuti).
+ *  · GAGAL SERVER → state dikembalikan + banner alasan (dulu .catch(() => {})
+ *    diam-diam → user bingung kenapa tetap "Ikuti").
+ *  · PEMILIK saluran tidak boleh berhenti ikut salurannya sendiri (posisi
+ *    pemilik/admin hilang kalau keluar dari members).
+ */
 export function toggleFollow(chatId: string) {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb) return;
   const c = db.chats[chatId];
-  updateDoc(doc(fb.db, C.chats, chatId), { members: c?.members.includes(me.id) ? arrayRemove(me.id) : arrayUnion(me.id) }).catch(() => {});
+  if (!c) return;
+  const isMember = c.members.includes(me.id);
+  // PEMILIK: tidak boleh unfollow saluran sendiri — kunci "Mengikuti"
+  if (isMember && c.createdBy === me.id) {
+    pushBanner({ title: 'Kamu pemilik saluran ini', body: 'Pemilik selalu terhitung sebagai pengikut — tidak bisa berhenti ikut saluran sendiri.', icon: 'megaphone' });
+    return;
+  }
+  const next = isMember ? c.members.filter((x) => x !== me.id) : [...c.members, me.id];
+  // 1) tampilkan dulu di layar (real-time terasa instan)
+  db.chats = { ...db.chats, [chatId]: { ...c, members: next } };
+  bump();
+  // 2) tulis ke server; gagal → kembalikan + beri tahu alasannya
+  updateDoc(doc(fb.db, C.chats, chatId), { members: isMember ? arrayRemove(me.id) : arrayUnion(me.id) }).catch((e) => {
+    db.chats = { ...db.chats, [chatId]: c };
+    bump();
+    pushBanner({ title: isMember ? 'Gagal berhenti ikuti' : 'Gagal mengikuti', body: fbError(e), icon: 'alert' });
+  });
 }
 
 export function setPostPolicy(chatId: string, policy: 'everyone' | 'admins') {
@@ -3576,15 +3609,18 @@ export function planActive(k: ProductKey, u?: User | null): boolean {
   return false;
 }
 
-export type OrderMeta = { nomor?: string; email?: string; urlVerify?: string; resi?: string; ekspedisi?: string; channel?: string; amount?: number; emoji?: string };
+export type OrderMeta = { nomor?: string; email?: string; urlVerify?: string; resi?: string; ekspedisi?: string; channel?: string; amount?: number; emoji?: string; messageId?: string; ip?: string };
 export function createOrder(product: ProductKey, planIdx: number, methodKey: string, forChat?: { id: string; name?: string }, priceOverride?: number, voucherCode?: string, meta?: OrderMeta | null): { orderId: string; chatId: string } | { error: string } | null {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb) return null;
-  // PRODUK API BERBAYAR (Cek Nomor / Netflix / AM): harga tetap, tanpa pakai plan.
+  // PRODUK API BERBAYAR (Cek Nomor / Netflix / AM / IP Tracker): harga ikut
+  // aturan admin (config/pricing) — dulu harga beku di kode, tak bisa diubah.
   const ap = apiProductOf(product);
-  const p = ap ? ({ ...ap, plans: [{ label: 'Sekali bayar', days: 0, price: ap.price }] } as any) : productOf(product);
+  const apPrice = ap ? (ap.unit ? undefined : apiPriceOf(product)) : undefined;
+  const p = ap ? ({ ...ap, plans: [{ label: 'Sekali bayar', days: 0, price: apPrice ?? 0 }] } as any) : productOf(product);
   const plan = p.plans[planIdx] ?? p.plans[0];
+  if (ap && !ap.unit) plan.price = apiPriceOf(product);
   // produk API: meta wajib sesuai fields
   if (ap) {
     for (const f of ap.fields) {
@@ -3601,6 +3637,7 @@ export function createOrder(product: ProductKey, planIdx: number, methodKey: str
       }
       if (f.key === 'resi' && v.length < 5) return { error: 'Nomor resi tidak valid.' };
       if (f.key === 'ekspedisi' && v.length < 2) return { error: 'Nama ekspedisi wajib diisi.' };
+      if (f.key === 'ip' && !/^[0-9a-fA-F.:%]{3,45}$/.test(v)) return { error: 'Alamat IP tidak valid (contoh: 114.10.40.10).' };
     }
   }
   // 1) sudah aktif → jangan beli lagi sampai masa habis
@@ -3644,8 +3681,10 @@ export function createOrder(product: ProductKey, planIdx: number, methodKey: str
             resi: String(meta?.resi ?? '').slice(0, 60),
             ekspedisi: String(meta?.ekspedisi ?? '').slice(0, 40),
             channel: String(meta?.channel ?? '').slice(0, 80),
+            ip: String(meta?.ip ?? '').slice(0, 64),
             ...(meta?.amount ? { amount: Math.max(1, Math.round(Number(meta.amount))) } : {}),
             ...(meta?.emoji ? { emoji: String(meta.emoji).slice(0, 8) } : {}),
+            ...(meta?.messageId ? { messageId: String(meta.messageId).slice(0, 80) } : {}),
           },
           delivered: false,
         }
@@ -3779,6 +3818,35 @@ export async function adminSetPayments(cfg: { danaNumber?: string; danaName?: st
   } catch (e: any) {
     pushBanner({ title: 'Gagal simpan', body: fbError(e), icon: 'alert' });
     return { ok: false };
+  }
+}
+
+/**
+ * HARGA PRODUK BERBAYAR (config/pricing) — admin panel bisa mengubah harga
+ * SEMUA produk: VIP, Member, Centang Biru, Keamanan (per paket) dan semua
+ * produk API (Cek Nomor, Cek Resi, Netflix, AM, IP Tracker, Followers, Reaksi)
+ * + persen komisi untuk monitoring penjualan.
+ */
+export async function adminSetPricing(cfg: { api: Record<string, number>; plans: Record<string, number[]>; komisiPercent: number }): Promise<{ ok: boolean; error?: string }> {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFullAdmin(me)) return { ok: false, error: 'Hanya admin.' };
+  const api: Record<string, number> = {};
+  for (const [k, v] of Object.entries(cfg.api ?? {})) {
+    const n = Math.max(0, Math.round(Number(v) || 0));
+    api[k] = n;
+  }
+  const plans: Record<string, number[]> = {};
+  for (const [k, arr] of Object.entries(cfg.plans ?? {})) {
+    plans[k] = (Array.isArray(arr) ? arr : []).map((v) => Math.max(0, Math.round(Number(v) || 0)));
+  }
+  const komisiPercent = Math.max(0, Math.min(90, Math.round(Number(cfg.komisiPercent) || 0)));
+  try {
+    await setDoc(doc(fb.db, C.config, 'pricing'), { api, plans, komisiPercent, updatedAt: Date.now() }, { merge: true });
+    audit('pricing_config', undefined, `komisi ${komisiPercent}% · ${Object.keys(api).length} produk API`);
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: fbError(e) };
   }
 }
 

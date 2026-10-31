@@ -109,15 +109,20 @@ type CuacaData = {
 function CuacaView({ data }: { data: CuacaData }) {
   const t = useTheme();
   const c = data.current;
+  // v25 RESPONSIF — dulu lebar kolom tetap (84+20+44+62) bikin baris 7 hari
+  // MELEWATI layar HP (bar suhu sampai hilang). Sekarang mengikuti lebar layar:
+  // HP sempit → kolom diringkas, bar suhu mengecil/menyusut, teks tak terpotong.
+  const win = useWindowDimensions();
+  const narrow = win.width < 430;
   const rainToday = data.daily[0]?.rainProb ?? 0;
   const rainDay = data.daily.find((d) => d.rainProb >= 60); // hari hujan pertama minggu ini
   const DetailChip = ({ icon, label, value, color }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; color: string }) => (
     <View style={{ flexBasis: '47%', flexGrow: 1, padding: 10, borderRadius: R.md, backgroundColor: t.bg, gap: 4 } as any}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
         <Ionicons name={icon} size={13} color={color} />
-        <T v="caption" color={t.faint}>{label}</T>
+        <T v="caption" color={t.faint} numberOfLines={1}>{label}</T>
       </View>
-      <T v="caption" style={{ fontWeight: '900' }}>{value}</T>
+      <T v="caption" style={{ fontWeight: '900' }} numberOfLines={1}>{value}</T>
     </View>
   );
   return (
@@ -125,10 +130,10 @@ function CuacaView({ data }: { data: CuacaData }) {
       {/* HERO sekarang */}
       <Neu radius={R.xl} style={{ padding: 18, gap: 14 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <Ionicons name={ICON_OF[c.icon] ?? 'partly-sunny'} size={52} color="#FFB300" />
-          <View style={{ flex: 1, minWidth: 130 }}>
-            <T style={{ fontWeight: '900', fontSize: 30, lineHeight: 34 }}>{c.temp}°C</T>
-            <T v="sub" color={t.sub} style={{ fontWeight: '700' }}>{c.desc}</T>
+          <Ionicons name={ICON_OF[c.icon] ?? 'partly-sunny'} size={narrow ? 44 : 52} color="#FFB300" />
+          <View style={{ flex: 1, minWidth: 120 }}>
+            <T style={{ fontWeight: '900', fontSize: narrow ? 26 : 30, lineHeight: narrow ? 30 : 34 }}>{c.temp}°C</T>
+            <T v="sub" color={t.sub} style={{ fontWeight: '700' }} numberOfLines={1}>{c.desc}</T>
             <T v="caption" color={t.faint} numberOfLines={1}>{data.place}{data.region ? ` · ${data.region}` : ''}</T>
           </View>
           <View style={{ alignItems: 'flex-end', gap: 2 }}>
@@ -146,7 +151,7 @@ function CuacaView({ data }: { data: CuacaData }) {
         </View>
       </Neu>
 
-      {/* PRAKIRAAN 7 HARI — Senin s/d Minggu lengkap */}
+      {/* PRAKIRAAN 7 HARI — Senin s/d Minggu lengkap (lebar menyesuaikan HP) */}
       <Neu radius={R.xl} style={{ padding: 16, gap: 6 }}>
         <T v="h3" style={{ fontSize: 15 }}>Prakiraan 7 hari</T>
         {data.daily.map((d, i) => {
@@ -155,25 +160,28 @@ function CuacaView({ data }: { data: CuacaData }) {
           const widthPct = ((d.tmax - d.tmin) / range) * 100;
           const wet = d.rainProb >= 60;
           return (
-            <View key={d.date} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 7, borderBottomWidth: i < data.daily.length - 1 ? 1 : 0, borderBottomColor: t.border }}>
-              <View style={{ width: 84 }}>
-                <T v="caption" style={{ fontWeight: '900' }}>{i === 0 ? 'Hari ini' : hariDari(d.date)}</T>
+            <View key={d.date} style={{ flexDirection: 'row', alignItems: 'center', gap: narrow ? 7 : 10, paddingVertical: 7, borderBottomWidth: i < data.daily.length - 1 ? 1 : 0, borderBottomColor: t.border }}>
+              <View style={{ width: narrow ? 56 : 84 }}>
+                <T v="caption" style={{ fontWeight: '900' }} numberOfLines={1}>{i === 0 ? 'Hari ini' : hariDari(d.date)}</T>
                 <T v="caption" color={t.faint}>{tglPendek(d.date)}</T>
               </View>
-              <Ionicons name={ICON_OF[d.icon] ?? 'cloud'} size={20} color={d.icon === 'sunny' ? '#FFB300' : d.icon === 'rainy' || d.icon === 'thunderstorm' ? '#1E9BFF' : t.sub} />
-              <View style={{ width: 44, alignItems: 'flex-end' }}>
+              <Ionicons name={ICON_OF[d.icon] ?? 'cloud'} size={18} color={d.icon === 'sunny' ? '#FFB300' : d.icon === 'rainy' || d.icon === 'thunderstorm' ? '#1E9BFF' : t.sub} />
+              <View style={{ width: 40, alignItems: 'flex-end' }}>
                 <T v="caption" style={{ fontWeight: '800' }}>{d.tmax}°</T>
                 <T v="caption" color={t.faint}>{d.tmin}°</T>
               </View>
-              <View style={{ flex: 1, height: 5, borderRadius: 3, backgroundColor: t.bg2, overflow: 'hidden', marginHorizontal: 4 }}>
-                <View style={{ position: 'absolute', left: `${left}%`, width: `${Math.max(8, widthPct)}%`, height: 5, borderRadius: 3, backgroundColor: '#FF8A00' } as any} />
-              </View>
-              <View style={{ width: 62, alignItems: 'flex-end' }}>
+              {!narrow && (
+                <View style={{ flex: 1, height: 5, borderRadius: 3, backgroundColor: t.bg2, overflow: 'hidden', marginHorizontal: 4 }}>
+                  <View style={{ position: 'absolute', left: `${left}%`, width: `${Math.max(8, widthPct)}%`, height: 5, borderRadius: 3, backgroundColor: '#FF8A00' } as any} />
+                </View>
+              )}
+              {narrow && <View style={{ flex: 1 }} />}
+              <View style={{ width: narrow ? 52 : 62, alignItems: 'flex-end' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
                   <Ionicons name="rainy" size={11} color={wet ? '#1E9BFF' : t.faint} />
                   <T v="caption" color={wet ? '#1E9BFF' : t.faint} style={{ fontWeight: '800' }}>{d.rainProb}%</T>
                 </View>
-                <T v="caption" color={t.faint}>{d.rainMm} mm</T>
+                <T v="caption" color={t.faint} numberOfLines={1}>{d.rainMm} mm</T>
               </View>
             </View>
           );
@@ -404,20 +412,36 @@ export function FreeMenuScreen() {
         arr = Array.isArray(d) ? d : findArr(d);
         // quotes Vanzz balas string tunggal → bungkus jadi 1 kartu
         if (!arr?.length && typeof d?.result === 'string' && d.result.trim()) arr = [d.result];
-        const imgOf = (it: any) => {
-          for (const k of ['image', 'thumbnail', 'thumb', 'img', 'poster', 'url_thumbnail', 'thumbSrc', 'cover']) {
+        // v25: buang SISA HTML dari sumber (dulu teks mentah `href="https://…`
+        // ikut tampil di bawah judul berita — jelek banget) + ambil URL gambar
+        // yang tersembunyi di dalam HTML/description.
+        const stripHtml = (s: any): string =>
+          String(s ?? '')
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/&nbsp;|&#160;/gi, ' ')
+            .replace(/&amp;/gi, '&').replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'").replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const firstImgIn = (s: any): string | undefined => {
+          const m = String(s ?? '').match(/https?:\/\/[^\s"'<>]+?\.(?:jpe?g|png|webp|gif)(?:\?[^\s"'<>]*)?/i);
+          return m ? m[0] : undefined;
+        };
+        const imgOf = (it: any): string | undefined => {
+          for (const k of ['image', 'thumbnail', 'thumb', 'img', 'poster', 'url_thumbnail', 'thumbSrc', 'cover', 'urlToImage']) {
             const v = it?.[k];
             if (typeof v === 'string' && /^https?:\/\//.test(v)) return v;
+            if (v && typeof v === 'object' && typeof v.url === 'string' && /^https?:\/\//.test(v.url)) return v.url;
           }
-          return undefined;
+          // gambar kadang cuma ada di dalam description/snippet berbentuk HTML
+          return firstImgIn(it?.description) ?? firstImgIn(it?.snippet) ?? firstImgIn(it?.content) ?? firstImgIn(it?.desc);
         };
         const norm = (it: any) => (typeof it === 'string' ? { title: it } : {
           id: it.id ?? it.id_movie ?? undefined,
-          title: it.title ?? it.name ?? it.judul ?? it.anime ?? it.quote ?? it.quotes ?? it.nama ?? it.Wilayah ?? '(tanpa judul)',
-          subtitle: it.author ?? it.episode ?? it.artis ?? it.channel ?? it.uploaded ?? it.date ?? it.time ?? it.waktu,
+          title: stripHtml(it.title ?? it.name ?? it.judul ?? it.anime ?? it.quote ?? it.quotes ?? it.nama ?? it.Wilayah) || '(tanpa judul)',
+          subtitle: stripHtml(it.author ?? it.episode ?? it.artis ?? it.channel ?? it.uploaded ?? it.date ?? it.time ?? it.waktu),
           image: imgOf(it),
           url: it.url ?? it.link ?? it.href ?? it.watch,
-          snippet: it.desc ?? it.snippet ?? it.description ?? it.synopsis,
+          snippet: stripHtml(it.desc ?? it.snippet ?? it.description ?? it.synopsis),
           extra: it.duration ?? it.views ?? it.size,
         });
         setObj(null);

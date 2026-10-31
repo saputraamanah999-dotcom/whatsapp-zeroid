@@ -38,7 +38,7 @@ import {
 import { spendKoin } from '../lib/points';
 import { attachOrderProof, adminUpdateOrder } from '../lib/store';
 import { getVoucher, voucherUsable, redeemVoucher, priceWithDiscount, Voucher } from '../lib/vouchers';
-import { PRODUCTS, PAYMENT_METHODS, rupiah, rupiahShort, productOf, productSafe, API_PRODUCTS, apiProductOf, unitPriceOf } from '../lib/products';
+import { PRODUCTS, PAYMENT_METHODS, rupiah, rupiahShort, productOf, productSafe, API_PRODUCTS, apiProductOf, unitPriceOf, apiPriceOf, productPlans, planPriceOf, productsWithPrices } from '../lib/products';
 import { vanzzQris, vanzzCall } from '../lib/vanzz';
 import { resolveMedia } from '../lib/spotify';
 import { pickGallery, uploadMedia, pickVideo, uploadMediaDirect } from '../lib/media';
@@ -387,6 +387,28 @@ function ResultCard({ order, title, color, icon }: { order: any; title: string; 
       ['Kondisi', bl.status],
     ];
     sub = bl.description ?? '';
+  } else if (order.product === 'iptracker') {
+    // bentuk fallback server: { result: { ip, type, location:{country,region,city,postal,coordinates},
+    //   network:{isp,org,asn,domain}, timezone:{id,utc}, flags:{proxy,tor,relay} } }
+    const loc = p.location && typeof p.location === 'object' ? p.location : {};
+    const net = p.network && typeof p.network === 'object' ? p.network : {};
+    const tz = p.timezone && typeof p.timezone === 'object' ? p.timezone : {};
+    const fl = p.flags && typeof p.flags === 'object' ? p.flags : {};
+    headline = String(p.ip ?? order?.meta?.ip ?? 'IP terlacak');
+    rows = [
+      ['Negara', loc.country],
+      ['Wilayah', loc.region],
+      ['Kota', loc.city],
+      ['Kode pos', loc.postal],
+      ['Koordinat', loc.coordinates],
+      ['ISP', net.isp],
+      ['Organisasi', net.org],
+      ['ASN', net.asn],
+      ['Zona waktu', [tz.id, tz.utc].filter(Boolean).join(' · ')],
+      ['Tipe IP', p.type],
+      ['Indikasi proxy', fl.proxy === true ? 'Ya' : fl.proxy === false ? 'Tidak' : ''],
+    ];
+    sub = String(p?.meta?.note ?? '');
   } else if (order.product === 'cekresi') {
     // bentuk nyata: { result: { message, data: { resi, ekspedisi, status,
     //   tanggalKirim, lastPosition, history:[{tanggal,keterangan}] } } }
@@ -446,19 +468,26 @@ function ResultCard({ order, title, color, icon }: { order: any; title: string; 
           <ResRow key={`${k}${i}`} label={k} value={v.length > 160 ? v.slice(0, 160) + '…' : v} />
         ))}
       </View>
-      {/* token panjang (Netflix dkk) — blok monospace + tombol SALIN (SVG), anti lewat tepi */}
+      {/* token panjang (Netflix dkk) — blok monospace 4 baris (anti lewat tepi)
+          + tombol SALIN BESAR terpisah DI BAWAHNYA (dulu cuma teks kecil "Salin"
+          di ujung kanan blok — gampang banget kelewat, keluhan user v25). */}
       {(() => {
         const d = p.data && typeof p.data === 'object' ? p.data : p;
         const tok = pickAny(d, ['token', 'access_token', 'key']) || pickAny(r, ['token', 'access_token', 'key']);
         return tok ? (
-          <Pressable
-            onPress={async () => { try { await (await import('expo-clipboard')).setStringAsync(tok); pushBanner({ title: 'Token disalin', body: 'Tempel saat login.', icon: 'copy' }); } catch {} }}
-            style={{ padding: 10, borderRadius: R.md, backgroundColor: t.bg2, flexDirection: 'row', alignItems: 'center', gap: 8 } as any}
-          >
-            <T v="caption" style={{ flex: 1, fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }} numberOfLines={2}>{tok}</T>
-            <Ionicons name="copy" size={16} color={t.accent} />
-            <T v="caption" color={t.accent} style={{ fontWeight: '800' }}>Salin</T>
-          </Pressable>
+          <View style={{ gap: 8 }}>
+            <View style={{ padding: 12, borderRadius: R.md, backgroundColor: t.bg2, borderWidth: 1, borderColor: t.border } as any}>
+              <T v="caption" color={t.faint} style={{ fontWeight: '800', marginBottom: 4 }}>TOKEN AKUN</T>
+              <T v="caption" style={{ fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }} selectable>{tok}</T>
+            </View>
+            <Btn
+              small
+              variant="primary"
+              icon="copy"
+              title="Salin token"
+              onPress={async () => { try { await (await import('expo-clipboard')).setStringAsync(tok); pushBanner({ title: 'Token disalin', body: 'Tempel saat login Netflix.', icon: 'copy' }); } catch {} }}
+            />
+          </View>
         ) : null;
       })()}
       {/* Netflix: tombol buka langsung + URL verifikasi AlightMotion */}
@@ -503,17 +532,17 @@ function d0(r: any): any { return r?.data && typeof r.data === 'object' ? r.data
 
 // ---------------- KARTU TUMBUH SALURAN (followers & reaksi) ----------------
 /**
- * v24 — pengganti form generik utk produk followers/reaksi sesuai permintaan:
- *  · pilih saluran BENERAN dari daftar (nama + foto profil + jumlah pengikut ringkas)
- *  · pilih mau diisi PENGIKUT atau REAKSI (toggle)
- *  · kalau reaksi → pilih pesan yang mana (radio daftar pesan saluran, default terakhir)
- *  · harga ditulis PENDEK (Rp3rb/5 · Rp5rb/10) + total ringkas, anti teks kepanjangan
+ * v25 — DUA KARTU TERPISAH sesuai klarifikasi user: yang ATAS "Followers Saluran",
+ * yang BAWAH "Reaksi Saluran" (dulu satu kartu dengan toggle → salah paham).
+ * Isi kartu: pilih saluran beneran (nama + foto profil + jumlah pengikut ringkas),
+ * kalau reaksi → RADIO pilih pesan yang mana (default pesan terakhir), harga
+ * PENDEK (Rp3rb/5) yang ikut harga terbaru dari admin (config/pricing).
  */
-function BoostCard({ onBuy }: { onBuy: (product: ProductKey, meta: Record<string, string>) => void }) {
+function BoostCard({ lockedMode, onBuy }: { lockedMode: 'followers' | 'reaction'; onBuy: (product: ProductKey, meta: Record<string, string>) => void }) {
   const t = useTheme();
   const { db } = useStore();
   const channels = useMemo(() => Object.values(db.chats).filter((c) => c.type === 'channel' && c.id !== '_schema'), [db.chats]);
-  const [mode, setMode] = useState<'followers' | 'reaction'>('followers');
+  const mode = lockedMode;
   const [chatId, setChatId] = useState<string>('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [amount, setAmount] = useState('100');
@@ -524,6 +553,8 @@ function BoostCard({ onBuy }: { onBuy: (product: ProductKey, meta: Record<string
   const ap = apiProductOf(mode)!;
   const amountNum = Math.max(0, Number((amount || '').replace(/[^0-9]/g, '')) || 0);
   const min = mode === 'followers' ? 5 : 10;
+  const perUnit = apiPriceOf(mode); // harga per kelipatan — ikut aturan admin
+  const unit = ap.unit ?? 5;
   const total = unitPriceOf(mode, amountNum || min);
 
   // muat pesan saluran utk pemilih reaksi (channel publik → boleh dibaca)
@@ -557,18 +588,11 @@ function BoostCard({ onBuy }: { onBuy: (product: ProductKey, meta: Record<string
           <T v="h3" style={{ fontSize: 15 }}>{mode === 'followers' ? 'Followers Saluran' : 'Reaksi Saluran'}</T>
           <T v="caption" color={t.sub}>{mode === 'followers' ? 'Tambah pengikut saluran pilihanmu' : 'Reaksi ke pesan saluran pilihanmu'}</T>
         </View>
-        {/* HARGA PENDEK — dulu "Rp3.000 / 5 followers" sampai kebawah */}
+        {/* HARGA PENDEK + ikut harga admin terbaru */}
         <T v="h3" style={{ fontSize: 14 }} color={mode === 'followers' ? '#1E9BFF' : '#FF5A8A'}>
-          {mode === 'followers' ? 'Rp3rb/5' : 'Rp5rb/10'}
+          {`${rupiahShort(perUnit)}/${unit}`}
         </T>
       </View>
-
-      {/* toggle pengikut / reaksi */}
-      <Segmented
-        value={mode}
-        onChange={(v: 'followers' | 'reaction') => setMode(v)}
-        options={[{ value: 'followers', label: 'Pengikut' }, { value: 'reaction', label: 'Reaksi' }] as any}
-      />
 
       {/* PEMILIH SALURAN: nama + foto profil + pengikut */}
       <Pressable onPress={() => setPickerOpen(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: R.md, backgroundColor: t.bg }}>
@@ -716,7 +740,7 @@ export function PremiumScreen() {
       const raw = String(meta?.amount ?? apiMeta[`${k}.amount`] ?? '').replace(/[^0-9]/g, '');
       return unitPriceOf(k, Number(raw || ap.minAmount || ap.unit));
     }
-    return ap?.price ?? productSafe(k).plans[plan]?.price ?? 0;
+    return ap ? apiPriceOf(k) : planPriceOf(k, plan) ?? productSafe(k).plans[plan]?.price ?? 0;
   };
   const priceOf = (k: ProductKey, plan: number, meta?: Record<string, string> | null) => (voucher ? priceWithDiscount(basePrice(k, plan, meta), voucher.percent) : basePrice(k, plan, meta));
   const pay = db.payments;
@@ -736,8 +760,7 @@ export function PremiumScreen() {
   };
 
   const buyWithVoucher = async (product: ProductKey, plan: number, method: string) => {
-    const p = productOf(product);
-    const original = p.plans[plan].price;
+    const original = planPriceOf(product, plan); // harga ikut aturan admin
     // v19 AUDIT (anti hangus): order DIBUAT DULU dengan harga diskon + kode
     // voucher tercatat; voucher BARU ditukarkan SETELAH order sukses. Kalau
     // order gagal → kuota voucher tidak hangus; kalau penukaran kalah race →
@@ -935,7 +958,7 @@ export function PremiumScreen() {
             </View>
           </View>
         </Neu>
-        {PRODUCTS.map((p) => (
+        {productsWithPrices().map((p) => (
           <Neu key={p.key} radius={R.xl} style={{ padding: 18, gap: 12 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <View style={{ width: 48, height: 48, borderRadius: 16, backgroundColor: p.color + '22', alignItems: 'center', justifyContent: 'center' }}>
@@ -993,19 +1016,28 @@ export function PremiumScreen() {
         <Card title="Fitur berbayar (hasil otomatis)">
           {API_PRODUCTS.map((ap) => {
             const amountStr = apiMeta[`${ap.key}.amount`] ?? '';
-            const shownPrice = ap.unit ? unitPriceOf(ap.key, Number((amountStr.replace(/[^0-9]/g, '')) || ap.minAmount || ap.unit)) : ap.price;
+            const shownPrice = ap.unit ? unitPriceOf(ap.key, Number((amountStr.replace(/[^0-9]/g, '')) || ap.minAmount || ap.unit)) : apiPriceOf(ap.key);
             // FOLLOWERS & REAKSI → satu kartu khusus (pilih saluran asli + foto profil +
             // jumlah pengikut + pesan reaksi). Harga pendek, tanpa form jelek.
             // Toggle Pengikut/Reaksi ada di dalam kartu — cukup dirender SEKALI.
             if (ap.key === 'followers') {
               return (
                 <BoostCard
-                  key="boost"
+                  key="boost-followers"
+                  lockedMode="followers"
                   onBuy={(product, meta) => openBuy(product, 0, meta)}
                 />
               );
             }
-            if (ap.key === 'reaction') return null;
+            if (ap.key === 'reaction') {
+              return (
+                <BoostCard
+                  key="boost-reaction"
+                  lockedMode="reaction"
+                  onBuy={(product, meta) => openBuy(product, 0, meta)}
+                />
+              );
+            }
             return (
             <Neu key={ap.key} inset radius={R.lg} style={{ padding: 14, marginTop: 10, gap: 10 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -1022,10 +1054,10 @@ export function PremiumScreen() {
               {ap.fields.map((f) => (
                 <NeuInput
                   key={f.key}
-                  icon={f.key === 'nomor' ? 'call' : f.key === 'email' ? 'mail' : f.key === 'resi' ? 'cube' : f.key === 'ekspedisi' ? 'car' : f.key === 'channel' ? 'megaphone' : 'heart'}
+                  icon={f.key === 'nomor' ? 'call' : f.key === 'email' ? 'mail' : f.key === 'resi' ? 'cube' : f.key === 'ekspedisi' ? 'car' : f.key === 'channel' ? 'megaphone' : f.key === 'ip' ? 'locate' : 'heart'}
                   placeholder={f.placeholder}
                   value={apiMeta[`${ap.key}.${f.key}`] ?? ''}
-                  onChangeText={(v: string) => setApiMeta((x) => ({ ...x, [`${ap.key}.${f.key}`]: f.key === 'nomor' ? v.replace(/[^0-9+]/g, '').slice(0, 16) : f.key === 'amount' ? v.replace(/[^0-9]/g, '').slice(0, 8) : f.key === 'resi' ? v.trim().slice(0, 60) : f.key === 'ekspedisi' ? v.slice(0, 40) : v.slice(0, 120) }))}
+                  onChangeText={(v: string) => setApiMeta((x) => ({ ...x, [`${ap.key}.${f.key}`]: f.key === 'nomor' ? v.replace(/[^0-9+]/g, '').slice(0, 16) : f.key === 'amount' ? v.replace(/[^0-9]/g, '').slice(0, 8) : f.key === 'resi' ? v.trim().slice(0, 60) : f.key === 'ekspedisi' ? v.slice(0, 40) : f.key === 'ip' ? v.trim().slice(0, 64) : v.slice(0, 120) }))}
                   keyboardType={f.key === 'nomor' || f.key === 'amount' ? 'number-pad' : 'default'}
                   autoCapitalize="none"
                 />
@@ -1050,7 +1082,7 @@ export function PremiumScreen() {
         {myOrders.length > 0 && (
           <Card title="Riwayat pesanan">
             {myOrders.filter((o) => o.id !== '_schema').map((o) => {
-            const po = apiProductOf(o.product) ? ({ ...apiProductOf(o.product)!, icon: o.product === 'cekresi' ? 'cube' : o.product === 'followers' ? 'people' : o.product === 'reaction' ? 'heart' : 'receipt' } as any) : productSafe(o.product);
+            const po = apiProductOf(o.product) ? ({ ...apiProductOf(o.product)!, icon: o.product === 'cekresi' ? 'cube' : o.product === 'followers' ? 'people' : o.product === 'reaction' ? 'heart' : o.product === 'iptracker' ? 'locate' : 'receipt' } as any) : productSafe(o.product);
             const ro = resultObj(o);
             const ampWaitVerify = (o.product === 'amp' || o.product === 'amunlock') && o.status === 'paid' && o.delivered && !(ro?.verifyDone === true || String(ro?.status ?? '') === 'success' || !!ro?.premium);
             return (

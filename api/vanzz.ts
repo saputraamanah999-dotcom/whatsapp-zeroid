@@ -94,6 +94,10 @@ const PAID: Record<string, Ep> = {
   netflix: { path: '/vsunseeV8/netflix/token' },
   amp: { path: '/vsunseeV8/alightmotion/send-link', params: ['email'], timeout: 45000 },
   amunlock: { path: '/vsunseeV8/alightmotion/unlockVip', params: ['email', 'urlVerify'], timeout: 45000 },
+  // IP TRACKER — lacak lokasi/ISP dari alamat IP. Kalau upstream Vanzz gagal
+  // (flaky 404 terbukti), server fallback ke ipwho.is (gratis, tanpa kunci)
+  // supaya fitur TETAP menghasilkan data nyata, bukan error.
+  iptracker: { path: '/vsunseeV8/iptracker/check', params: ['query', 'ip'] },
 };
 
 const ALL = { ...FREE, ...PAID };
@@ -369,6 +373,76 @@ async function beritaRss(feed: string): Promise<{ data?: any; error?: string }> 
   }
 }
 
+// ---------------------------------------------------------------------------
+// CEK NOMOR FALLBACK — upstream Vanzz nomor/check kadang 404/503 sesaat
+// (terbukti live). Cadangan server: deteksi OPERATOR dari prefiks resmi Indonesia
+// (data statis Telkomsel/Indosat/XL/Tri/Smartfren/By.U) + validasi panjang nomor.
+// Data seperti masa aktif kartu / kuota hanya bisa dari upstream — saat fallback
+// ditandai jujur sebagai "tidak tersedia" (tidak mengarang data).
+// ---------------------------------------------------------------------------
+const PREFIX_OPERATORS: [string, string][] = [
+  ['62811', 'Telkomsel (kartuHALO)'], ['62812', 'Telkomsel'], ['62813', 'Telkomsel'],
+  ['62821', 'Telkomsel'], ['62822', 'Telkomsel'], ['62823', 'Telkomsel (As)'],
+  ['62851', 'Telkomsel (by.U / Kartu As)'], ['62852', 'Telkomsel (As)'], ['62853', 'Telkomsel (As)'],
+  ['62814', 'Indosat (Matrix)'], ['62815', 'Indosat (IM3)'], ['62816', 'Indosat (IM3)'],
+  ['62855', 'Indosat (IM3)'], ['62856', 'Indosat (IM3)'], ['62857', 'Indosat (IM3)'], ['62858', 'Indosat (IM3)'],
+  ['62817', 'XL Axiata'], ['62818', 'XL Axiata'], ['62819', 'XL Axiata'],
+  ['62859', 'XL Axiata'], ['62877', 'XL Axiata'], ['62878', 'XL Axiata'],
+  ['62831', 'Tri (3)'], ['62832', 'Tri (3)'], ['62833', 'Tri (3)'], ['62838', 'Tri (3)'],
+  ['62881', 'Smartfren'], ['62882', 'Smartfren'], ['62883', 'Smartfren'],
+  ['62888', 'Smartfren (Smart)'], ['62889', 'Smartfren (Smart)'],
+  ['62895', 'Telkomsel (by.U / SimPATI)'], ['62896', 'Telkomsel'], ['62897', 'Telkomsel'], ['62898', 'Telkomsel'], ['62899', 'Telkomsel'],
+];
+function nomorFallback(nomor: string): any {
+  const digits = String(nomor ?? '').replace(/[^0-9+]/g, '');
+  let e164 = digits.replace(/^\+/, '');
+  if (e164.startsWith('0')) e164 = '62' + e164.slice(1);
+  const hit = PREFIX_OPERATORS.find(([p]) => e164.startsWith(p));
+  const valid = /^62[0-9]{8,12}$/.test(e164);
+  return {
+    status: true,
+    result: {
+      phone: '+' + e164,
+      input: nomor,
+      operator: { name: hit ? hit[1] : valid ? 'Operator tidak dikenal' : 'Nomor tidak valid', prefix4: e164.slice(2, 6) },
+      region: { country: 'Indonesia', network: 'Seluler (GSM)' },
+      validity: { status: valid ? 'Format nomor valid' : 'Format nomor TIDAK valid', expiredAt: 'tidak tersedia saat ini' },
+      quota: { estimate: 'tidak tersedia saat ini' },
+      block: { status: 'tidak diketahui saat ini', description: 'Layanan pelacakan penuh sedang sibuk — data operator di atas dihitung dari prefiks resmi operator Indonesia.' },
+      meta: { note: 'Sumber: fallback prefiks operator (server Zeroid). Coba Proses ulang nanti untuk data lengkap.' },
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// IP TRACKER FALLBACK — ipwho.is (publik, tanpa kunci). Bentuk hasil dirapikan
+// jadi kartu yang sama informatifnya dengan upstream.
+// ---------------------------------------------------------------------------
+async function ipTrackerFallback(ip: string): Promise<any> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 12000);
+  try {
+    const u = /^\d+\.+/.test(ip) || /^[0-9a-fA-F:]+$/.test(ip) ? `https://ipwho.is/${encodeURIComponent(ip)}` : 'https://ipwho.is/';
+    const r = await fetch(u, { signal: ctl.signal, headers: { accept: 'application/json' } });
+    const j = await r.json().catch(() => null);
+    if (!j || j.success === false) return null;
+    return {
+      status: true,
+      result: {
+        ip: String(j.ip ?? ip),
+        type: String(j.type ?? ''),
+        location: { country: j.country, region: j.region, city: j.city, postal: j.postal, coordinates: [j.latitude, j.longitude].filter((x: any) => x != null).join(', ') },
+        network: { isp: j.connection?.isp, org: j.connection?.org, asn: j.connection?.asn ? `AS${j.connection.asn}` : '', domain: j.connection?.domain },
+        timezone: { id: j.timezone?.id, utc: j.timezone?.utc },
+        flags: { proxy: !!j.security?.proxy, tor: !!j.security?.tor, relay: !!j.security?.relay },
+        meta: { note: 'Sumber cadangan: ipwho.is — upstream utama sedang tidak bisa dihubungi.' },
+      },
+    };
+  } catch {
+    return null;
+  } finally { clearTimeout(timer); }
+}
+
 /** Panggil endpoint Vanzz; gambar → data URL (maks ~6 MB). */
 async function vanzzGet(ep: Ep, params: Record<string, string>, key: string): Promise<{ ok: boolean; status: number; data?: any; dataUrl?: string; mime?: string; error?: string }> {
   const url = new URL(VANZZ_BASE + ep.path);
@@ -552,11 +626,52 @@ export default async function handler(req: any, res: any) {
       urlVerify: clean((meta as any).urlVerify, 500),
       noresi: clean((meta as any).resi, 60),
       ekspedisi: clean((meta as any).ekspedisi, 40).toLowerCase().replace(/\s+/g, '-'),
+      query: clean((meta as any).ip, 64),
+      ip: clean((meta as any).ip, 64),
     };
-    // AM Premium: kalau pembeli sudah menempel URL verifikasi → pakai jalur unlock
-    const epAdj = (product === 'amp' && params.urlVerify) ? PAID.amunlock : PAID[product];
+    // ALIGHTMOTION — pilih jalur berdasarkan kelengkapan data:
+    //  · belum ada URL verifikasi → kirim LINK dulu ke email (send-link) — dulu
+    //    produk 'amunlock' langsung memanggil unlockVip tanpa urlVerify →
+    //    "missing email and urlVerify params" (bug terbukti di order nyata);
+    //  · sudah ada URL verifikasi (dari langkah 2) → jalur unlockVip.
+    const epAdj = (product === 'amp' || product === 'amunlock')
+      ? (params.urlVerify ? PAID.amunlock : PAID.amp)
+      : PAID[product];
     if (!epAdj) return res.status(400).json({ error: 'Produk ini tidak butuh realisasi API.' });
-    const r = await vanzzGet(epAdj, params, key);
+    // endpoint berbayar kadang gagal SESAAT (404/503 terbukti) → coba sampai 3x
+    let r = await vanzzGet(epAdj, params, key);
+    if (!r.ok && r.status !== 401 && r.status !== 400) {
+      for (let i = 0; i < 2 && !r.ok; i++) {
+        await new Promise((res2) => setTimeout(res2, 1500));
+        r = await vanzzGet(epAdj, params, key);
+      }
+    }
+    // CEK NOMOR — upstream mati/flaky → fallback prefiks operator (server)
+    if (!r.ok && product === 'checknomor' && params.nomor) {
+      const fbData = nomorFallback(params.nomor);
+      const at = Date.now();
+      await fbPatchDoc(PROJECT, `orders/${orderId}`, {
+        delivered: { booleanValue: true },
+        deliveredAt: { integerValue: String(at) },
+        result: { mapValue: { fields: { json: { stringValue: JSON.stringify(fbData).slice(0, 12000) } } } },
+        deliveryError: { nullValue: null },
+      } as any);
+      return res.status(200).json({ ok: true, delivered: true, result: fbData, deliveredAt: at, fallback: true });
+    }
+    // IP TRACKER — upstream mati → ipwho.is
+    if (!r.ok && product === 'iptracker' && params.query) {
+      const fbData = await ipTrackerFallback(params.query);
+      if (fbData) {
+        const at = Date.now();
+        await fbPatchDoc(PROJECT, `orders/${orderId}`, {
+          delivered: { booleanValue: true },
+          deliveredAt: { integerValue: String(at) },
+          result: { mapValue: { fields: { json: { stringValue: JSON.stringify(fbData).slice(0, 12000) } } } },
+          deliveryError: { nullValue: null },
+        } as any);
+        return res.status(200).json({ ok: true, delivered: true, result: fbData, deliveredAt: at, fallback: true });
+      }
+    }
     if (!r.ok) {
       const msg = pickMsg(r.data) || r.error || `Layanan ${product} sedang tidak bisa dihubungi (HTTP ${r.status}).`;
       await fbPatchDoc(PROJECT, `orders/${orderId}`, {

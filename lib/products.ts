@@ -4,8 +4,8 @@ export type Plan = { label: string; days: number; price: number };
 /** `icon` is an SVG badge key rendered by lib/icons.tsx (no emoji for UI). */
 export type Product = { key: ProductKey; title: string; icon: string; color: string; desc: string; perks: string[]; plans: Plan[] };
 
-/** Jenis input produk API: nomor HP / email / resi / ekspedisi / saluran / jumlah. */
-export type ApiFieldKey = 'nomor' | 'email' | 'resi' | 'ekspedisi' | 'channel' | 'amount';
+/** Jenis input produk API: nomor HP / email / resi / ekspedisi / saluran / jumlah / IP. */
+export type ApiFieldKey = 'nomor' | 'email' | 'resi' | 'ekspedisi' | 'channel' | 'amount' | 'ip';
 export type ApiField = { key: ApiFieldKey; label: string; placeholder: string };
 
 /** Produk API berbayar — hasil nyata, diproses otomatis SERVER setelah admin
@@ -54,6 +54,12 @@ export const API_PRODUCTS: ApiProduct[] = [
     note: 'Ikuti petunjuk unlock di pesanan — tempel URL verifikasi dari email kamu.',
   },
   {
+    key: 'iptracker', title: 'IP Tracker', icon: 'locate', color: '#00B8A9', price: 5000,
+    desc: 'Lacak lokasi, ISP, dan info perangkat dari sebuah alamat IP.',
+    fields: [{ key: 'ip', label: 'Alamat IP', placeholder: 'Contoh: 114.10.40.10' }],
+    note: 'Hasil pelacakan IP muncul otomatis di pesanan setelah admin konfirmasi pembayaran.',
+  },
+  {
     key: 'followers', title: 'Followers Saluran', icon: 'people', color: '#1E9BFF', price: 3000,
     unit: 5, unitLabel: 'followers', minAmount: 5, maxAmount: 1000000,
     desc: 'Tambah pengikut saluran — pilih nama saluran & jumlahnya.',
@@ -77,14 +83,55 @@ export const API_PRODUCTS: ApiProduct[] = [
 
 export const apiProductOf = (k?: string) => API_PRODUCTS.find((p) => p.key === k);
 
-/** Produk dengan harga SATUAN (followers/reaksi) → total = ceil(amount/unit)*price. */
+// ---------------------------------------------------------------------------
+// HARGA DARI ADMIN (config/pricing) — semua harga produk berbayar BISA diubah
+// dari admin panel (VIP, Member, Centang Biru, Keamanan, dan semua produk API
+// termasuk yang baru). Override di-set oleh lib/store saat snapshot config
+// masuk, lalu SEMUA layar otomatis memakai harga terbaru.
+// ---------------------------------------------------------------------------
+type PricingConfig = { api?: Record<string, number>; plans?: Record<string, number[]>; komisiPercent?: number };
+let PRICING: PricingConfig = {};
+export function applyPricingConfig(cfg: PricingConfig | null | undefined) {
+  PRICING = cfg && typeof cfg === 'object' ? cfg : {};
+}
+export function pricingKomisiPercent(): number {
+  const p = Number(PRICING.komisiPercent);
+  return Number.isFinite(p) && p >= 0 && p <= 90 ? p : 10;
+}
+/** Harga produk API terkini (override admin bila ada). */
+export function apiPriceOf(k?: string): number {
+  const ap = apiProductOf(k);
+  const ov = PRICING.api?.[String(k)];
+  const base = ap?.price ?? 0;
+  const n = Number(ov);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : base;
+}
+/** Daftar paket produk dengan harga terkini (override admin per index). */
+export function productPlans(k: string): Plan[] {
+  const p = PRODUCTS.find((x) => x.key === k);
+  if (!p) return [];
+  const ov = PRICING.plans?.[k];
+  if (!Array.isArray(ov)) return p.plans;
+  return p.plans.map((pl, i) => {
+    const n = Number(ov[i]);
+    return Number.isFinite(n) && n >= 0 ? { ...pl, price: Math.round(n) } : pl;
+  });
+}
+/** Harga paket terkini (override admin). */
+export function planPriceOf(k: string, planIdx: number): number {
+  const plans = productPlans(k);
+  return plans[planIdx]?.price ?? plans[0]?.price ?? 0;
+}
+
+/** Produk dengan harga SATUAN (followers/reaksi) → total = ceil(amount/unit)*price.
+ *  Harga per unit mengikuti override admin (apiPriceOf). */
 export const isUnitProduct = (k?: string) => !!apiProductOf(k)?.unit;
 export function unitPriceOf(k: string, amount: number): number {
   const ap = apiProductOf(k);
-  if (!ap?.unit) return ap?.price ?? 0;
+  if (!ap?.unit) return apiPriceOf(k);
   const want = Number(amount) || (ap.minAmount ?? ap.unit);
   const step = Math.max(1, Math.ceil(want / ap.unit));
-  return step * ap.price;
+  return step * apiPriceOf(k);
 }
 
 export const PRODUCTS: Product[] = [
@@ -148,6 +195,7 @@ export const PAYMENT_METHODS = [
 ];
 
 export const productOf = (k: ProductKey) => PRODUCTS.find((p) => p.key === k)!;
+export const productsWithPrices = () => PRODUCTS.map((p) => ({ ...p, plans: productPlans(p.key) }));
 
 /** AMAN untuk data lama/penanda seed (mis. product 'schema-marker'):
  *  krash "Cannot read properties of undefined (reading 'icon'/'color'/'title')"

@@ -75,6 +75,7 @@ export default function ChatInfo() {
   const title = chat.type === 'ai' ? aiName : chatTitle(chat, me.id, db);
   // developer/admin global boleh mengatur SEMUA chat (termasuk global & saluran Zeroid AI)
   const isAdmin = chat.admins.includes(me.id) || isFullAdmin(me);
+  const isOwner = chat.createdBy === me.id; // pemilik saluran/grup
   const badge = chat.type === 'direct' ? !!(peer && (peer.blueCheck || peer.developer || peer.role === 'admin' || peer.role === 'developer')) : chatBadge(chat, db);
   const autoVerified = !chatVerified(chat) && badge && chat.type !== 'direct' && chat.type !== 'ai'; // otomatis dari centang biru pemilik
   const muted = chat.mutedBy.includes(me.id);
@@ -134,7 +135,17 @@ export default function ChatInfo() {
               ))}
             </View>
           )}
-          {chat.type === 'channel' && <Btn small style={{ marginTop: 18 }} variant={chat.members.includes(me.id) ? 'neu' : 'primary'} icon={chat.members.includes(me.id) ? 'checkmark' : 'add'} title={chat.members.includes(me.id) ? 'Mengikuti' : 'Ikuti'} onPress={() => toggleFollow(chat.id)} />}
+          {chat.type === 'channel' && (
+            isOwner ? (
+              // PEMILIK: selalu "Mengikuti" — tidak bisa berhenti ikut saluran sendiri
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 18, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, backgroundColor: t.accentSoft, alignSelf: 'center' }}>
+                <Ionicons name="megaphone" size={14} color={t.accent} />
+                <T v="caption" color={t.accent} style={{ fontWeight: '800' }}>Kamu pemilik saluran ini · Mengikuti</T>
+              </View>
+            ) : (
+              <Btn small style={{ marginTop: 18 }} variant={chat.members.includes(me.id) ? 'neu' : 'primary'} icon={chat.members.includes(me.id) ? 'checkmark' : 'add'} title={chat.members.includes(me.id) ? 'Mengikuti' : 'Ikuti'} onPress={() => toggleFollow(chat.id)} />
+            )
+          )}
         </View>
 
         {(chat.description || (chat.type === 'direct' && peer) || chat.type === 'ai') && (
@@ -157,17 +168,16 @@ export default function ChatInfo() {
           <Card title="Centang biru">
             <View style={{ padding: 12, gap: 10 }}>
               {badge ? (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <VerifiedBadge size={18} animate={false} />
-                  <T v="sub" style={{ flex: 1, fontWeight: '700', color: t.accent }}>
-                    {chat.type === 'channel' ? 'Saluran' : 'Grup'} ini terverifikasi
-                    {chatVerified(chat)
-                      ? (chat.verifiedUntil ?? 0) > Date.now()
-                        ? ` — masa aktif ${Math.ceil(((chat.verifiedUntil ?? 0) - Date.now()) / 86400000)} hari lagi`
-                        : ' — permanen'
-                      : ' — otomatis ikut centang biru pemilik (tanpa beli)'}
-                  </T>
-                </View>
+                // v25: TANPA ikon lagi di sini — centang biru cukup SATU di sebelah
+                // nama (dulu 2-3 centang sekaligus di satu layar = "centang double")
+                <T v="sub" style={{ fontWeight: '700', color: t.accent }}>
+                  {chat.type === 'channel' ? 'Saluran' : 'Grup'} ini terverifikasi
+                  {chatVerified(chat)
+                    ? (chat.verifiedUntil ?? 0) > Date.now()
+                      ? ` — masa aktif ${Math.ceil(((chat.verifiedUntil ?? 0) - Date.now()) / 86400000)} hari lagi`
+                      : ' — permanen'
+                    : ' — otomatis ikut centang biru pemilik (tanpa beli)'}
+                </T>
               ) : (
                 <T v="sub">{chat.type === 'channel' ? 'Saluran' : 'Grup'} ini belum terverifikasi.</T>
               )}
@@ -188,10 +198,7 @@ export default function ChatInfo() {
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <T v="caption" color={t.faint}>Pemilik: {owner.name}</T>
                       {ownerBadged ? (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-                          <VerifiedBadge size={12} animate={false} />
-                          <T v="caption" color={t.accent} style={{ fontWeight: '700' }}>punya centang biru</T>
-                        </View>
+                        <T v="caption" color={t.accent} style={{ fontWeight: '700' }}>— pemilik punya centang biru</T>
                       ) : (
                         <T v="caption" color={t.faint}>— belum punya centang biru</T>
                       )}
@@ -314,6 +321,56 @@ export default function ChatInfo() {
           </Card>
         )}
 
+        {/* PENGIKUT SALURAN (v25) — daftar pengikut ASLI (bukan angka paket):
+            pemilik/admin bisa ketuk pengikut → jadikan admin saluran / kirim pesan. */}
+        {chat.type === 'channel' && (
+          <Card title={`Pengikut · ${compactId(followersCount(chat))}`}>
+            {chat.members.length === 0 ? (
+              <T v="sub" style={{ padding: 10 }}>Belum ada pengikut asli — angka di atas termasuk pengikut tambahan dari paket.</T>
+            ) : (
+              <View>
+                <T v="caption" color={t.faint} style={{ paddingHorizontal: 10, paddingBottom: 4 }}>
+                  {chat.members.length} pengikut asli{chat.extraFollowers ? ` + ${compactId(chat.extraFollowers)} pengikut tambahan (paket)` : ''} — ketuk untuk mengatur.
+                </T>
+                {chat.members.map((id) => {
+                  const u = db.users[id];
+                  if (!u) return null;
+                  const isOwnerRow = chat.createdBy === id;
+                  return (
+                    <Pressable key={id} onPress={() => id !== me.id && setMemberSel(id)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 10, borderRadius: R.md, backgroundColor: pressed ? t.accentSoft : 'transparent' })}>
+                      <Avatar uri={canSee(me, u, u.privacy.profilePhoto) ? u.avatar : null} name={u.name} color={u.color} size={42} online={isOnline(u)} />
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                          <T v="body" style={{ fontWeight: '500' }} numberOfLines={1}>
+                            {id === me.id ? 'Kamu' : u.name}
+                          </T>
+                          {(u.blueCheck || u.developer || u.role === 'admin' || u.role === 'developer') && <VerifiedBadge size={13} animate={false} />}
+                        </View>
+                        <T v="caption" numberOfLines={1}>
+                          {u.about}
+                        </T>
+                      </View>
+                      {isOwnerRow ? (
+                        <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: 'rgba(0,149,246,0.12)', borderWidth: 1, borderColor: 'rgba(0,149,246,0.35)' }}>
+                          <T v="caption" color={t.accent} style={{ fontWeight: '700' }}>
+                            Pemilik
+                          </T>
+                        </View>
+                      ) : chat.admins.includes(id) ? (
+                        <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, backgroundColor: t.accentSoft }}>
+                          <T v="caption" color={t.accent} style={{ fontWeight: '700' }}>
+                            Admin
+                          </T>
+                        </View>
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          </Card>
+        )}
+
         {chat.type === 'direct' && peer && (
           <Card>
             <Row icon="person-circle" title="Lihat profil kontak" subtitle="Lencana, @username, lagu Spotify" onPress={() => nav.navigate('UserProfile', { userId: peer.id })} />
@@ -345,7 +402,7 @@ export default function ChatInfo() {
                 ...(isAdmin && !(chat.createdBy === memberSel && memberSel !== me.id && !isFullAdmin(me))
                   ? [{
                       icon: 'person-remove' as const,
-                      label: 'Keluarkan dari grup',
+                      label: chat.type === 'channel' ? 'Hapus dari pengikut' : 'Keluarkan dari grup',
                       danger: true,
                       onPress: async () => {
                         const nm = db.users[memberSel]?.name ?? 'anggota';

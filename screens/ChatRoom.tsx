@@ -300,8 +300,9 @@ export default function ChatRoom() {
         }
       />
       {(chat.type === 'direct' ? !!peer && (peer.blueCheck || peer.developer || peer.role === 'admin' || peer.role === 'developer') : chatBadge(chat, db)) && (
+        // v25: TANPA ikon centang lagi — centang biru cukup SATU di kepala chat
+        // (dulu badge di judul + badge di banner = centang double di satu layar)
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 14, marginBottom: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: R.md, backgroundColor: 'rgba(0,149,246,0.10)', borderWidth: 1, borderColor: 'rgba(0,149,246,0.25)' }}>
-          <VerifiedBadge size={15} animate={false} />
           <T v="caption" color={t.accent} style={{ flex: 1, fontWeight: '700' }}>
             {chat.type === 'direct'
               ? `${title} terverifikasi centang biru — akun resmi, aman untuk chat dan transaksi.`

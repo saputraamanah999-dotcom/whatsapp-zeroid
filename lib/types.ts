@@ -222,7 +222,7 @@ export type Sticker = { id: string; uri: string; ownerId: string; global: boolea
 export type ProductKey =
   | 'vip' | 'member' | 'bluecheck' | 'security'
   | 'checknomor' | 'netflix' | 'amp' | 'amunlock'
-  | 'cekresi' | 'followers' | 'reaction';
+  | 'cekresi' | 'iptracker' | 'followers' | 'reaction';
 
 export type Order = {
   id: string;
@@ -242,8 +242,8 @@ export type Order = {
   /** bukti pembayaran (URL foto upload pembeli) — WAJIB sebelum konfirmasi */
   proofUrl?: string;
   proofAt?: number;
-  /** input produk API berbayar: { nomor?, email?, urlVerify?, resi?, ekspedisi?, channel?, amount?, emoji? } */
-  meta?: { nomor?: string; email?: string; urlVerify?: string; resi?: string; ekspedisi?: string; channel?: string; amount?: number; emoji?: string } | null;
+  /** input produk API berbayar: { nomor?, email?, urlVerify?, resi?, ekspedisi?, channel?, amount?, emoji?, messageId?, ip? } */
+  meta?: { nomor?: string; email?: string; urlVerify?: string; resi?: string; ekspedisi?: string; channel?: string; amount?: number; emoji?: string; messageId?: string; ip?: string } | null;
   /** hasil realisasi API (Check Nomor / Netflix / AM) — diisi server */
   delivered?: boolean;
   deliveredAt?: number;
@@ -496,6 +496,9 @@ export type DB = {
   /** Konfigurasi pembayaran (config/payments) — nomor DANA + foto QRIS yang
    *  dikelola admin di Admin panel; dipakai layar pembayaran semua user. */
   payments: { danaNumber?: string; danaName?: string; qrisImage?: string; note?: string } | null;
+  /** Harga produk berbayar (config/pricing) — diubah dari admin panel:
+   *  { api: {produk: harga}, plans: {produk: [harga per paket]}, komisiPercent }. */
+  pricing: { api?: Record<string, number>; plans?: Record<string, number[]>; komisiPercent?: number; updatedAt?: number } | null;
   /** AI sedang menyusun jawaban per chat (chatId → epoch ms mulai mengetik).
    *  Dipakai ChatRoom/ChatRow menampilkan animasi "sedang mengetik…" Zeroid AI
    *  SECARA LOKAL — AI bukan pengguna Firestore, tidak bisa menulis chat.typing. */
