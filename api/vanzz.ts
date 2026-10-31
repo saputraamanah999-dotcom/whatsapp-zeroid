@@ -333,12 +333,13 @@ async function bmkgDirect(): Promise<{ data?: any; error?: string }> {
 // seperti Vanzz ({status, result:[{title,url,image,snippet,date}]}).
 // ---------------------------------------------------------------------------
 const BERITA_RSS: Record<string, string> = {
-  berita_kompas: 'https://www.kompas.com/feed/rss.xml',
+  // sumber dgn RSS langsung (punya gambar) + sisanya via Google News RSS (judul only)
   berita_cnn: 'https://www.cnnindonesia.com/rss',
-  berita_liputan6: 'https://www.liputan6.com/rss/feed',
-  berita_antara: 'https://www.antaranews.com/rss/news',
-  berita_cnbc: 'https://www.cnbcindonesia.com/site/rss/news',
+  berita_cnbc: 'https://www.cnbcindonesia.com/rss',
   berita_sindonews: 'https://www.sindonews.com/feed',
+  berita_kompas: 'https://news.google.com/rss/search?q=site:kompas.com+berita&hl=id&gl=ID&ceid=ID:id',
+  berita_liputan6: 'https://news.google.com/rss/search?q=site:liputan6.com+berita&hl=id&gl=ID&ceid=ID:id',
+  berita_antara: 'https://news.google.com/rss/search?q=site:antaranews.com+berita&hl=id&gl=ID&ceid=ID:id',
 };
 function rssTag(block: string, tag: string): string {
   const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
