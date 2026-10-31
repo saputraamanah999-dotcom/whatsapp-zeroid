@@ -28,8 +28,14 @@ import { animeInSearch, animeInInfo, animeInStreams, animeFyp, otakudesuLatest, 
 /** Cache poster fallback per judul (Jikan/MyAnimeList — CORS publik). */
 const posterFallback = new Map<string, string>();
 
-/** JIKAN GATE — maks 2 panggilan bersamaan + jeda, supaya pencarian tidak
- *  ditelan 429 oleh ratusan fallback poster yang nembak bersamaan. */
+/** JIKAN GATE — poster-fallback dibatasi maks 2 bersamaan + timeout 6 dtk,
+ *  supaya tidak menelan 429 & tidak menggantung slot. PENCARIAN tidak ikut
+ *  antre (lane sendiri) — dulu pencarian bisa mati kena 429/antre poster. */
+const jikanTimeout = async (url: string, ms = 6000): Promise<any> => {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  try { return await fetch(url, { signal: ctl.signal }).then((x) => x.json()); } finally { clearTimeout(timer); }
+};
 let jikanActive = 0;
 const jikanWaiters: (() => void)[] = [];
 async function jikanGate<T>(fn: () => Promise<T>): Promise<T> {
@@ -48,7 +54,7 @@ function Poster({ uri, title, style }: { uri?: string; title?: string; style?: a
     if (posterFallback.has(t)) { setSrc(posterFallback.get(t)); return; }
     if (posterFallback.has('__busy__' + t)) return;
     posterFallback.set('__busy__' + t, '');
-    jikanGate(() => fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(t.slice(0, 80))}&limit=1&sfw=true`).then((r) => r.json()))
+    jikanGate(() => jikanTimeout(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(t.slice(0, 80))}&limit=1&sfw=true`))
       .then((j) => {
         const p = j?.data?.[0]?.images?.jpg?.large_image_url ?? j?.data?.[0]?.images?.jpg?.image_url;
         if (p) { posterFallback.set(t, p); setSrc(p); }
@@ -95,7 +101,8 @@ const cleanTitle = (s: string) => s.replace(/episode\s+\d+.*$/i, '').replace(/su
 /** Pencarian JIKAN langsung (MyAnimeList, CORS terbuka, tanpa kunci) —
  *  scraper sumber sering buta-query (balik list terbaru walau dicari apa pun). */
 async function jikanSearch(q: string): Promise<Card[]> {
-  const r = await jikanGate(() => fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(q)}&limit=24&sfw=true`).then((x) => x.json()));
+  // lane sendiri (tanpa gate poster) + timeout 8 dtk — pencarian selalu lekas
+  const r = await jikanTimeout(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(q)}&limit=24&sfw=true`, 8000);
   if (!r?.data) throw new Error('Jikan limit');
   return (r?.data ?? []).map((a: any) => ({
     slug: `jikan:${a.mal_id}`,
