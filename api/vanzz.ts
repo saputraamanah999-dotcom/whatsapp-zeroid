@@ -325,14 +325,17 @@ export default async function handler(req: any, res: any) {
       if (!amount) return res.status(400).json({ error: 'Jumlah belum valid pada pesanan ini.' });
       if (!chName) return res.status(400).json({ error: 'Nama saluran belum tercatat pada pesanan.' });
       // cari saluran berdasarkan nama (persis dulu; salah kaprah huruf besar-kecil)
+      // PENTING: Firestore REST butuh NILAI BERTIPE ({stringValue}) — dulu string
+      // mentah dikirim → query 400 → kedua pencarian balik [] → deliver selalu
+      // "Saluran tidak ditemukan" walau salurannya ada (bug v23).
       let chatDoc: { id: string; fields: any } | null = null;
       try {
-        const exact = await fbQuery(PROJECT, 'chats', [{ field: 'name', op: 'EQUAL', value: chName }], 5);
+        const exact = await fbQuery(PROJECT, 'chats', [{ field: 'name', op: 'EQUAL', value: { stringValue: chName } }], 5);
         chatDoc = (exact ?? []).find((c) => String(c.fields?.type ?? '') === 'channel') ?? (exact ?? [])[0] ?? null;
       } catch { /* lanjut fallback */ }
       if (!chatDoc) {
         try {
-          const all = await fbQuery(PROJECT, 'chats', [{ field: 'type', op: 'EQUAL', value: 'channel' }], 100);
+          const all = await fbQuery(PROJECT, 'chats', [{ field: 'type', op: 'EQUAL', value: { stringValue: 'channel' } }], 100);
           const low = chName.toLowerCase();
           chatDoc = (all ?? []).find((c) => String(c.fields?.name ?? '').toLowerCase() === low) ?? null;
         } catch { /* tetap null */ }
