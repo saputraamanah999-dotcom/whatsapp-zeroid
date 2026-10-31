@@ -83,6 +83,18 @@ const TABS: { value: HubTab; label: string }[] = [
 /** bersihkan judul otakudesu → kata kunci pencarian (buang "Episode … Subtitle Indonesia"). */
 const cleanTitle = (s: string) => s.replace(/episode\s+\d+.*$/i, '').replace(/subtitle\s+indonesia/i, '').replace(/\s{2,}/g, ' ').trim();
 
+/** Pencarian JIKAN langsung (MyAnimeList, CORS terbuka, tanpa kunci) —
+ *  scraper sumber sering buta-query (balik list terbaru walau dicari apa pun). */
+async function jikanSearch(q: string): Promise<Card[]> {
+  const r = await fetch(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(q)}&limit=24&sfw=true`).then((x) => x.json());
+  return (r?.data ?? []).map((a: any) => ({
+    slug: `jikan:${a.mal_id}`,
+    title: a.title,
+    poster: a.images?.jpg?.large_image_url ?? a.images?.jpg?.image_url,
+    sub: a.score ? `★ ${a.score}` : [a.type, a.year].filter(Boolean).join(' · '),
+  })).filter((c: Card) => c.title && c.slug !== 'jikan:undefined');
+}
+
 export function AnimeScreen() {
   const t = useTheme();
   const nav = useNavigation<any>();
@@ -190,9 +202,9 @@ export function AnimeScreen() {
           const movies = await animeInSearch(q.trim());
           cards = movies.map((m: AnimeInMovie) => ({ slug: `ain:${m.id}`, title: m.title, poster: m.image_poster, sub: [m.type, m.year].filter(Boolean).join(' · ') }));
         } catch {
-          // animein mati → Jikan (MyAnimeList) lewat /api/jere
-          const list = await jereSearch(q.trim());
-          cards = list.map((a: AnimeCard) => ({ slug: a.slug, title: a.title, poster: a.poster, sub: a.rating ? `★ ${a.rating}` : undefined }));
+          // animein mati → JIKAN langsung (hasil pencarian beneran) → jere
+          try { cards = await jikanSearch(q.trim()); }
+          catch { const list = await jereSearch(q.trim()); cards = list.map((a: AnimeCard) => ({ slug: a.slug, title: a.title, poster: a.poster, sub: a.rating ? `★ ${a.rating}` : undefined })); }
         }
         if (seq !== searchSeq.current) return;
         setSearchRes(cards);
@@ -356,8 +368,13 @@ export function AnimeDetailScreen() {
             const m = await animeInSearch(kw.slice(0, 70));
             if (m[0]?.id) { id = m[0].id; titleHint = m[0].title; posterHint = m[0].image_poster ?? posterHint; }
           } catch {
-            const list = await jereSearch(kw.slice(0, 70));
-            if (list[0]?.slug) { nav.replace('AnimeDetail', { slug: list[0].slug, title: list[0].title, poster: list[0].poster }); return; }
+            try {
+              const jc = await jikanSearch(kw.slice(0, 70));
+              if (jc[0]?.slug) { nav.replace('AnimeDetail', { slug: jc[0].slug, title: jc[0].title, poster: jc[0].poster }); return; }
+            } catch {
+              const list = await jereSearch(kw.slice(0, 70));
+              if (list[0]?.slug) { nav.replace('AnimeDetail', { slug: list[0].slug, title: list[0].title, poster: list[0].poster }); return; }
+            }
           }
         }
         if (!id) throw new Error('Judul tidak ditemukan di katalog — coba cari manual.');
