@@ -253,6 +253,9 @@ function pickThinking(data: any): string {
 
 async function jerePost(path: string, payload: Record<string, any>, timeoutMs: number): Promise<{ ok: boolean; status: number; data: any }> {
   const key = await apiKey('JEREXD_APIKEY'); // env Vercel dulu, cadangan: secrets/ai (Firestore SA)
+  // AUDIT: tanpa kunci JANGAN menghubungi upstream (dulu tetap POST dgn key kosong —
+  // memboroskan request & menutupi kondisi "belum ada kunci" yg seharusnya 503 jujur).
+  if (!key) return { ok: false, status: 0, data: { error: 'no-key' } };
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), timeoutMs);
   try {
