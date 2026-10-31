@@ -1,5 +1,12 @@
 rules_version = '2';
-// ZEROID WHATSAPP — FIRESTORE RULES v21 (anti-virtex cap 8000 + bot boleh ditambah admin grup)
+// ZEROID WHATSAPP — FIRESTORE RULES v22 (Vanzz API + pembayaran QRIS/DANA + OWNER protection)
+// v22: + orders: pembeli WAJIB bisa menambah bukti pembayaran (proofUrl/proofAt)
+//        pada pesanan 'pending' miliknya sendiri; admin boleh mengedit catatan/status
+//        transaksi (adminNote/status/decidedAt/price) & menghapus transaksi.
+//      + config/payments (nomor DANA + QRIS): dibaca semua user login, diubah admin.
+//      + DEVELOPER UTAMA (gedejulianto148@gmail.com) anti-ban & anti-edit: TIDAK
+//        ADA admin lain yang boleh mengubah dokumen profilnya; hanya pemilik
+//        sendiri (uid sama) yang boleh. Role change: hanya oleh pemilik akun.
 // v19: + vouchers (admin buat kode diskon; user HANYA bisa pola penukaran:
 //        usedCount+1 & usedBy+=me pada voucher aktif/belum kadaluarsa/kuota sisa)
 //      + guardconfig (skill AI Guard — read semua user login, write admin)
@@ -45,6 +52,12 @@ service cloud.firestore {
     function role() { return hasProfile() ? userDoc().get('role', 'user') : 'user'; }
     function isAdmin() { return signedIn() && (role() == 'admin' || role() == 'developer'); }
     function isMod() { return signedIn() && (role() == 'admin' || role() == 'developer' || role() == 'moderator'); }
+    // DEVELOPER UTAMA (pemilik) — email diketahui rules; dokumennya TIDAK bisa
+    // diedit oleh admin lain (anti-ban, anti-ubah role/VIP/centang siapa pun).
+    function targetIsOwner(uid) {
+      return exists(/databases/$(db)/documents/users/$(uid))
+        && get(/databases/$(db)/documents/users/$(uid)).data.get('email', '') == 'gedejulianto148@gmail.com';
+    }
     // banned / suspended / banUntil — toleran terhadap dokumen tanpa field tsb.
     function banBlocked() {
       return hasProfile() && (
@@ -236,7 +249,9 @@ service cloud.firestore {
                     || (request.auth.uid == uid
                         && !exists(/databases/$(db)/documents/config/bootstrap)
                         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role','blueCheck','developer']))
-                    || isAdmin();
+                    // v22: admin BOLEH mengatur user lain TAPI TIDAK BOLEH menyentuh
+                    // dokumen DEVELOPER UTAMA — anti-ban & anti-edit total.
+                    || (isAdmin() && uid != me() && !targetIsOwner(uid));
       allow create: if request.auth.uid == uid
                     && (request.resource.data.get('role', 'user') == 'user'
                         || (request.resource.data.get('role', 'user') == 'developer'
@@ -502,9 +517,15 @@ service cloud.firestore {
                     && request.resource.data.get('days', 0) >= 0
                     && request.resource.data.get('days', 0) <= 400;
       allow read: if signedIn() && (resource.data.get('userId', '') == me() || isMod());
-      // only admins decide; status/decidedAt only
+      // v22: PEMBELI boleh menambah bukti pembayaran (proofUrl/proofAt) pada
+      // pesanan 'pending' miliknya — WAJIB sebelum admin konfirmasi.
       allow update: if isAdmin()
-                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','decidedAt']);
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status','decidedAt','adminNote','price'])
+                    || (signedIn()
+                        && resource.data.get('userId', '') == me()
+                        && resource.data.get('status', '') == 'pending'
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proofUrl','proofAt'])
+                        && request.resource.data.get('proofUrl', '').matches('^https?://.*'));
       allow delete: if isAdmin();
     }
 

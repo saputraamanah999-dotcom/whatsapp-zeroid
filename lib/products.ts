@@ -4,6 +4,40 @@ export type Plan = { label: string; days: number; price: number };
 /** `icon` is an SVG badge key rendered by lib/icons.tsx (no emoji for UI). */
 export type Product = { key: ProductKey; title: string; icon: string; color: string; desc: string; perks: string[]; plans: Plan[] };
 
+/** Produk API berbayar — hasil nyata dari Vanzz API, dikirim otomatis setelah
+ *  admin konfirmasi pembayaran (server-side via /api/vanzz action 'deliver').
+ *  `fields` = input yang wajib diisi pembeli saat memesan. */
+export type ApiProduct = { key: ProductKey; title: string; icon: string; color: string; price: number; desc: string; fields: { key: 'nomor' | 'email'; label: string; placeholder: string }[]; note: string };
+
+export const API_PRODUCTS: ApiProduct[] = [
+  {
+    key: 'checknomor', title: 'Cek Nomor', icon: 'call', color: '#14C47A', price: 5000,
+    desc: 'Lacak lokasi & provider nomor HP (Check Nomor Vanzz API).',
+    fields: [{ key: 'nomor', label: 'Nomor HP', placeholder: '08xxxxxxxxxx' }],
+    note: 'Hasil pelacakan muncul otomatis di pesanan setelah admin konfirmasi pembayaran.',
+  },
+  {
+    key: 'netflix', title: 'Netflix Premium', icon: 'tv', color: '#E50914', price: 7000,
+    desc: 'Netflix Premium Sharing Account — data akun dikirim ke pesananmu.',
+    fields: [],
+    note: 'Data akun muncul otomatis di pesanan setelah admin konfirmasi pembayaran.',
+  },
+  {
+    key: 'amp', title: 'AlightMotion Premium', icon: 'videocam', color: '#7B61FF', price: 10000,
+    desc: 'Magic link premium AlightMotion dikirim ke email kamu.',
+    fields: [{ key: 'email', label: 'Email', placeholder: 'email@kamu.com' }],
+    note: 'Magic link dikirim ke email + status tampil di pesanan setelah konfirmasi admin.',
+  },
+  {
+    key: 'amunlock', title: 'AM Premium Unlock', icon: 'unlock', color: '#FF9F0A', price: 10000,
+    desc: 'Unlock premium aplikasi AlightMotion (Premium Unlock).',
+    fields: [{ key: 'email', label: 'Email', placeholder: 'email@kamu.com' }],
+    note: 'Instruksi unlock muncul di pesanan setelah admin konfirmasi pembayaran.',
+  },
+];
+
+export const apiProductOf = (k?: string) => API_PRODUCTS.find((p) => p.key === k);
+
 export const PRODUCTS: Product[] = [
   {
     key: 'vip',
@@ -57,12 +91,11 @@ export const PRODUCTS: Product[] = [
   },
 ];
 
+// PEMBAYARAN HANYA 2 METODE (permintaan pemilik): QRIS + DANA.
+// Nomor DANA & foto QRIS dikelola admin di config/payments (Admin panel).
 export const PAYMENT_METHODS = [
   { key: 'qris', label: 'QRIS', icon: 'qris' },
   { key: 'dana', label: 'DANA', icon: 'dana' },
-  { key: 'gopay', label: 'GoPay', icon: 'gopay' },
-  { key: 'ovo', label: 'OVO', icon: 'ovo' },
-  { key: 'bca', label: 'Transfer BCA', icon: 'bca' },
 ];
 
 export const productOf = (k: ProductKey) => PRODUCTS.find((p) => p.key === k)!;

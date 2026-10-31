@@ -110,7 +110,7 @@ export default function MeTab() {
         <Row icon="shield-checkmark" title="Keamanan" subtitle={`${me.otpVerified ? 'OTP Gmail terverifikasi' : 'Verifikasi OTP Gmail'}${me.security ? ' · PIN' : ''}`} onPress={() => nav.navigate('Security')} />
         <Row icon="star" title="Pesan berbintang" subtitle={`${starred} pesan`} onPress={() => nav.navigate('Starred')} />
         <Row icon="musical-notes" iconColor="#1DB954" title="Musik" subtitle={me.spotify ? me.spotify.title : 'Spotify & YouTube — pasang di profil'} onPress={() => nav.navigate('Music')} />
-        <Row icon="tv" iconColor="#FF7A9C" title="Anime" subtitle="Cari, tonton, favorit & unduh anime" onPress={() => nav.navigate('Anime')} />
+        <Row icon="gift" iconColor="#FF7A9C" title="Menu Gratis" subtitle="Anime · Berita · Cuaca · Gempa · Quotes · AM Finder" onPress={() => nav.navigate('FreeMenu')} />
         <Row icon="happy" title="Stiker" subtitle="Buat & kelola stiker" onPress={() => nav.navigate('Stickers')} />
         <Row icon="chatbox" iconColor="#7B61FF" title="Gaya balon obrolan" subtitle={me.bubble && me.bubble !== 'default' ? 'Kustom — terlihat orang lain real-time' : 'Pilih gaya balon kesukaanmu'} onPress={() => nav.navigate('ChatBubbles')} />
         <Row icon="color-palette" iconColor="#FF7A9C" title="Wallpaper & tema chat" subtitle={me.wallpapers?.default ? 'Wallpaper aktif · tema ' + (me.chatTheme ?? 'default') : 'Ubah latar & warna semua chat'} onPress={() => nav.navigate('Wallpaper')} />

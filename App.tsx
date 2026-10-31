@@ -40,6 +40,7 @@ import AdminScreen from './screens/AdminScreen';
 import ApiStatus from './screens/ApiStatus';
 import { UserProfile, PremiumScreen, SecurityScreen, MusicScreen, StickersScreen, SetUsernameScreen, LockScreen } from './screens/ExtraScreens';
 import { AnimeScreen, AnimeDetailScreen, AnimeWatchScreen } from './screens/AnimeScreens';
+import { FreeMenuScreen } from './screens/FreeMenu';
 import { EditProfile, PrivacyScreen, NotifSettings, PermissionsScreen, NotificationsScreen, StarredScreen } from './screens/SettingsScreens';
 import { ChatBubblesScreen, WallpaperScreen } from './screens/ChatCustomScreens';
 import FeedbackScreen from './screens/FeedbackScreen';
@@ -553,6 +554,7 @@ export default function App() {
                   <Stack.Screen name="Security" component={SecurityScreen} />
                   <Stack.Screen name="Music" component={MusicScreen} />
                   <Stack.Screen name="Anime" component={AnimeScreen} />
+                  <Stack.Screen name="FreeMenu" component={FreeMenuScreen} />
                   <Stack.Screen name="AnimeDetail" component={AnimeDetailScreen} />
                   <Stack.Screen name="AnimeWatch" component={AnimeWatchScreen} />
                   <Stack.Screen name="Stickers" component={StickersScreen} />

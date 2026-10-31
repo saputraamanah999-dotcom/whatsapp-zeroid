@@ -42,6 +42,7 @@ import {
   markDelivered,
   askAssistant,
   aiTypingIn,
+  AI_THINK_STEPS,
 } from '../lib/store';
 import type { AskOpts } from '../lib/store';
 import { setActiveChat, pushBanner } from '../lib/bus';
@@ -76,7 +77,11 @@ export default function ChatRoom() {
   const [badgeInfo, setBadgeInfo] = useState(false);
   const openBadgeInfo = () => setBadgeInfo(true);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
-  const [aiPrefs, setAiPrefs] = useState<{ model: string; thinking: boolean; search: boolean }>({ model: '', thinking: false, search: false });
+  const [aiPrefs, setAiPrefs] = useState<{ model: string; thinking: boolean; search: boolean; agent: boolean }>({ model: '', thinking: false, search: false, agent: false });
+  // ANIMASI THINKING + TERMINAL AGENT — frasa berputar & baris terminal muncul
+  // progresif selama AI menyusun jawaban (waktu nyata, bukan data palsu).
+  const [thinkStep, setThinkStep] = useState(0);
+  const [termLines, setTermLines] = useState<string[]>([]);
   const [aiSheet, setAiSheet] = useState(false);
   const [models, setModels] = useState<string[]>([]);
   const [editing, setEditing] = useState<Message | null>(null);
@@ -181,6 +186,26 @@ export default function ChatRoom() {
   // jadi saat AI menyusun jawaban kita pakai flag lokal (aiTypingIn) — animasi
   // titik-titik mengetik kini MUNCUL di header, gelembung & daftar chat.
   const aiWaiting = chat.type === 'ai' && aiTypingIn(chatId);
+  // efek animasi harus SETELAH aiWaiting terdefinisi
+  useEffect(() => {
+    if (!aiWaiting) { setThinkStep(0); setTermLines([]); return; }
+    const t = setInterval(() => setThinkStep((x) => (x + 1) % AI_THINK_STEPS.length), 2600);
+    const tr = setInterval(() => {
+      setTermLines((prev) => {
+        if (prev.length >= 5) return prev;
+        const el = (Date.now() - (db.aiTyping?.[chatId] ?? Date.now())) / 1000;
+        const lines = [
+          '$ zeroid-agent --think',
+          `> menganalisis permintaan (${el.toFixed(0)}s)`,
+          '> menghubungi agent AI (4 provider, failover otomatis)',
+          '> menyusun & memverifikasi jawaban…',
+          '> siap — mengirim jawaban…',
+        ];
+        return lines.slice(0, prev.length + 1);
+      });
+    }, 1400);
+    return () => { clearInterval(t); clearInterval(tr); };
+  }, [aiWaiting, chatId]);
   const anyoneTyping = typing.length > 0 || aiWaiting;
   // chat AI: nama/subjudul/avatar ikut profil publik Zeroid AI (config/ai_profile, diubah developer)
   const aiProf = db.aiProfile;
@@ -305,18 +330,38 @@ export default function ChatRoom() {
             contentContainerStyle={{ paddingVertical: 14 }}
             onScrollToIndexFailed={() => {}}
             ListHeaderComponent={
-              anyoneTyping ? (
-                <View style={{ paddingHorizontal: 14, paddingVertical: 4, alignItems: 'flex-start' }}>
+              aiWaiting ? (
+                <View style={{ paddingHorizontal: 14, paddingVertical: 4, alignItems: 'flex-start', gap: 8 }}>
+                  {/* animasi thinking: gelembung + frasa berputar */}
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 14, paddingVertical: 11, borderRadius: 18, backgroundColor: t.bubbleOther, boxShadow: t.raisedSm } as any}>
-                    <TypingDots size={7} />
-                    <T v="caption" color={t.sub} style={{ fontStyle: 'italic' }}>
-                      {chat.type === 'ai'
-                        ? `${aiProf?.name?.trim() || 'Zeroid AI'} sedang mengetik…`
-                        : chat.type === 'direct'
-                        ? 'sedang mengetik…'
-                        : `${db.users[typing[0]]?.name.split(' ')[0]} sedang mengetik…`}
-                    </T>
+                    <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: '#7B61FF22', alignItems: 'center', justifyContent: 'center' }}>
+                      <Ionicons name="sparkles" size={15} color="#7B61FF" />
+                    </View>
+                    <View style={{ gap: 2 }}>
+                      <T v="caption" color={t.sub} style={{ fontStyle: 'italic', fontWeight: '700' }}>
+                        {aiPrefs.thinking ? `${aiProf?.name?.trim() || 'Zeroid AI'} sedang berpikir…` : chat.type === 'ai' ? `${aiProf?.name?.trim() || 'Zeroid AI'} sedang mengetik…` : 'sedang mengetik…'}
+                      </T>
+                      {chat.type === 'ai' && (
+                        <T v="caption" color="#7B61FF" style={{ fontWeight: '800' }}>{AI_THINK_STEPS[thinkStep]}</T>
+                      )}
+                    </View>
+                    <TypingDots size={6} />
                   </View>
+                  {/* TERMINAL PREVIEW (mode agent) */}
+                  {chat.type === 'ai' && aiPrefs.agent && (
+                    <View style={{ borderRadius: 14, backgroundColor: '#0B1220', borderWidth: 1, borderColor: 'rgba(80,220,140,0.35)', padding: 10, width: Math.min(320, 300) }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#FF5F57' }} />
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#FEBC2E' }} />
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#28C840' }} />
+                        <T v="caption" color="rgba(140,245,176,0.6)" style={{ marginLeft: 4, fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }}>zeroid-agent</T>
+                      </View>
+                      {termLines.map((l, i) => (
+                        <T key={i} v="caption" color={l.startsWith('$') ? '#8CF5B0' : 'rgba(232,240,254,0.85)'} style={{ fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }} numberOfLines={1}>{l}</T>
+                      ))}
+                      <T v="caption" color="#50DC8C" style={{ fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }}>▌</T>
+                    </View>
+                  )}
                 </View>
               ) : null
             }
@@ -393,7 +438,7 @@ export default function ChatRoom() {
                         .slice(-8)
                         .map((m) => ({ role: (m.assistant ? 'assistant' : 'user') as 'user' | 'assistant', content: m.text! }));
                       setReplyTo(null);
-                      const opts: AskOpts = { history, model: aiPrefs.model || undefined, thinking: aiPrefs.thinking, search: aiPrefs.search };
+                      const opts: AskOpts = { history, model: aiPrefs.model || undefined, thinking: aiPrefs.thinking, search: aiPrefs.search, agent: aiPrefs.agent };
                       if (payload.uri) {
                         // foto dikirim di chat AI → dianalisis lewat endpoint vision
                         opts.imageUrl = payload.uri;
@@ -450,6 +495,14 @@ export default function ChatRoom() {
                 })}
               </ScrollView>
             )}
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Ionicons name="terminal" size={20} color="#50DC8C" />
+            <View style={{ flex: 1 }}>
+              <T style={{ fontWeight: '800' }}>Mode Agent (Terminal)</T>
+              <T v="caption" color={t.faint}>Jawaban + log penyedia AI tampil ala terminal — terlihat seperti agent sungguhan</T>
+            </View>
+            <Toggle value={aiPrefs.agent} onChange={(v) => setAiPrefs((x) => ({ ...x, agent: v }))} />
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <Ionicons name="bulb" size={20} color={t.accent} />

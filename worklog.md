@@ -1,5 +1,71 @@
 # WORKLOG — ZEROID WHATSAPP
 
+## Ronde: VANZZ API + PEMBAYARAN QRIS/DANA + OWNER PROTECTION + MENU GRATIS (2026-10-31)
+
+### 1. Vanzz API terintegrasi penuh (apiz.vsunsee.qzz.io) — 199 endpoint diambil live
+- Registry endpoint diambil langsung dari `/api/endpoints` (docs resmi Vanzz) → tersimpan
+  di `docs/vanzz-endpoints.json`. Kunci API user (`v_***270`) hidup HANYA di env server:
+  `VANZZ_API_KEY` di Vercel (production+preview+development) + `.env` lokal (di-gitignore).
+- **Rute baru `api/vanzz.ts`** (serverless): whitelist endpoint GRATIS (cuaca, gempa, bmkg,
+  6 sumber berita, 3 quotes, anime animein/anikai/otakudesu, AM finder, jadwal sholat +
+  Islamic, TTS, kalkulator, ssweb, ToQR) + endpoint STIKER (brat, bratvideo, bratanime,
+  randomsticker, smemev1, smemev2) + 2 action khusus:
+  - `qris`  : QRIS statis admin → QRIS DINAMIS ber-nominal via Vanzz qris/payment.
+  - `deliver`: realisasi produk berbayar (Check Nomor 5rb / Netflix 7rb / AM Premium 10rb /
+    AM Unlock 10rb) — server verifikasi order (pemilik + status 'paid'), panggil Vanzz,
+    simpan hasil ke order. Kunci & pemanggilan API 100% server-side.
+- Client `lib/vanzz.ts`: proxyPost + ID token, rate limit server 40 req/5 menit/user.
+- MuslimAI sengaja TIDAK dipasang (permintaan pemilik).
+
+### 2. Pembayaran QRIS + DANA (cukup 2 metode) + bukti transfer wajib
+- `PAYMENT_METHODS` dipangkas: hanya QRIS + DANA (GoPay/OVO/BCA dihapus).
+- `config/payments` (baru): nomor DANA, nama pemilik, foto QRIS, catatan — dikelola admin
+  via panel baru **PaymentsConfigPanel** (upload QRIS dari galeri, realtime ke semua user).
+- BuySheet baru 2 langkah di PremiumScreen: pilih metode → detail bayar (QRIS dinamis
+  nominal tepat / nomor DANA copy-able) → **WAJIB unggah bukti transfer** (foto → upload →
+  `orders.proofUrl`). Riwayat pesanan menampilkan bukti + hasil API + status.
+- Firestore Rules v22: pembeli boleh menulis `proofUrl/proofAt` pada pesanan 'pending'
+  miliknya; admin boleh edit `status/adminNote/price` + hapus transaksi.
+- **Notifikasi real-time pembelian**: admin konfirmasi → announcement baru (kind
+  'purchase') + FCM topic 'all': "X membeli Y seharga Z — Yok beli juga!".
+- Admin panel tab Order: lihat bukti (tap zoom), edit status/catatan, hapus transaksi,
+  status realisasi API (delivered / deliveryError).
+
+### 3. DEVELOPER UTAMA anti-ban & anti-edit (gedejulianto148@gmail.com)
+- `OWNER_DEV_EMAIL` + `isOwnerDev()` di store; guard di adminBan/adminUnban/adminSetRole/
+  adminVerify/adminToggleBlueCheck/adminSetVip/adminSetMuteOff → ditolak + banner.
+- Admin panel tab User: badge OWNER emas, semua tombol aksi disembunyikan untuk owner.
+- Rules v22: dokumen users milik owner TIDAK bisa di-update oleh admin lain
+  (`targetIsOwner()`); hanya pemilik akunnya sendiri.
+- saputraamanah999@gmail.com diturunkan jadi user biasa via GitHub Actions
+  (maintenance setrole — sukses) + workflow baru `roles-fix.yml` (owner protection).
+
+### 4. MENU GRATIS (rename Anime di profil)
+- `screens/FreeMenu.tsx` baru: chips Anime / Berita / Cuaca / Gempa / Quotes / AM Finder;
+  sub-sumber berita (Kompas/CNN/Liputan6/Antara/CNBC/Sindonews) + quotes (Motivasi/Galau/
+  Gombal); Cuaca input kota; AM Finder input URL TikTok; Gempa auto-load; Anime membuka
+  hub lama + FYP anime sub Indo (animein). Route 'FreeMenu' di App.tsx; MeTab: "Menu
+  Gratis · Anime · Berita · Cuaca · Gempa · Quotes · AM Finder".
+
+### 5. AI Zeroid diperkuat — 4 penyedia + mode agent terminal
+- `api/ai.ts`: penyedia ke-4 VANZZ (Open AI sesi → Groq/Claude → DeepAI) masuk rantai
+  failover sticky: Sylvatica → Jerexd → Vexo → Vanzz. Respons kini memuat `steps`
+  (jejak percobaan tiap penyedia, waktu nyata).
+- Chat AI: **animasi thinking** (frasa berputar "menganalisis…/menghubungi agent…") +
+  **MODE AGENT (Terminal)** toggle: terminal preview live saat menunggu + log penyedia
+  (zeroid-agent) tersimpan di pesan (`agentLog`) dan bisa dibuka ulang.
+- Thinking mode DeepSeek R1 tetap; `agentLog` baru di Message type.
+
+### 6. Stiker Vanzz — Brat 3 varian + meme + publish admin
+- Composer & layar Stiker: pilihan Brat Teks (render lokal, fallback Vanzz) / Brat Video /
+  Brat Anime + **Random Sticker Meme / Custom Meme V1 / Custom Meme V2** (teks atas-bawah +
+  gambar latar opsional). Hasil otomatis tersimpan ke koleksi stiker user
+  (createSticker) dan admin/developer bisa centang "publikasikan" → stiker GLOBAL.
+
+### Status
+- tsc 0 error; `expo export --platform web` sukses.
+- Vercel env VANZZ_API_KEY terpasang (201). Rules v22 auto-deploy via deploy-rules.yml.
+
 ## Ronde: CHECK-IN 0 KOIN (2 lapis) + TYPING AI + APK v1.1.0 fix crash (2026-10-30)
 
 ### 1. CHECK-IN "berhasil tapi koin tetap 0" — DUA akar masalah, keduanya dibuktikan end-to-end

@@ -27,7 +27,8 @@ export const AI_PROVIDERS = [
 ] as const;
 
 export type AiMessage = { role: 'user' | 'assistant' | 'system'; content: string };
-export type AiResult = { text: string; reasoning?: string };
+export type AiResult = { text: string; reasoning?: string; provider?: string; steps?: AiStep[] };
+export type AiStep = { provider: string; ok: boolean; ms: number };
 
 let modelCache: { at: number; models: string[] } | null = null;
 
@@ -66,7 +67,7 @@ export async function askAI(
       const data = await post(body, 75000);
       const text = cleanAiText(String(data?.text ?? ''));
       if (!text) throw new Error('Respons AI kosong.');
-      return { text };
+      return { text, provider: data?.provider ? String(data.provider) : undefined, steps: Array.isArray(data?.steps) ? data.steps.slice(0, 8) : undefined };
     } catch (e: any) {
       lastErr = e;
       const timedOut = e?.name === 'AbortError' || /waktu tunggu/i.test(String(e?.message ?? ''));

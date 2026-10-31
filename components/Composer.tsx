@@ -18,7 +18,7 @@ import { Icon } from '../lib/icons';
 import { useTheme, font, R } from '../lib/theme';
 import { Message, DB, User } from '../lib/types';
 import { messagePreview, sendMessage, editMessage, setTyping, clearTyping, retryMessage, OutMsg, stickersFor, createSticker } from '../lib/store';
-import { bratSticker } from '../lib/supabase';
+import { vanzzCall } from '../lib/vanzz';
 import { bratStickerLocal } from '../lib/brat';
 import { STICKER_PREVIEW_SIZE } from '../lib/sticker';
 import MentionSuggestions, { MentionOption } from './MentionSuggestions';
@@ -82,6 +82,12 @@ export default function Composer({
   const [livePhoto, setLivePhoto] = useState<Picked | null>(null);
   const [liveVideo, setLiveVideo] = useState<Picked | null>(null);
   const [bratMode, setBratMode] = useState(false);
+  const [bratStyle, setBratStyle] = useState<'text' | 'video' | 'anime' | 'meme'>('text');
+  const [memeMode, setMemeMode] = useState<'random' | 'custom1' | 'custom2'>('random');
+  const [memeTop, setMemeTop] = useState('');
+  const [memeBottom, setMemeBottom] = useState('');
+  const [memeImg, setMemeImg] = useState<string | null>(null);
+  const [memeBusy, setMemeBusy] = useState(false);
   const [bratText, setBratText] = useState('');
   const [bratUrl, setBratUrl] = useState<string | null>(null);
   const [bratBusy, setBratBusy] = useState(false);
@@ -653,51 +659,100 @@ export default function Composer({
           />
         </View>
         <View style={{ gap: 12 }}>
-          {/* ======== STIKER BRAT — ketik teks → stiker muncul → favorit → kirim ======== */}
+          {/* ======== STIKER — Brat 3 varian (teks/video/anime) + Meme (random/custom v1/v2) ======== */}
           {!bratMode ? (
-            <Btn small variant="neu" icon="text" title="Stiker Brat dari teks" onPress={() => (setBratMode(true), setBratUrl(null))} />
+            <>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                <Btn small variant="neu" icon="text" title="Stiker Brat" onPress={() => (setBratMode(true), setBratStyle('text'), setBratUrl(null))} />
+                <Btn small variant="neu" icon="shuffle" title="Stiker Meme" onPress={() => (setBratMode(true), setBratStyle('meme'), setBratUrl(null))} />
+              </View>
+            </>
           ) : (
             <View style={{ gap: 10 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <TextInput
-                  value={bratText}
-                  onChangeText={setBratText}
-                  placeholder="Ketik teks stiker Brat…"
-                  placeholderTextColor={t.faint}
-                  maxLength={90}
-                  style={{ flex: 1, minHeight: 40, borderRadius: R.md, paddingHorizontal: 12, paddingVertical: 8, color: t.text, backgroundColor: t.bg2, fontSize: 14 }}
-                />
-                <Btn
-                  small
-                  icon="sparkles"
-                  title="Buat"
-                  loading={bratBusy}
-                  disabled={!bratText.trim()}
-                  onPress={async () => {
-                    setBratBusy(true);
-                    try {
-                      // PRIMÁR: generate LOKAL (instan, tanpa server — tidak mungkin kosong).
-                      // Endpoint jadi cadangan bila generate lokal gagal (kasus ekstrem).
-                      let url: string | null = null;
-                      try { url = await bratStickerLocal(bratText.trim()); } catch { }
-                      if (!url) {
-                        const r = await bratSticker(bratText.trim());
-                        url = r.url ?? r.dataUrl ?? null;
-                      }
-                      setBratUrl(url);
-                      if (url) pushBanner({ title: 'Stiker siap', body: 'Kirim atau tambah ke favorit.', icon: 'happy' });
-                    } catch (e: any) {
-                      pushBanner({ title: 'Stiker Brat gagal', body: String(e?.message ?? 'Coba lagi.').slice(0, 140), icon: 'alert' });
-                    } finally {
-                      setBratBusy(false);
-                    }
-                  }}
-                />
-              </View>
+              {/* pilih varian: Brat teks / video / anime — atau Meme */}
+              {bratStyle === 'meme' ? (
+                <>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
+                    <Btn small variant={memeMode === 'random' ? 'primary' : 'ghost'} icon="shuffle" title="Random" onPress={() => setMemeMode('random')} />
+                    <Btn small variant={memeMode === 'custom1' ? 'primary' : 'ghost'} icon="create" title="Custom V1" onPress={() => setMemeMode('custom1')} />
+                    <Btn small variant={memeMode === 'custom2' ? 'primary' : 'ghost'} icon="create" title="Custom V2" onPress={() => setMemeMode('custom2')} />
+                  </View>
+                  {memeMode !== 'random' && (
+                    <>
+                      <TextInput value={memeTop} onChangeText={setMemeTop} placeholder="Teks atas…" placeholderTextColor={t.faint} maxLength={60} style={{ minHeight: 40, borderRadius: R.md, paddingHorizontal: 12, paddingVertical: 8, color: t.text, backgroundColor: t.bg2, fontSize: 14 }} />
+                      <TextInput value={memeBottom} onChangeText={setMemeBottom} placeholder="Teks bawah…" placeholderTextColor={t.faint} maxLength={60} style={{ minHeight: 40, borderRadius: R.md, paddingHorizontal: 12, paddingVertical: 8, color: t.text, backgroundColor: t.bg2, fontSize: 14 }} />
+                      <Btn small variant="ghost" icon="image" title={memeImg ? 'Gambar ✓ ganti' : 'Pilih gambar latar (opsional)'} onPress={async () => { const p = await pickGallery('images'); if (!p) return; setMemeBusy(true); try { const up = await uploadMedia(p.uri, `meme/${Date.now()}.jpg`, p.mime || 'image/jpeg'); setMemeImg(up?.url ?? null); } catch { pushBanner({ title: 'Upload gagal', body: 'Coba gambar lain.', icon: 'alert' }); } finally { setMemeBusy(false); } }} />
+                    </>
+                  )}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Btn small icon="sparkles" variant="primary" title={memeMode === 'random' ? 'Ambil stiker acak' : 'Buat stiker meme'} loading={bratBusy} onPress={async () => {
+                      setBratBusy(true);
+                      try {
+                        const key = memeMode === 'random' ? 'randomsticker' : memeMode === 'custom1' ? 'smemev1' : 'smemev2';
+                        const r = await vanzzCall(key, { top: memeTop.trim(), bottom: memeBottom.trim(), link: memeImg ?? '' });
+                        if (!r.ok || !(r.image || r.data)) throw new Error(r.error ?? 'Stiker tidak berhasil dibuat.');
+                        setBratUrl(r.image ?? (typeof r.data === 'string' ? r.data : null));
+                        pushBanner({ title: 'Stiker meme siap', body: 'Kirim atau simpan ke favorit.', icon: 'happy' });
+                      } catch (e: any) { pushBanner({ title: 'Stiker meme gagal', body: String(e?.message ?? '').slice(0, 140), icon: 'alert' }); } finally { setBratBusy(false); }
+                    }} />
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
+                    {([['text', 'Teks'], ['video', 'Video'], ['anime', 'Anime']] as const).map(([k, lbl]) => (
+                      <Btn key={k} small variant={bratStyle === k ? 'primary' : 'ghost'} icon={k === 'text' ? 'text' : k === 'video' ? 'videocam' : 'color-palette'} title={lbl} onPress={() => setBratStyle(k)} />
+                    ))}
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <TextInput
+                      value={bratText}
+                      onChangeText={setBratText}
+                      placeholder="Ketik teks stiker Brat…"
+                      placeholderTextColor={t.faint}
+                      maxLength={90}
+                      style={{ flex: 1, minHeight: 40, borderRadius: R.md, paddingHorizontal: 12, paddingVertical: 8, color: t.text, backgroundColor: t.bg2, fontSize: 14 }}
+                    />
+                    <Btn
+                      small
+                      icon="sparkles"
+                      title="Buat"
+                      loading={bratBusy}
+                      disabled={!bratText.trim()}
+                      onPress={async () => {
+                        setBratBusy(true);
+                        try {
+                          let url: string | null = null;
+                          if (bratStyle === 'text') {
+                            // varian TEKS: render lokal instan dulu (persis stiker brat),
+                            // endpoint Vanzz jadi cadangan bila render lokal gagal.
+                            try { url = await bratStickerLocal(bratText.trim()); } catch { }
+                            if (!url) {
+                              const r = await vanzzCall('brat', { text: bratText.trim() });
+                              url = r.image ?? (r.ok && typeof r.data === 'string' ? r.data : null);
+                            }
+                          } else {
+                            // varian VIDEO / ANIME via Vanzz (animasi teks gaya brat)
+                            const r = await vanzzCall(bratStyle === 'video' ? 'bratvideo' : 'bratanime', { text: bratText.trim() }, 55000);
+                            url = r.image ?? (r.ok && typeof r.data === 'string' ? r.data : null);
+                            if (!r.ok || !url) throw new Error(r.error ?? 'Stiker video/anime gagal dibuat.');
+                          }
+                          setBratUrl(url);
+                          if (url) pushBanner({ title: 'Stiker siap', body: 'Kirim atau tambah ke favorit.', icon: 'happy' });
+                        } catch (e: any) {
+                          pushBanner({ title: 'Stiker Brat gagal', body: String(e?.message ?? 'Coba lagi.').slice(0, 140), icon: 'alert' });
+                        } finally {
+                          setBratBusy(false);
+                        }
+                      }}
+                    />
+                  </View>
+                </>
+              )}
               {!!bratUrl && (
                 <View style={{ alignItems: 'center', gap: 10 }}>
                   <Image source={{ uri: bratUrl }} style={{ width: STICKER_PREVIEW_SIZE, height: STICKER_PREVIEW_SIZE, borderRadius: 14, backgroundColor: t.bg2 }} contentFit="contain" />
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
                     <Btn
                       small
                       icon="star"
@@ -707,25 +762,43 @@ export default function Composer({
                         if (s) pushBanner({ title: 'Masuk favorit', body: 'Ketuk stiker di bawah untuk mengirim.', icon: 'star' });
                       }}
                     />
+                    {/* PUBLISH: hanya developer/admin — stiker jadi GLOBAL (semua user) */}
+                    {(me.role === 'admin' || !!me.developer) && (
+                      <Btn
+                        small
+                        variant="neu"
+                        icon="globe"
+                        title="Publikasikan"
+                        onPress={() => {
+                          const s = createSticker(bratUrl, true);
+                          if (s) pushBanner({ title: 'Stiker dipublikasikan', body: 'Semua pengguna melihat stiker ini di daftar stiker.', icon: 'globe' });
+                        }}
+                      />
+                    )}
                     <Btn
                       small
                       variant="primary"
                       icon="send"
                       title="Kirim"
                       onPress={() => {
-                        // KIRIM SEBAGAI PESAN BRAT: dirender langsung (SVG) dengan
-                        // emoji gaya iPhone — tajam & konsisten di semua perangkat.
-                        send({ type: 'brat', text: bratText.trim(), bratText: bratText.trim(), uri: bratUrl ?? undefined });
+                        // BRAT teks → pesan SVG tajam; varian lain (video/anime/meme) →
+                        // kirim sebagai gambar/stiker hasil render Vanzz.
+                        if (bratStyle === 'text' && bratText.trim()) {
+                          send({ type: 'brat', text: bratText.trim(), bratText: bratText.trim(), uri: bratUrl ?? undefined });
+                        } else {
+                          send({ type: 'sticker', uri: bratUrl! });
+                        }
                         setPanel(null);
                         setBratMode(false);
                         setBratUrl(null);
                         setBratText('');
+                        setMemeTop(''); setMemeBottom(''); setMemeImg(null);
                       }}
                     />
                   </View>
                 </View>
               )}
-              <Btn small variant="ghost" title="Tutup Brat" onPress={() => (setBratMode(false), setBratUrl(null))} />
+              <Btn small variant="ghost" title="Tutup" onPress={() => (setBratMode(false), setBratUrl(null))} />
             </View>
           )}
           {!bratMode && (

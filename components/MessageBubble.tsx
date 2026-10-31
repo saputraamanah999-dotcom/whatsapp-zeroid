@@ -65,6 +65,7 @@ export default function MessageBubble({
   const senderName = m.assistant ? db.aiProfile?.name?.trim() || 'Zeroid AI' : sender?.name;
   const senderColor = m.assistant ? '#7B61FF' : sender?.color ?? t.accent;
   const [showThink, setShowThink] = useState(false);
+  const [showTerm, setShowTerm] = useState(false);
   // BAGIAN 5: metadata internal AI (:::writing{...}, <think>) TIDAK BOLEH tampil.
   // Dibersihkan juga saat render supaya pesan LAMA yang tersimpan dengan
   // metadata ikut rapi (server & klien baru sudah membersihkan saat masuk).
@@ -410,6 +411,26 @@ export default function MessageBubble({
                   </T>
                 </View>
               </Pressable>
+            )}
+            {m.assistant && !!m.agentLog?.length && (
+              <View style={{ marginBottom: 6, borderRadius: 12, overflow: 'hidden', backgroundColor: '#0B1220', borderWidth: 1, borderColor: 'rgba(80,220,140,0.35)', padding: 8 }}>
+                <Pressable onPress={() => setShowTerm((v) => !v)} style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }} hitSlop={6}>
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#50DC8C' }} />
+                  <T v="caption" color="#50DC8C" style={{ fontWeight: '800', fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }}>
+                    {showTerm ? 'zeroid-agent — tutup log' : 'zeroid-agent — lihat log'}
+                  </T>
+                </Pressable>
+                {showTerm && (
+                  <View style={{ marginTop: 6, gap: 2 }}>
+                    {m.agentLog.map((s, i) => (
+                      <T key={i} v="caption" color={s.ok ? '#8CF5B0' : '#FF7B7B'} style={{ fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }}>
+                        {`> ${s.ok ? '✔' : '✗'} ${s.provider} (${(s.ms / 1000).toFixed(1)}s)`}
+                      </T>
+                    ))}
+                    <T v="caption" color="rgba(140,245,176,0.7)" style={{ fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }}>› selesai — jawaban di bawah</T>
+                  </View>
+                )}
+              </View>
             )}
             {m.assistant && !!m.reasoning && (
               <View style={{ marginBottom: 6, borderRadius: 12, backgroundColor: mine ? 'rgba(255,255,255,0.12)' : 'rgba(123,97,255,0.08)', padding: 8 }}>

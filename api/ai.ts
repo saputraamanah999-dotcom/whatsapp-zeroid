@@ -307,37 +307,84 @@ async function vexoChat(messages: { role: string; content: string }[], timeoutMs
 }
 
 // ---------------------------------------------------------------------------
+// VANZZ AI — penyedia ke-4 (apiz.vsunsee.qzz.io): Open AI (sesi) → Groq/Claude
+// → DeepAI. Kunci VANZZ_API_KEY dari env Vercel; fallback: secrets/ai Firestore.
+// Gagal satu model → lompat ke model berikutnya otomatis.
+// ---------------------------------------------------------------------------
+async function vanzzKey(): Promise<string> {
+  const env = (process.env.VANZZ_API_KEY || '').trim();
+  if (env) return env;
+  try { return await apiKey('VANZZ_APIKEY'); } catch { return ''; }
+}
+
+async function vanzzAI(fullPrompt: string, sessionId: string, timeoutMs: number): Promise<{ ok: boolean; text: string; model: string }> {
+  const key = await vanzzKey();
+  if (!key) return { ok: false, text: '', model: '' };
+  const slice = fullPrompt.slice(0, 3600);
+  // 1) OPEN AI (mendukung sesi percakapan) → 2) GROQ (Claude, + prompt gaya) → 3) DEEP
+  const attempts: { path: string; params: Record<string, string>; model: string }[] = [
+    { path: '/vsunseeV8/open/ai', params: { message: slice, sessionid: sessionId ? `zw_${sessionId.replace(/[^a-z0-9]/gi, '').slice(0, 32)}` : '' }, model: 'openai' },
+    { path: '/vsunseeV8/groq/ai', params: { text: slice, prompt: 'Jawab dengan gaya bahasa pengguna.' }, model: 'groq' },
+    { path: '/vsunseeV8/deep/ai', params: { message: slice }, model: 'deep' },
+  ];
+  for (const a of attempts) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    try {
+      const url = new URL(`https://apiz.vsunsee.qzz.io${a.path}`);
+      url.searchParams.set('apikey', key);
+      for (const [k, v] of Object.entries(a.params)) if (v) url.searchParams.set(k, v.slice(0, 3600));
+      const r = await fetch(url.toString(), { signal: ctl.signal });
+      const data = await r.json().catch(() => null);
+      const text = r.ok ? pickText(data) : '';
+      if (text.trim()) return { ok: true, text: text.trim(), model: a.model };
+    } catch { /* model berikutnya */ } finally { clearTimeout(timer); }
+  }
+  return { ok: false, text: '', model: '' };
+}
+
+// ---------------------------------------------------------------------------
 // RANTAI PENYEDIA (sticky: yang terakhir sukses dicoba lebih dulu)
 // ---------------------------------------------------------------------------
-type ProviderId = 'sylvatica' | 'jerexd' | 'vexo';
+type ProviderId = 'sylvatica' | 'jerexd' | 'vexo' | 'vanzz';
 let sticky: ProviderId | null = null;
-const PREFERRED: ProviderId[] = ['sylvatica', 'jerexd', 'vexo'];
+const PREFERRED: ProviderId[] = ['sylvatica', 'jerexd', 'vexo', 'vanzz'];
 
 function providerOrder(): ProviderId[] {
   return sticky ? [sticky, ...PREFERRED.filter((p) => p !== sticky)] : [...PREFERRED];
 }
 
-/** Jawab dengan SATU prompt penuh (sudah termasuk persona) — failover 3 penyedia. */
-async function chatFullPrompt(fullPrompt: string, model: string, budgetMs: number): Promise<{ text: string; provider: ProviderId } | null> {
+/** Jawab dengan SATU prompt penuh (sudah termasuk persona) — failover 4 penyedia.
+ *  steps: jejak percobaan tiap penyedia (terminal preview agent). */
+async function chatFullPrompt(fullPrompt: string, model: string, budgetMs: number, sessionId = '', steps?: { provider: string; ok: boolean; ms: number }[]): Promise<{ text: string; provider: ProviderId } | null> {
   const t0 = Date.now();
   const slice = fullPrompt.slice(0, 3600);
   for (const p of providerOrder()) {
     const left = budgetMs - (Date.now() - t0);
     if (left < 6000) break;
     const per = Math.min(left - 1000, p === 'vexo' ? 45000 : 42000);
+    const st0 = Date.now();
     try {
       if (p === 'sylvatica') {
         const out = await sylvaticaAI(slice, per);
+        steps?.push({ provider: 'Sylvatica', ok: !!out?.trim(), ms: Date.now() - st0 });
         if (out && out.trim()) { sticky = p; return { text: out.trim(), provider: p }; }
       } else if (p === 'jerexd') {
         const r = await jerePost('/api/ai/aichat', { prompt: slice, model: model || 'gpt', session_id: `zw_${Math.random().toString(36).slice(2, 10)}` }, per);
         const text = r.ok ? pickText(r.data) : '';
+        steps?.push({ provider: 'Jerexd', ok: !!text.trim(), ms: Date.now() - st0 });
         if (text.trim()) { sticky = p; return { text: text.trim(), provider: p }; }
-      } else {
+      } else if (p === 'vexo') {
         const r = await vexoChat([{ role: 'user', content: slice }], per);
+        steps?.push({ provider: 'Vexo', ok: r.ok && !!r.text, ms: Date.now() - st0 });
+        if (r.ok && r.text) { sticky = p; return { text: r.text, provider: p }; }
+      } else {
+        const r = await vanzzAI(slice, sessionId, Math.min(per, 40000));
+        steps?.push({ provider: r.ok ? `Vanzz·${r.model}` : 'Vanzz', ok: r.ok, ms: Date.now() - st0 });
         if (r.ok && r.text) { sticky = p; return { text: r.text, provider: p }; }
       }
     } catch {
+      steps?.push({ provider: p === 'vanzz' ? 'Vanzz' : p[0].toUpperCase() + p.slice(1), ok: false, ms: Date.now() - st0 });
       /* penyedia berikutnya */
     }
   }
@@ -475,15 +522,16 @@ export default async function handler(req: any, res: any) {
       const histTrim = hist.length > histBudget ? hist.slice(-histBudget) : hist;
       const full = `${systemPrompt(body)}\n\n${histTrim ? histTrim + '\n\n' : ''}User: ${question}\n\nAssistant:`;
       const t0 = Date.now();
+      const steps: { provider: string; ok: boolean; ms: number }[] = [];
       // percobaan pertama pada model pilihan (jika JEREXD yang menang, dipakai; provider lain mengabaikan)
-      const first = await chatFullPrompt(full, s(body?.model, 60), 50000);
+      const first = await chatFullPrompt(full, s(body?.model, 60), 50000, s(body?.sessionId, 80), steps);
       if (first) {
-        return res.status(200).json({ ok: true, text: sanitizeIdentity(stripInternalMarkup(first.text), aiName).slice(0, 8000), provider: first.provider });
+        return res.status(200).json({ ok: true, text: sanitizeIdentity(stripInternalMarkup(first.text), aiName).slice(0, 8000), provider: first.provider, steps });
       }
       // satu percobaan ulang singkat (upstream kadang gagal sesaat)
       await sleep(1000);
-      const second = await chatFullPrompt(full, s(body?.model, 60), Math.max(8000, 56000 - (Date.now() - t0)));
-      if (second) return res.status(200).json({ ok: true, text: sanitizeIdentity(stripInternalMarkup(second.text), aiName).slice(0, 8000), provider: second.provider });
+      const second = await chatFullPrompt(full, s(body?.model, 60), Math.max(8000, 56000 - (Date.now() - t0)), s(body?.sessionId, 80), steps);
+      if (second) return res.status(200).json({ ok: true, text: sanitizeIdentity(stripInternalMarkup(second.text), aiName).slice(0, 8000), provider: second.provider, steps });
       return bad(res, 502, 'Semua penyedia AI sedang tidak bisa menjawab. Coba lagi beberapa saat lagi.');
     }
 

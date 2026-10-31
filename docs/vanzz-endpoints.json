@@ -1,0 +1,1441 @@
+{
+  "creator": "Vanzz Ryuichi",
+  "AI": [
+    {
+      "name": "Groq Ai",
+      "desc": "Claude Ai Chat",
+      "status": "Active",
+      "path": "/vsunseeV8/groq/ai?apikey=&text=&prompt=",
+      "petunjuk": "Contoh: /vsunseeV8/groq/ai?apikey=&text=Jelaskan+Apa+Itu+Node+Js&prompt=Gunakan+Bahasa+Indonesia"
+    },
+    {
+      "name": "DeepAI",
+      "desc": "Deep AI Chat",
+      "status": "Active",
+      "path": "/vsunseeV8/deep/ai?apikey=&message=",
+      "petunjuk": "Contoh: /vsunseeV8/deep/ai?apikey=KEY&message=Hallo"
+    },
+    {
+      "name": "MuslimAI",
+      "desc": "AI Asisten Islami",
+      "status": "Active",
+      "path": "/vsunseeV8/muslim/ai?apikey=&message=",
+      "petunjuk": "Contoh: /vsunseeV8/muslimai?apikey=KEY&message=Assalamualaikum"
+    },
+    {
+      "name": "Open AI",
+      "desc": "Open AI Chat",
+      "status": "Active",
+      "path": "/vsunseeV8/open/ai?apikey=&message=&sessionid=",
+      "petunjuk": "Contoh: /vsunseeV8/open/ai?apikey=KEY&message=Hallo&sessionid=12345"
+    }
+  ],
+  "Downloader": [
+    {
+      "name": "Play YTA",
+      "desc": "Search & Download Audio",
+      "status": "Active",
+      "path": "/vsunseeV8/youtube/playyta?apikey=&search=",
+      "petunjuk": "Contoh: /vsunseeV8/playyta?apikey=KEY&search=Multo"
+    },
+    {
+      "name": "Ytmp4",
+      "desc": "Downloader Youtube mp4",
+      "status": "Active",
+      "path": "/vsunseeV8/youtube/ytmp4?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/youtube/ytmp4?apikey=KEY&url=https://youtu.be/jb-U6YSpKuM?si=cfi0Sql-CypsCqKX"
+    },
+    {
+      "name": "Ytmp3",
+      "desc": "Downloader Youtube mp3",
+      "status": "Active",
+      "path": "/vsunseeV8/youtube/ytmp3?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/youtube/ytmp3?apikey=KEY&url=https://youtu.be/jb-U6YSpKuM?si=cfi0Sql-CypsCqKX"
+    },
+    {
+      "name": "Tiktok",
+      "desc": "Downloader tiktok",
+      "status": "Active",
+      "path": "/vsunseeV8/tiktok/download?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/tiktok/download?apikey=KEY&url=https://vt.tiktok.com/ZS5M3Wax7/"
+    },
+    {
+      "name": "Capcut",
+      "desc": "Downloader capcut",
+      "status": "Active",
+      "path": "/vsunseeV8/capcut/download?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/capcut/download?apikey=KEY&url=https://www.capcut.com/template-detail/7577161987793243399?template_id=7577161987793243399&share_token=166dcc15-0a5d-4972-b23f-58e28a772a14&enter_from=template_detail&region=ID&language=in&platform=copy_link&is_copy_link=1"
+    },
+    {
+      "name": "Pinterest",
+      "desc": "Download pinterest foto",
+      "status": "Active",
+      "path": "/vsunseeV8/pinterest/download?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/pinterest/download?apikey=KEY&url=https://id.pinterest.com/pin/628181848064592295/"
+    },
+    {
+      "name": "Spotify",
+      "desc": "Downloader Spotify ",
+      "status": "Active",
+      "path": "/vsunseeV8/spotify/download?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/spotify/download?apikey=KEY&url=https://open.spotify.com/intl-id/track/4cBm8rv2B5BJWU2pDaHVbF"
+    },
+    {
+      "name": "Instagram",
+      "desc": "Downloader Instagram ",
+      "status": "Active",
+      "path": "/vsunseeV8/instagram/download?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/instagram/download?apikey=KEY&url=https://www.instagram.com/p/Ddr0pHIgJBi/?stkn=MTh1bDd0bnk4djhtdg=="
+    },
+    {
+      "name": "Facebook",
+      "desc": "Downloader Facebook ",
+      "status": "Active",
+      "path": "/vsunseeV8/facebook/download?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/facebook?apikey=KEY&url=https://www.facebook.com/share/p/1C1CWN8hzp/"
+    },
+    {
+      "name": "Apple Music",
+      "desc": "Downloader Apple Music ",
+      "status": "Active",
+      "path": "/vsunseeV8/applemusic/download?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/applemusic/download?apikey=KEY&url=https://music.apple.com/us/song/multo/1766905828"
+    },
+    {
+      "name": "XNXX",
+      "desc": "Downloader xnxx",
+      "status": "Active",
+      "path": "/vsunseeV8/xnxx/download?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/xnxx/download?apikey=KEY&url=https://www.xnxx.com/video-1cg03546/a_blended_family_with_a_son_who_can_t_fit_in_and_a_stepmother_who_has_to_use_sex_education_to_guide_her_son_properly."
+    },
+    {
+      "name": "Videy",
+      "desc": "Downloader videy",
+      "status": "Active",
+      "path": "/vsunseeV8/videy/download?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/videy/download?apikey=KEY&url=https://videy.co/v/?id=gHtRlrdC1"
+    },
+    {
+      "name": "Twitter",
+      "desc": "Downloader Twitter",
+      "status": "Active",
+      "path": "/vsunseeV8/twitter/download?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/twitter/download?apikey=KEY&url=https://twitter.com/reoenl/status/1678370956996390913?t=wVFQzgse071qZ_omVcvbkg&s=19"
+    },
+    {
+      "name": "Gitclone",
+      "desc": "Downloader gitclone",
+      "status": "Active",
+      "path": "/vsunseeV8/github/download?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/github/download?apikey=KEY&url=https://github.com/Vanxzofc/Egg-Whatsapp-Bot"
+    },
+    {
+      "name": "Mediafire",
+      "desc": "Downloader mediafire",
+      "status": "Active",
+      "path": "/vsunseeV8/mediafire/download?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/mediafire/download?apikey=KEY&url=https://www.mediafire.com/file/rdqsfzc68lexfj1/IMG_20260914_172014.jpg/file"
+    },
+    {
+      "name": "Sfile",
+      "desc": "Downloader Sfile",
+      "status": "Active",
+      "path": "/vsunseeV8/sfile/download?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/sfile/download?apikey=KEY&url=https://sfile.mobi/EAOgXyXkCLS"
+    },
+    {
+      "name": "Fdroid",
+      "desc": "Downloader Fdroid",
+      "status": "Active",
+      "path": "/vsunseeV8/fdroid/download?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/fdroid/download?apikey=KEY&url=https://f-droid.org/id/packages/dev.develsinthedetails.eatpoopyoucat"
+    },
+    {
+      "name": "Google Drive",
+      "desc": "Downloader Google Drive",
+      "status": "Active",
+      "path": "/vsunseeV8/gdrive/download?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/gdrive/download?apikey=KEY&url=https://drive.google.com/file/d/1XJS3Pg_LgrPDn3AsqkNuUSMFlgBCHFjq/view?usp=drivesdk"
+    },
+    {
+      "name": "Npm Package",
+      "desc": "Downloader Npm Package",
+      "status": "Active",
+      "path": "/vsunseeV8/npm/download?apikey=&package=",
+      "petunjuk": "Contoh: /vsunseeV8/npm/download?apikey=KEY&package=jinxiefun"
+    }
+  ],
+  "Random": [
+    {
+      "name": "Blue Archive",
+      "desc": "Random foto blue archive",
+      "status": "Active",
+      "path": "/vsunseeV8/bluearchive/random?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/ba?apikey=KEY"
+    },
+    {
+      "name": "Pap Random",
+      "desc": "Random pap",
+      "status": "Active",
+      "path": "/vsunseeV8/pap/random?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/papayang?apikey=KEY"
+    },
+    {
+      "name": "Quotes Galau",
+      "desc": "Random Quotes Galau",
+      "status": "Active",
+      "path": "/vsunseeV8/quotesgalau?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/quotesgalau?apikey=KEY"
+    },
+    {
+      "name": "Quotes Gombal",
+      "desc": "Random Quotes Gombal",
+      "status": "Active",
+      "path": "/vsunseeV8/quotesgombal?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/quotesgombal?apikey=key"
+    },
+    {
+      "name": "Quotes Motivasi",
+      "desc": "Random Quotes Motivasi",
+      "status": "Active",
+      "path": "/vsunseeV8/quotesmotivasi?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/quotesmotivasi?apikey=KEY"
+    },
+    {
+      "name": "Cek Kodam",
+      "desc": "Random Cek Kodam",
+      "status": "Active",
+      "path": "/vsunseeV8/cekkodam?apikey=&text=",
+      "petunjuk": "Contoh: /vsunseeV8/cekkodam?apikey=&text=KEY"
+    }
+  ],
+  "Anime": [
+    {
+      "name": "Animein ( Anime Sub Indo )",
+      "desc": "Search Anime",
+      "status": "Active",
+      "path": "/vsunseeV8/animein/search?apikey=&keyword=",
+      "petunjuk": "Contoh: /vsunseeV8/animein/vsunseeV8?apikey=KEY&keyword=naruto"
+    },
+    {
+      "name": "Animein ( Anime Sub Indo )",
+      "desc": "Get Fyp Anime",
+      "status": "Active",
+      "path": "/vsunseeV8/animein/fyp?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/animein/fyp?apikey=KEY"
+    },
+    {
+      "name": "Animein ( Anime Sub Indo )",
+      "desc": "Get Stream Info & Download",
+      "status": "Active",
+      "path": "/vsunseeV8/animein/streams?apikey=&id=341",
+      "petunjuk": "Contoh: /vsunseeV8/animein/streams?apikey=KEY&id=341"
+    },
+    {
+      "name": "Animein ( Anime Sub Indo )",
+      "desc": "Get Detail Anime",
+      "status": "Active",
+      "path": "/vsunseeV8/animein/info?apikey=&input=",
+      "petunjuk": "Contoh: /vsunseeV8/animein/info?apikey=KEY&input=341"
+    },
+    {
+      "name": "Kucing (Hentai/JAV)",
+      "desc": "Get Latest Videos",
+      "status": "Active",
+      "path": "/vsunseeV8/kucing/latest?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/kucing/latest?apikey=KEY"
+    },
+    {
+      "name": "Kucing (Hentai/JAV)",
+      "desc": "Search Video by Keyword",
+      "status": "Active",
+      "path": "/vsunseeV8/kucing/search?apikey=&q=&page=",
+      "petunjuk": "Contoh: /vsunseeV8/kucing/search?apikey=KEY&q=naruto&page=1"
+    },
+    {
+      "name": "Kucing (Hentai/JAV)",
+      "desc": "Get Detail Video by ID",
+      "status": "Active",
+      "path": "/vsunseeV8/kucing/detail?apikey=&id=",
+      "petunjuk": "Contoh: /vsunseeV8/kucing/detail?apikey=KEY&id=1234"
+    },
+    {
+      "name": "Kucing (Hentai/JAV)",
+      "desc": "Get Series Info by ID",
+      "status": "Active",
+      "path": "/vsunseeV8/kucing/series?apikey=&id=",
+      "petunjuk": "Contoh: /vsunseeV8/kucing/series?apikey=KEY&id=5678"
+    },
+    {
+      "name": "JOWO ( Drama Movie )",
+      "desc": "Get Category List",
+      "status": "Active",
+      "path": "/vsunseeV8/jowomovie/list?apikey=&category=hot",
+      "petunjuk": "Contoh: /vsunseeV8/jowomovie/list?apikey=KEY&category=hot"
+    },
+    {
+      "name": "JOWO ( Drama Movie )",
+      "desc": "Get Detail Episode",
+      "status": "Active",
+      "path": "/vsunseeV8/jowomovie/detail?apikey=&vid=12412",
+      "petunjuk": "Contoh: /vsunseeV8/jowomovie/detail?apikey=KEY&vid=12412"
+    },
+    {
+      "name": "Anime KAI",
+      "desc": "Search Anime List",
+      "status": "Active",
+      "path": "/vsunseeV8/anikai/search?apikey=&q=",
+      "petunjuk": "Contoh: /vsunseeV8/anikai/search?apikey=KEY&q=otonari+no+tenshi"
+    },
+    {
+      "name": "Anime KAI",
+      "desc": "Get Detail Anime",
+      "status": "Active",
+      "path": "/vsunseeV8/anikai/detail?apikey=&slug=",
+      "petunjuk": "Contoh: /vsunseeV8/anikai/detail?apikey=KEY&slug=the-angel-next-door-spoils-me-rotten-9"
+    },
+    {
+      "name": "Otakudesu",
+      "desc": "Get Anime Ongoing & Komik Latest",
+      "status": "Active",
+      "path": "/vsunseeV8/otakudesu/latest?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/otakudesu/latest?apikey=KEY"
+    },
+    {
+      "name": "Otakudesu ",
+      "desc": "Get Latest Ongoing",
+      "status": "Active",
+      "path": "/vsunseeV8/otakudesu/ongoing?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/otakudesu/ongoing?apikey=KEY"
+    }
+  ],
+  "Search": [
+    {
+      "name": "Youtube",
+      "desc": "Search Youtube Video",
+      "status": "Active",
+      "path": "/vsunseeV8/youtube/search?apikey=&q=",
+      "petunjuk": "Contoh: /vsunseeV8/youtube/search?apikey=KEY&q=multo"
+    },
+    {
+      "name": "Tiktok",
+      "desc": "Search Tiktok Video",
+      "status": "Active",
+      "path": "/vsunseeV8/tiktok/search?apikey=&query=",
+      "petunjuk": "Contoh: /vsunseeV8/tiktok/search?apikey=KEY&query=multo"
+    },
+    {
+      "name": "AlightMotion Finder",
+      "desc": "Search Preset Melalui Url Tiktok",
+      "status": "Active",
+      "path": "/vsunseeV8/amfinder/search?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/amfinder/search?apikey=KEY&url=https://vt.tiktok.com/ZSgQhagAt"
+    },
+    {
+      "name": "Npm",
+      "desc": "Search Npm Nodejs",
+      "status": "Active",
+      "path": "/vsunseeV8/npm/search?apikey=&q=",
+      "petunjuk": "Contoh: /vsunseeV8/npm/search?apikey=KEY&q=express"
+    },
+    {
+      "name": "Bingimage",
+      "desc": "Search bingimage foto",
+      "status": "Active",
+      "path": "/vsunseeV8/bingimage/search?apikey=&q=",
+      "petunjuk": "Contoh: /vsunseeV8/bingimage/search?apikey=KEY&q=cat"
+    },
+    {
+      "name": "Bstation Search",
+      "desc": "Bstation video search",
+      "status": "Active",
+      "path": "/vsunseeV8/bstation/search?apikey=&q=",
+      "petunjuk": "Contoh: /vsunseeV8/bstation/search?apikey=KEY&q=anime"
+    },
+    {
+      "name": "Gimage",
+      "desc": "Search google image",
+      "status": "Active",
+      "path": "/vsunseeV8/gimage/search?apikey=&q=",
+      "petunjuk": "Contoh: /vsunseeV8/gimage/search?apikey=KEY&q=wallpaper"
+    },
+    {
+      "name": "Wikipedia",
+      "desc": "Search Wikipedia",
+      "status": "Active",
+      "path": "/vsunseeV8/wikipedia/search?apikey=&q=",
+      "petunjuk": "Contoh: /vsunseeV8/wikipedia/search?apikey=KEY&q=cat"
+    },
+    {
+      "name": "Spotify",
+      "desc": "Search spotify music",
+      "status": "Active",
+      "path": "/vsunseeV8/spotify/search?apikey=&search=",
+      "petunjuk": "Contoh: /vsunseeV8/spotify/search?apikey=KEY&search=multo"
+    },
+    {
+      "name": "Pinterest",
+      "desc": "Search pinterest foto",
+      "status": "Active",
+      "path": "/vsunseeV8/pinterest/search?apikey=&query=&type=image",
+      "petunjuk": "Contoh: /vsunseeV8/pinterest/search?apikey=KEY&query=Cat&type=image"
+    },
+    {
+      "name": "Playstore",
+      "desc": "Search playstore apk",
+      "status": "Active",
+      "path": "/vsunseeV8/playstore/search?apikey=&q=",
+      "petunjuk": "Contoh: /vsunseeV8/playstore/search?apikey=KEY&q=whatsapp"
+    },
+    {
+      "name": "Fdroid",
+      "desc": "Fdroid Search Package",
+      "status": "Active",
+      "path": "/vsunseeV8/fdroid/search?apikey=&q=",
+      "petunjuk": "Contoh: /vsunseeV8/fdroid/search?apikey=KEY&q=cat"
+    },
+    {
+      "name": "XNXX",
+      "desc": "Search xnxx video",
+      "status": "Active",
+      "path": "/vsunseeV8/xnxx/search?apikey=&q=",
+      "petunjuk": "Contoh: /vsunseeV8/xnxx/search?apikey=KEY&q=japanese"
+    },
+    {
+      "name": "SoundCloud",
+      "desc": "Search PlayList SoundCloud",
+      "status": "Active",
+      "path": "/vsunseeV8/soundcl/search?apikey=&q=",
+      "petunjuk": "Contoh: /vsunseeV8/soundcl/search?apikey=KEY&q=multo"
+    },
+    {
+      "name": "Info Loker",
+      "desc": "Cari lowongan kerja dari Jobstreet.",
+      "status": "Active",
+      "path": "/vsunseeV8/loker/search?apikey=&pekerjaan=&kota=&jumlah=",
+      "petunjuk": "Contoh: /vsunseeV8/loker/search?apikey=KEY&pekerjaan=welder&kota=Sukabumi&jumlah=5"
+    },
+    {
+      "name": "Minecraft",
+      "desc": "Cari Server Minecraft",
+      "status": "Active",
+      "path": "/vsunseeV8/minecraft/search?apikey=&query=",
+      "petunjuk": "Contoh: /vsunseeV8/minecraft/search?apikey=KEY&query=survival"
+    }
+  ],
+  "Tools": [
+    {
+      "name": "Qris Statis",
+      "desc": "Convert Qris Statis To Dinamis",
+      "status": "Active",
+      "path": "/vsunseeV8/qris/payment?apikey=&amount=&url=&name=",
+      "petunjuk": "Contoh : /vsunseeV8/qris/payment?apikey=KEY&amount=10000&url=https://files.catbox.moe/apu8xm.jpg&name=VANZ RYUICHI"
+    },
+    {
+      "name": "ToQr",
+      "desc": "Generate Qr",
+      "status": "Active",
+      "path": "/vsunseeV8/qris/custom?apikey=&query=",
+      "petunjuk": "Contoh : /vsunseeV8/qris/custom?apikey=KEY&query=https://apiz.vsunsee.qzz.io"
+    },
+    {
+      "name": "Netflix Premium",
+      "desc": "Netflix Premium Sharing Account",
+      "status": "Active",
+      "path": "/vsunseeV8/netflix/token?apikey=",
+      "petunjuk": "Contoh : /vsunseeV8/netflix/token?apikey=KEY"
+    },
+    {
+      "name": "AlightMotion Premium",
+      "desc": "Kirim Magic Link Ke Email",
+      "status": "Active",
+      "path": "/vsunseeV8/alightmotion/send-link?apikey=&email=",
+      "petunjuk": "Contoh : /vsunseeV8/alightmotion/send-link?apikey=KEY&email=akunmu@gmail.com"
+    },
+    {
+      "name": "AlightMotion Premium Unlock",
+      "desc": "Unlock Premium App",
+      "status": "Active",
+      "path": "/vsunseeV8/alightmotion/unlockVip?apikey=&email=&urlVerify=",
+      "petunjuk": "Contoh : /vsunseeV8/alightmotion/unlockVip?apikey=&email=akunmu@gmail.com&urlVerify=https://alight-creative.firebaseapp.com/__/auth/links?link=https://alightcreative.com/auth_action/?apiKey%3DAIzaSH6I04FRga6Ki0%26mode%3Dsiode%3DD9Ghahx_es2d7Zt6AeT4sgw0eQ%26continueUrl%3Dhttps://alightcreative.com?ui_sid%253D03666248"
+    },
+    {
+      "name": "AlighMotion Metadata",
+      "desc": "AlighMotion Metadata Extractor",
+      "status": "Active",
+      "path": "/vsunseeV8/alightmotion/metadata?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/alightmotion/metadata?apikey=KEY&url=https://alightcreative.com/am/share/u/3HYWO0zhhqTT2MmjKLDQXF1MiUq2/p/UyVyxRL1dm-5092b9f29854db96"
+    },
+    {
+      "name": "Web To Apk",
+      "desc": "Generate Web To Apk",
+      "status": "Active",
+      "path": "/vsunseeV8/webtoapp/tools?apikey=&url=&name=&pkg=&versionName=&versionCode=&icon=",
+      "petunjuk": "Contoh: /vsunseeV8/webtoapp/tools?apikey=KEY&url=https://apiz.vsunsee.qzz.io&name=VanzzAPI&pkg=com.vanzzApi.app&versionName=10.0.0&versionCode=1&icon=https://files.catbox.moe/ekppi7.jpg"
+    },
+    {
+      "name": "TTS Generate",
+      "desc": "Mengubah Teks Menjadi Audio Ucapan",
+      "status": "Active",
+      "path": "/vsunseeV8/tts/tools?apikey=&text=",
+      "petunjuk": "Contoh: /vsunseeV8/tts/tools?apikey=KEY&text=Halo+selamat+datang+di+Vanzz+API"
+    },
+    {
+      "name": "Ascii Code",
+      "desc": "Convert Ascii Code",
+      "status": "Active",
+      "path": "/vsunseeV8/ascii/tools?apikey=&input=",
+      "petunjuk": "Contoh: /vsunseeV8/ascii/tools?apikey=KEY&input=ABC"
+    },
+    {
+      "name": "Hex Code",
+      "desc": "Convert Hexadesimal Code",
+      "status": "Active",
+      "path": "/vsunseeV8/hexadesimal/tools?apikey=&input=",
+      "petunjuk": "Contoh: /vsunseeV8/hexadesimal/tools?apikey=KEY&input=48656c6c6f"
+    },
+    {
+      "name": "Get Html Code",
+      "desc": "Get Html Website Code",
+      "status": "Active",
+      "path": "/vsunseeV8/gethtml/tools?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/gethtml/tools?apikey=KEY&url=https://google.com"
+    },
+    {
+      "name": "Beautify",
+      "desc": "Perapihan Code Html",
+      "status": "Active",
+      "path": "/vsunseeV8/beautify/tools?apikey=&code=",
+      "petunjuk": "Contoh : /vsunseeV8/beautify/tools?apikey=KEY&code=CodeAnda"
+    },
+    {
+      "name": "Base64 Code",
+      "desc": "Converter Base64 Encode/Decode",
+      "status": "Active",
+      "path": "/vsunseeV8/base64/tools?apikey=&text=&mode=encode",
+      "petunjuk": "Support decode. Contoh: /vsunseeV8/base64/tools?apikey=KEY&text=hello&mode=encode"
+    },
+    {
+      "name": "Host Info",
+      "desc": "Get Host information",
+      "status": "Active",
+      "path": "/vsunseeV8/hostinfo/tools?apikey=&host=",
+      "petunjuk": "Contoh: /vsunseeV8/hostinfo/tools?apikey=KEY&host=google.com"
+    },
+    {
+      "name": "IP Lookup",
+      "desc": "Get IP Information",
+      "status": "Active",
+      "path": "/vsunseeV8/iplookup/tools?apikey=&ip=",
+      "petunjuk": "Contoh: /vsunseeV8/iplookup/tools?apikey=KEY&ip=8.8.8.8"
+    },
+    {
+      "name": "Temp Mail",
+      "desc": "Temp Mail Domain",
+      "status": "Active",
+      "path": "/vsunseeV8/tempmail/domains?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/domains?apikey=KEY"
+    },
+    {
+      "name": "Temp Mail",
+      "desc": "Temp Mail Account",
+      "status": "Active",
+      "path": "/vsunseeV8/tempmail/generate?apikey=&username=&domain=",
+      "petunjuk": "Contoh: /vsunseeV8/tempmail/generate?apikey=KEY&username=riyadi&domain=riyadi.online"
+    },
+    {
+      "name": "Inbox Temp Mail",
+      "desc": "Inbox Temp Mail Account",
+      "status": "Active",
+      "path": "/vsunseeV8/tempmail/inbox?apikey=&email=",
+      "petunjuk": "Contoh: /vsunseeV8/tempmail/inbox?apikey=KEY&email=riyadi@riyadi.online"
+    },
+    {
+      "name": "Nik LookUp",
+      "desc": "Get Data Dari Nik Identitas",
+      "status": "Active",
+      "path": "/vsunseeV8/niklookup/tools?apikey=&nik=",
+      "petunjuk": "Contoh : /vsunseeV8/niklookup/tools?apikey=KEY&nik=1866444666466"
+    },
+    {
+      "name": "NGL Chat",
+      "desc": "Chat NGL Text",
+      "status": "Active",
+      "path": "/vsunseeV8/ngl/tools?apikey=&link=&jumlah=&pesan=",
+      "petunjuk": "Contoh: /vsunseeV8/ngl/tools?apikey=KEY&link=https://ngl.link/tes&jumlah=3&pesan=hai"
+    },
+    {
+      "name": "Kalkulator",
+      "desc": "Kalkulator Counting Numbers",
+      "status": "Active",
+      "path": "/vsunseeV8/kalkulator/tools?apikey=&q=",
+      "petunjuk": "Contoh: /vsunseeV8/kalkulator/tools?apikey=KEY&q=2%2B3*4"
+    },
+    {
+      "name": "Screenshot Web",
+      "desc": "Screenshot web url",
+      "status": "Active",
+      "path": "/vsunseeV8/ssweb/tools?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/ssweb/tools?apikey=KEY&url=https://google.com"
+    },
+    {
+      "name": "Shorturl tinyurl",
+      "desc": "Shortner url tinyurl.com",
+      "status": "Active",
+      "path": "/vsunseeV8/tinyurl/tools?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/tinyurl/tools?apikey=KEY&url=https://example.com"
+    },
+    {
+      "name": "Web to ZIP",
+      "desc": "Download Seluruh Isi Website Jadi FileZIP",
+      "status": "Active",
+      "path": "/vsunseeV8/saveweb2zip/tools?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/saveweb2zip/tools?apikey=KEY&url=https://apiz.vsunsee.qzz.io"
+    },
+    {
+      "name": "Telegram Chat",
+      "desc": "Kirim Pesan Ke Telegram",
+      "status": "Active",
+      "path": "/vsunseeV8/telegram/tools?apikey=&token=&chatid=&pesan=&totalsend=&delay=",
+      "petunjuk": "Contoh: /vsunseeV8/telegram/tools?apikey=Key&token=9876543210:AAAbcDeFgHiJKlMNopQRstUVwxYZ&chatid=123456789&pesan=Halo%20Bro%20lagi%20tes%20nih!&totalsend=5&delay=1000"
+    }
+  ],
+  "ImageCreator": [
+    {
+      "name": "Brat",
+      "desc": "Brat text generator",
+      "status": "Active",
+      "path": "/vsunseeV8/brat?apikey=&text=",
+      "petunjuk": "Contoh: /vsunseeV8/brat?apikey=KEY&text=Halloo"
+    },
+    {
+      "name": "Brat Video",
+      "desc": "Brat animated text generator",
+      "status": "Active",
+      "path": "/vsunseeV8/bratvideo?apikey=&text=",
+      "petunjuk": "Contoh: /vsunseeV8/bratvideo?apikey=KEY&text=Hello"
+    },
+    {
+      "name": "Brat Anime",
+      "desc": "Brat Anime text generator",
+      "status": "Active",
+      "path": "/vsunseeV8/bratanime?apikey=&text=",
+      "petunjuk": "Contoh: /vsunseeV8/bratanime?apikey=KEY&text=Arigato"
+    },
+    {
+      "name": "Iphone Qc",
+      "desc": "Generete Image Iphone Qc",
+      "status": "Active",
+      "path": "/vsunseeV8/iqc?apikey=&text=&name=",
+      "petunjuk": "Contoh: /vsunseeV8/iqc?apikey=Key&text=Halo&name=Vanz"
+    },
+    {
+      "name": "Nulis",
+      "desc": "Generate Gambar Tulisan Tangan",
+      "status": "Active",
+      "path": "/vsunseeV8/nulis?apikey=&nama=&kelas=&text=",
+      "petunjuk": "Contoh: /vsunseeV8/nulis?apikey=KEY&nama=VanzRyuichi&kelas=XI+IPA%201&text=Belajar+Web+Rest+Api+Karena+Aku+Pemula"
+    },
+    {
+      "name": "Enchancer",
+      "desc": "Enchancer Image",
+      "status": "Active",
+      "path": "/vsunseeV8/enchancer?apikey=&link=",
+      "petunjuk": "Contoh: /vsunseeV8/enchancer?apikey=KEY&link=https://files.catbox.moe/huf3jy.jpg"
+    },
+    {
+      "name": "Upscaler",
+      "desc": "Upscaler image",
+      "status": "Active",
+      "path": "/vsunseeV8/upscaler?apikey=&link=",
+      "petunjuk": "Contoh: /vsunseeV8/upscaler?apikey=KEY&link=https://files.catbox.moe/huf3jy.jpg"
+    },
+    {
+      "name": "Upscaler V2",
+      "desc": "Upscaler image",
+      "status": "Active",
+      "path": "/vsunseeV8/upscaler/v2?apikey=&link=",
+      "petunjuk": "Contoh: /vsunseeV8/upscaler/v2?apikey=KEY&link=https://files.catbox.moe/huf3jy.jpg"
+    },
+    {
+      "name": "Remove Background",
+      "desc": "Remove background image",
+      "status": "Active",
+      "path": "/vsunseeV8/removebg?apikey=&link=",
+      "petunjuk": "Contoh: /vsunseeV8/removebg?apikey=KEY&link=https://files.catbox.moe/huf3jy.jpg"
+    },
+    {
+      "name": "Remove Background V2",
+      "desc": "Remove background image",
+      "status": "Active",
+      "path": "/vsunseeV8/removebg/v2?apikey=&link=",
+      "petunjuk": "Contoh: /vsunseeV8/removebg/v2?apikey=KEY&link=https://files.catbox.moe/huf3jy.jpg"
+    },
+    {
+      "name": "Sertifikat Lol",
+      "desc": "Generete Sertifikat Lol ",
+      "status": "Active",
+      "path": "/vsunseeV8/sertifikatlol?apikey=&text=",
+      "petunjuk": "Contoh: /vsunseeV8/sertifikatlol?apikey=KEY&text=SiFuqi"
+    },
+    {
+      "name": "E-KTP Generator",
+      "desc": "Generate e-KTP mockup image",
+      "status": "Active",
+      "path": "/vsunseeV8/ektp?apikey=&provinsi=&kota=&nik=&nama=&ttl=&jenis_kelamin=&golongan_darah=&alamat=&rt/rw=&kel/desa=&kecamatan=&agama=&status=&pekerjaan=&kewarganegaraan=&masa_berlaku=&terbuat=&pas_photo=",
+      "petunjuk": "Contoh: /vsunseeV8/ektp?apikey=KEY&provinsi=JAWA%20BARAT&kota=BANDUNG&nik=1234567890123456&nama=Vann%20Ryuichi&ttl=Bandung,%2001-01-1990&jenis_kelamin=Laki-laki&golongan_darah=O&alamat=Jl.%20Contoh%20No.%20123&rt/rw=001/002&kel/desa=Sukajadi&kecamatan=Sukajadi&agama=Islam&status=Belum%20Kawin&pekerjaan=Pegawai%20Swasta&kewarganegaraan=WNI&masa_berlaku=Seumur%20Hidup&terbuat=01-01-2023&pas_photo=https://i.pinimg.com/736x/0b/9f/0a/0b9f0a92a598e6c22629004c1027d23f.jpg"
+    },
+    {
+      "name": "Image-To-Sketch",
+      "desc": "Generete Image-To-Sketch",
+      "status": "Active",
+      "path": "/vsunseeV8/image-to-sketch?apikey=&link=",
+      "petunjuk": "Contoh: /vsunseeV8/image-to-sketch?apikey=KEY&link=https://files.catbox.moe/ekppi7.jpg"
+    },
+    {
+      "name": "Image BlurFace",
+      "desc": "Generete Image BlurFace",
+      "status": "Active",
+      "path": "/vsunseeV8/blurface?apikey=&link=",
+      "petunjuk": "Contoh: /vsunseeV8/blurface?apikey=KEY&link=https://i.pinimg.com/736x/0b/9f/0a/0b9f0a92a598e6c22629004c1027d23f.jpg"
+    },
+    {
+      "name": "Image To Pixel",
+      "desc": "Generete Image To Pixel",
+      "status": "Active",
+      "path": "/vsunseeV8/imgtopixel?apikey=&link=",
+      "petunjuk": "Contoh: /vsunseeV8/imgtopixel?apikey=KEY&link=https://files.catbox.moe/ekppi7.jpg"
+    },
+    {
+      "name": "Image Edit",
+      "desc": "Generate Image Edit",
+      "status": "Active",
+      "path": "/vsunseeV8/imageeditt?apikey=&link=&prompt=",
+      "petunjuk": "Contoh: /vsunseeV8/imageeditt?apikey=KEY&link=https://files.catbox.moe/ekppi7.jpg&prompt=ubah%20jadi%20anime"
+    },
+    {
+      "name": "Image To Ghibli",
+      "desc": "Generete Filter Image To Ghibli",
+      "status": "Active",
+      "path": "/vsunseeV8/imgtoghibli?apikey=&link=",
+      "petunjuk": "Contoh: /vsunseeV8/imgtoghibli?apikey=KEY&link=https://files.catbox.moe/ekppi7.jpg"
+    },
+    {
+      "name": "Image To Figure",
+      "desc": "Generete Filter Image To Figure",
+      "status": "Active",
+      "path": "/vsunseeV8/tofigure?apikey=&link=",
+      "petunjuk": "Contoh: /vsunseeV8/tofigure?apikey=KEY&link=https://files.catbox.moe/ekppi7.jpg"
+    },
+    {
+      "name": "Image To Chibi",
+      "desc": "Generete Filter Image To Chibi",
+      "status": "Active",
+      "path": "/vsunseeV8/tochibi?apikey=&link=",
+      "petunjuk": "Contoh: /vsunseeV8/tochibi?apikey=KEY&link=https://files.catbox.moe/ekppi7.jpg"
+    },
+    {
+      "name": "Image To Black Face",
+      "desc": "Generete Filter Image To Black Face",
+      "status": "Active",
+      "path": "/vsunseeV8/tohitam?apikey=&link=",
+      "petunjuk": "Contoh: /vsunseeV8/tohitam?apikey=KEY&link=https://files.catbox.moe/ekppi7.jpg"
+    },
+    {
+      "name": "Image To White Face",
+      "desc": "Generete Filter Image To White Face",
+      "status": "Active",
+      "path": "/vsunseeV8/towhite?apikey=&link=",
+      "petunjuk": "Contoh: /vsunseeV8/towhite?apikey=KEY&link=https://files.catbox.moe/ekppi7.jpg"
+    },
+    {
+      "name": "Sticker Telegram",
+      "desc": "Get Sticker Telegram",
+      "status": "Active",
+      "path": "/vsunseeV8/telestick?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/telestick?apikey=KEY&url=https://t.me/addstickers/bokepanak1"
+    },
+    {
+      "name": "Emoji To Gif",
+      "desc": "Convert emoji to gif",
+      "status": "Active",
+      "path": "/vsunseeV8/emojitogif?apikey=&emoji=",
+      "petunjuk": "Contoh: /vsunseeV8/emojitogif?apikey=KEY&emoji=😀"
+    },
+    {
+      "name": "Emoji Mix",
+      "desc": "Emoji mix converter",
+      "status": "Active",
+      "path": "/vsunseeV8/emojimix?apikey=&emoji1=&emoji2=",
+      "petunjuk": "Contoh: /vsunseeV8/emojimix?apikey=KEY&emoji1=😀&emoji2=😎"
+    },
+    {
+      "name": "Random Sticker Meme",
+      "desc": "Get Random Sticker Meme",
+      "status": "Active",
+      "path": "/vsunseeV8/randomsticker?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/randomsticker?apikey=KEY"
+    },
+    {
+      "name": "Custom Sticker Meme",
+      "desc": "Get Custom Sticker Meme V1",
+      "status": "Active",
+      "path": "/vsunseeV8/smemev1?apikey=&top=&bottom=&link=",
+      "petunjuk": "Contoh: /vsunseeV8/smemev1?apikey=KEY&top=Hai&bottom=Fuqi&link=https://k.top4top.io/p_37888lm0q0.jpg"
+    },
+    {
+      "name": "Custom Sticker Meme",
+      "desc": "Get Custom Sticker Meme V2",
+      "status": "Active",
+      "path": "/vsunseeV8/smemev2?apikey=&top=&bottom=&link=",
+      "petunjuk": "Contoh: /vsunseeV8/smemev2?apikey=key&link=https://k.top4top.io/p_37888lm0q0.jpg&top=Ketika%20Bug%20Hilang&bottom=Pas%20Restart%20Balik%20Lagi"
+    }
+  ],
+  "Canvas": [
+    {
+      "name": "Profile",
+      "desc": "Generate Profile Card",
+      "status": "Active",
+      "path": "/vsunseeV8/canvas/profile?apikey=&backgroundURL=&avatarURL=&rankName=&rankId=&exp=&requireExp=&level=&name=",
+      "petunjuk": "Contoh: /vsunseeV8/canvas/profile?apikey=KEY&backgroundURL=https://i.ibb.co.com/2jMjYXK/IMG-20250103-WA0469.jpg&avatarURL=https://avatars.githubusercontent.com/u/159487561?v=4&rankName=epik&rankId=0&exp=500&requireExp=1000&level=10&name=vanzryuichi"
+    },
+    {
+      "name": "LevelUp",
+      "desc": "Generate Level-Up Card",
+      "status": "Active",
+      "path": "/vsunseeV8/canvas/levelup?apikey=&backgroundURL=&avatarURL=&fromLevel=0&toLevel=1&name=VanzRyuichi",
+      "petunjuk": "Contoh: /vsunseeV8/canvas/levelup?apikey=KEY&backgroundURL=https://i.ibb.co.com/2jMjYXK/IMG-20250103-WA0469.jpg&avatarURL=https://avatars.githubusercontent.com/u/159487561?v=4&fromLevel=0&toLevel=1&name=VanzRyuichi"
+    },
+    {
+      "name": "Welcome V1",
+      "desc": "Generate A Stylized Welcome Card",
+      "status": "Active",
+      "path": "/vsunseeV8/canvas/welcomev1?apikey=&username=Vann&guildName=VanzRyuichi%20Community&memberCount=219&avatar=&background=&quality=90",
+      "petunjuk": "Contoh: /vsunseeV8/canvas/welcomev1?apikey=KEY&username=Vann&guildName=VanzRyuichi%20Community&memberCount=219&avatar=https://i.ibb.co/1s8T3sY/48f7ce63c7aa.jpg&background=https://i.ibb.co/4YBNyvP/mountain-sunset.jpg&quality=90"
+    },
+    {
+      "name": "Welcome V2",
+      "desc": "Generate A Stylized Welcome Card ",
+      "status": "Active",
+      "path": "/vsunseeV8/canvas/welcomev2?apikey=&username=&guildName=&memberCount=&guildIcon=&avatar=&background=&quality=",
+      "petunjuk": "Contoh: /vsunseeV8/canvas/welcomev2?apikey=key&username=Vann&guildName=VanzRyuichi&memberCount=219&guildIcon=https://i.ibb.co/G5mJZxs/rin.jpg&avatar=https://i.ibb.co/1s8T3sY/48f7ce63c7aa.jpg&background=https://i.ibb.co/4YBNyvP/mountain-sunset.jpg&quality=90"
+    },
+    {
+      "name": "MlBB",
+      "desc": "Generate Mobile Legends Lobby",
+      "status": "Active",
+      "path": "/vsunseeV8/canvas/mlbb?apikey=&avatar=&nickname=",
+      "petunjuk": "Contoh: /vsunseeV8/canvas/mlbb?apikey=KEY&avatar=https://i.ibb.co/1s8T3sY/48f7ce63c7aa.jpg&nickname=Vanzz"
+    },
+    {
+      "name": "Free Fire",
+      "desc": "Generate Free Fire Lobby",
+      "status": "Active",
+      "path": "/vsunseeV8/canvas/ff?apikey=&nickname=&versi=",
+      "petunjuk": "Contoh: /vsunseeV8/canvas/ff?apikey=KEY&nickname=Vannz&versi=11"
+    },
+    {
+      "name": "Story Instagram",
+      "desc": "Generate Instagram Story",
+      "status": "Active",
+      "path": "/vsunseeV8/canvas/instagram?apikey=&username=&caption=&userpp=",
+      "petunjuk": "Contoh: /vsunseeV8/canvas/instagram?apikey=KEY&username=Ichika&caption=Kontol&userpp=https://i.ibb.co/1s8T3sY/48f7ce63c7aa.jpg"
+    },
+    {
+      "name": "Profile Whatsapp",
+      "desc": "Generate Fake WhatsApp Profile",
+      "status": "Active",
+      "path": "/vsunseeV8/canvas/whatsapp?apikey=&pp=&nama=&bio=&nomor=",
+      "petunjuk": "Contoh: /vsunseeV8/canvas/whatsapp?apikey=KEY&pp=&nama=Vanz+Ryuichi&bio=Vanz+Ganteng&nomor=+62+838-2158-5274"
+    },
+    {
+      "name": "Discord",
+      "desc": "Generate Discord Chat",
+      "status": "Active",
+      "path": "/vsunseeV8/canvas/discord?apikey=&username=&message=",
+      "petunjuk": "Contoh: /vsunseeV8/canvas/discord?apikey=KEY&username=Vannz&message=hai"
+    }
+  ],
+  "Stalker": [
+    {
+      "name": "Free Fire",
+      "desc": "Stalk Free Fire Profile",
+      "status": "Active",
+      "path": "/vsunseeV8/freefire/stalk?apikey=&uid=",
+      "petunjuk": "Contoh: /vsunseeV8/freefire/stalk?apikey=KEY&uid=728128574"
+    },
+    {
+      "name": "Roblox",
+      "desc": "Stalk Roblox Profile",
+      "status": "Active",
+      "path": "/vsunseeV8/roblox/stalk?apikey=&username=",
+      "petunjuk": "Contoh: /vsunseeV8/roblox/stalk?apikey=KEY&username=Builderman"
+    },
+    {
+      "name": "Minecraft",
+      "desc": "Stalk Minecraft Profile",
+      "status": "Active",
+      "path": "/vsunseeV8/minecraft/stalk?apikey=&username=",
+      "petunjuk": "Contoh: /vsunseeV8/minecraft/stalk?apikey=KEY&username=Kodok"
+    },
+    {
+      "name": "Genshin",
+      "desc": "Stalk Genshin Profile",
+      "status": "Active",
+      "path": "/vsunseeV8/genshin/stalk?apikey=&uid=",
+      "petunjuk": "Contoh: /vsunseeV8/genshin/stalk?apikey=KEY&uid=856012067"
+    },
+    {
+      "name": "Pinterest",
+      "desc": "Stalk Pinterest Profile",
+      "status": "Active",
+      "path": "/vsunseeV8/pinterest/stalk?apikey=&q=",
+      "petunjuk": "Contoh: /vsunseeV8/pinterest/stalk?apikey=KEY&q=cat"
+    },
+    {
+      "name": "Youtube Stalk",
+      "desc": "Stalk youtube account",
+      "status": "Active",
+      "path": "/vsunseeV8/youtube/stalk?apikey=&username=",
+      "petunjuk": "Contoh: /vsunseeV8/youtube/stalk?apikey=KEY&username=vannzzstore"
+    },
+    {
+      "name": "Github Stalk",
+      "desc": "Stalk github account",
+      "status": "Active",
+      "path": "/vsunseeV8/github/stalk?apikey=&username=",
+      "petunjuk": "Contoh: /vsunseeV8/github/stalk?apikey=KEY&username=Vanxzofc"
+    },
+    {
+      "name": "Npm Stalk",
+      "desc": "Stalk npm package",
+      "status": "Active",
+      "path": "/vsunseeV8/npm/stalk?apikey=&name=",
+      "petunjuk": "Contoh: /vsunseeV8/npm/stalk?apikey=KEY&name=express"
+    },
+    {
+      "name": "Telegram Stalk",
+      "desc": "Stalk telegram account",
+      "status": "Active",
+      "path": "/vsunseeV8/telegram/stalk?apikey=&username=",
+      "petunjuk": "Contoh: /vsunseeV8/telegram/stalk?apikey=KEY&username=vanzryuichi"
+    }
+  ],
+  "Check": [
+    {
+      "name": "Check Nomor",
+      "desc": "Lacak Lokasi Dan Provider",
+      "status": "Active",
+      "path": "/vsunseeV8/nomor/check?apikey=&nomor=",
+      "petunjuk": "Contoh: /vsunseeV8/nomor/check?apikey=KEY&nomor=6288276746473"
+    },
+    {
+      "name": "Check Gempa",
+      "desc": "Displaying the latest earthquake information",
+      "status": "Active",
+      "path": "/vsunseeV8/gempa/check?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/gempa/check?apikey=KEY"
+    },
+    {
+      "name": "Check Cuaca",
+      "desc": "Check weather information for a city",
+      "status": "Active",
+      "path": "/vsunseeV8/cuaca/check?apikey=&kota=",
+      "petunjuk": "Contoh: /vsunseeV8/cuaca/check?apikey=KEY&kota=bandung"
+    },
+    {
+      "name": "BMKG",
+      "desc": "Check Information BMKG",
+      "status": "Active",
+      "path": "/vsunseeV8/bmkg/check?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/bmkg/check?apikey=KEY"
+    },
+    {
+      "name": "JadwalTV",
+      "desc": "Check  JadwalTV",
+      "status": "Active",
+      "path": "/vsunseeV8/jadwaltv/check?apikey=&channel=",
+      "petunjuk": "Contoh: /vsunseeV8/jadwaltv/check?apikey=KEY&channel=sctv"
+    },
+    {
+      "name": "Roblox Assets",
+      "desc": "Check  Roblox Assets ID",
+      "status": "Active",
+      "path": "/vsunseeV8/roblox/assetid/check?apikey=&id=",
+      "petunjuk": "Contoh: /vsunseeV8/roblox/assetid/check?apikey=KEY&id=3682220929"
+    },
+    {
+      "name": "Check IMEI",
+      "desc": "Check Informasi IMEI",
+      "status": "Active",
+      "path": "/vsunseeV8/imei/check?apikey=&imei=",
+      "petunjuk": "Contoh: /vsunseeV8/imei/check?apikey=KEY&imei=356938035643809"
+    },
+    {
+      "name": "Check Resi (Tracking Paket)",
+      "desc": "Cek Status Pengiriman Paket",
+      "status": "Active",
+      "path": "/vsunseeV8/resi/check?apikey=&noresi=&ekspedisi=",
+      "petunjuk": "Contoh: /vsunseeV8/resi/check?apikey=KEY&noresi=SPXID054330680586&ekspedisi=shopee-express"
+    },
+    {
+      "name": "TikTok Earning",
+      "desc": "Check TikTok income stats",
+      "status": "Active",
+      "path": "/vsunseeV8/tiktok/earning/check?apikey=&user=",
+      "petunjuk": "Contoh: /vsunseeV8/tiktok/earning/check?apikey=KEY&user=whyzzzxy"
+    },
+    {
+      "name": "Roblox Top Play",
+      "desc": "Check Roblox Top Playing Game",
+      "status": "Active",
+      "path": "/vsunseeV8/roblox/topplay/check?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/robloxtopplay?apikey=KEY"
+    },
+    {
+      "name": "MlBB Tourney",
+      "desc": "Check MLBB Turnament",
+      "status": "Active",
+      "path": "/vsunseeV8/mlbb/tourney/check?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/mlbbtourney?apikey=KEY"
+    }
+  ],
+  "Gopay Merchant": [
+    {
+      "name": "Informasi Penting",
+      "desc": "Baca Sebelum Menggunakan",
+      "status": "Active",
+      "path": "/vsunseeV8/gobiz/disclaimer?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/gobiz/disclaimer?apikey=KEY",
+      "info": "Informasi Penting Harus Di Pahami Ya Kawan"
+    },
+    {
+      "name": "Gopay Send Otp",
+      "desc": "Mengirim Kode OTP Untuk Verifikasi",
+      "status": "Active",
+      "path": "/vsunseeV8/gobiz/tools?apikey=&action=request_otp&phone=",
+      "petunjuk": "Contoh: /vsunseeV8/gobiz/tools?apikey=KEY&action=request_otp&phone=081234567889(Nomor+Gopay+Merchant)",
+      "info": "Verifikasi 1 (Send OTP) Untuk Mendapatkan Session Key Anda, Jika sudah Mendapatkan Session Key Tidak Perlu Verifikasi Otp Lagi."
+    },
+    {
+      "name": "Gopay Verrtifikasi",
+      "desc": "Vertifikasi & Get Session Key",
+      "status": "Active",
+      "path": "/vsunseeV8/gobiz/tools?apikey=&action=verify_otp&phone=&otp=",
+      "petunjuk": "Contoh: /vsunseeV8/gobiz/tools?apikey=KEY&action=verify_otp&phone=081234567889(Nomor+Gopay+Merchant)&otp=1234",
+      "info": "Verifikasi 2 (Mengisi Otp) Untuk Mendapatkan Session Key Anda, Jika sudah Mendapatkan Session Key Tidak Perlu Verifikasi Otp Lagi."
+    },
+    {
+      "name": "Gopay Merchant ID",
+      "desc": "Cek Merchant ID",
+      "status": "Active",
+      "path": "/vsunseeV8/gobiz/tools?apikey=&action=merchants&session_key=",
+      "petunjuk": "Contoh: /vsunseeV8/gobiz/tools?apikey=KEY&action=merchants&session_key=Session+Key+Anda",
+      "info": "Check Merchant Name Dan Merchant Id"
+    },
+    {
+      "name": "Gopay Create Qris",
+      "desc": "Create Qris Dinamis",
+      "status": "Active",
+      "path": "/vsunseeV8/gobiz/tools?apikey=&action=create_qris&merchant_id=&qris_string=&amount=",
+      "petunjuk": "Contoh: /vsunseeV8/gobiz/tools?apikey=KEY&action=create_qris&merchant_id=merchantidAnda&qris_string=Qris+String+Ge+Di+https://zxing.org&amount=100",
+      "info": "Create Qris Pengisian Qris String di https://zxing.org upload qris dan dapatkan QR Stringnya, Dan Isi Juga Merchant Id Anda"
+    },
+    {
+      "name": "Gopay Status Transaksi",
+      "desc": "Get Status Pembayaran",
+      "status": "Active",
+      "path": "/vsunseeV8/gobiz/tools?apikey=&action=check_status&session_key=&transaction_id=",
+      "petunjuk": "Contoh: /vsunseeV8/gobiz/tools?apikey=KEY&action=check_status&session_key=SessionKeyAnda&transaction_id=SIDPFG",
+      "info": "Mendapatkan Status Transaksi, Status: Pending,Succes,Canceled."
+    },
+    {
+      "name": "Gopay Cancel Transaksi",
+      "desc": "Cancel Transaksi Pembayaran",
+      "status": "Active",
+      "path": "/vsunseeV8/gobiz/tools?apikey=&action=cancel_transaction&session_key=&transaction_id=",
+      "petunjuk": "Contoh: /vsunseeV8/gobiz/tools?apikey=KEY&action=cancel_transaction&session_key=SessionKeyAnda&transaction_id=SIDPFG",
+      "info": "Transaksi Di Batalkan Dan Tidak Akan Di Proses Lagi Oleh Sistem."
+    },
+    {
+      "name": "Gopay Mutasi Transaksi",
+      "desc": "Get Mutasi Pembayaran",
+      "status": "Active",
+      "path": "/vsunseeV8/gobiz/tools?apikey=&action=transactions&session_key=&merchant_id=&days=1&size=20",
+      "petunjuk": "Contoh: /vsunseeV8/gobiz/tools?apikey=KEY&action=transactions&session_key=SessionKeyAnda&merchant_id=merchantidAnda&days=1&size=20",
+      "info": "Melihat Semua Mutasi Pembayaran Yang Di Terima."
+    },
+    {
+      "name": "Gopay Logout",
+      "desc": "Logout Account Gopay",
+      "status": "Active",
+      "path": "/vsunseeV8/gobiz/logout?apikey=&session_key=&phone=",
+      "petunjuk": "Contoh: /vsunseeV8/gobiz/logout?apikey=&session_key=SessionKeyAnda&phone=08081234567889(Nomor+Gopay+Merchant)",
+      "info": "Jika Logout, Anda Perlu Melakukan Login Ulang Ketika Menggunakan Api Gopay Merchant."
+    }
+  ],
+  "Berita": [
+    {
+      "name": "Liputan6 News",
+      "desc": "News In Liputan6",
+      "status": "Active",
+      "path": "/vsunseeV8/berita/liputan6?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/berita/liputan6?apikey=KEY"
+    },
+    {
+      "name": "CNBC News",
+      "desc": "News In CNBC",
+      "status": "Active",
+      "path": "/vsunseeV8/berita/cnbc?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/berita/cnbc?apikey=KEY"
+    },
+    {
+      "name": "CNN news",
+      "desc": "News In CNN",
+      "status": "Active",
+      "path": "/vsunseeV8/berita/cnn?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/berita/cnn?apikey=KEY"
+    },
+    {
+      "name": "Antara news",
+      "desc": "News In Antara",
+      "status": "Active",
+      "path": "/vsunseeV8/berita/antara?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/berita/antara?apikey=KEY"
+    },
+    {
+      "name": "Kompas News",
+      "desc": "Get latest Kompas news",
+      "status": "Active",
+      "path": "/vsunseeV8/berita/kompas?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/berita/kompas?apikey=KEY"
+    },
+    {
+      "name": "Sindonews",
+      "desc": "Get latest Sindonews",
+      "status": "Active",
+      "path": "/vsunseeV8/berita/sindonews?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/berita/sindonews?apikey=KEY"
+    }
+  ],
+  "Islamic": [
+    {
+      "name": "Jadwal Sholat",
+      "desc": "Get Jadwal Sholat",
+      "status": "Active",
+      "path": "/vsunseeV8/jadwalsholat?apikey=&kota=",
+      "petunjuk": "Contoh: /vsunseeV8/jadwalsholat?apikey=KEY&kota=lampung"
+    },
+    {
+      "name": "Asmaul Husna",
+      "desc": "99 Nama Asmaul Husna Beserta Artinya.",
+      "status": "Active",
+      "path": "/vsunseeV8/asmaulhusna?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/asmaulhusna?apikey=KEY"
+    },
+    {
+      "name": "Ayat Kursi",
+      "desc": " Ayat Kursi Lengkap Dengan Arti Dan Latin.",
+      "status": "Active",
+      "path": "/vsunseeV8/ayatkursi?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/ayatkursi?apikey=KEY"
+    },
+    {
+      "name": "Niat Sholat",
+      "desc": "Niat Sholat Fardhu",
+      "status": "Active",
+      "path": "/vsunseeV8/niatsholat?apikey=&sholat=",
+      "petunjuk": "Contoh: /vsunseeV8/niatsholat?apikey=KEY&sholat=subuh"
+    },
+    {
+      "name": "Bacaan Sholat",
+      "desc": "Bacaan Dalam Sholat",
+      "status": "Active",
+      "path": "/vsunseeV8/bacaansholat?apikey=",
+      "petunjuk": "Contoh: /vsunseeV8/bacaansholat?apikey=KEY"
+    },
+    {
+      "name": "Kisah Nabi",
+      "desc": "Menampilkan Kisah Para Nabi",
+      "status": "Active",
+      "path": "/vsunseeV8/kisahnabi?apikey=&nabi=",
+      "petunjuk": "Contoh: /vsunseeV8/kisahnabi?apikey=KEY&nabi=adam"
+    }
+  ],
+  "Subdomain": [
+    {
+      "name": "Subdomain Free 01",
+      "desc": "Add Subdomain tokodex.biz.id",
+      "status": "maintenance",
+      "path": "/vsunseeV8/subdomain/tokodex?apikey=&mode=add&subdomain=&ip=",
+      "petunjuk": "Contoh : /vsunseeV8/subdomain/tokodex?apikey=&mode=add&subdomain=tesdomain&ip=8.8.8.8"
+    },
+    {
+      "name": "Subdomain Free 02",
+      "desc": "Add Subdomain shopserverr.biz.id",
+      "status": "maintenance",
+      "path": "/vsunseeV8/subdomain/shopserverr?apikey=&mode=add&subdomain=&ip=",
+      "petunjuk": "Contoh : /vsunseeV8/subdomain/shopserverr?apikey=&mode=add&subdomain=tesdomain&ip=8.8.8.8"
+    },
+    {
+      "name": "Subdomain Free 03",
+      "desc": "Add Subdomain vsunsee-clouds.biz.id",
+      "status": "maintenance",
+      "path": "/vsunseeV8/subdomain/vsunsee-clouds?apikey=&mode=add&subdomain=&ip=",
+      "petunjuk": "Contoh : /vsunseeV8/subdomain/vsunsee-clouds?apikey=&mode=add&subdomain=tesdomain&ip=8.8.8.8"
+    }
+  ],
+  "Github": [
+    {
+      "name": "Scan Repositori",
+      "desc": "Scan Repositori Github",
+      "status": "Active",
+      "path": "/vsunseeV8/github/scanrepo?apikey=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/github/scanrepo?apikey=KEY&url=https://github.com/expressjs/express"
+    },
+    {
+      "name": "Token Github",
+      "desc": "Check Github Token",
+      "status": "Active",
+      "path": "/vsunseeV8/github/token?apikey=&tokenrepo=&github_name=",
+      "petunjuk": "Contoh : /vsunseeV8/github/token?apikey=KEY&tokenrepo=ghp_xx&github_name=Vanxzofc"
+    },
+    {
+      "name": "Create Repository",
+      "desc": "Create Repository Github",
+      "status": "Active",
+      "path": "/vsunseeV8/github/createRepo?apikey=&tokenrepo=&reponame=&visibility=&mode=",
+      "petunjuk": "Contoh : /vsunseeV8/github/createRepo?apikey=KEY&tokenrepo=ghp_xx&reponame=VanzzAPIZ&visibility=private&mode=create"
+    },
+    {
+      "name": "Upload File Github",
+      "desc": "Add File To Repositori Github",
+      "status": "Active",
+      "path": "/vsunseeV8/github/uploadFile?apikey=&tokenrepo=&githubname=&reponame=&fileurl=",
+      "petunjuk": "Contoh : /vsunseeV8/github/uploadFile?apikey=KEY&tokenrepo=ghp_xx&githubname=Vanxzofc&reponame=VanzzAPIZ&fileurl=https://files.catbox.moe/w0xtrg.zip"
+    },
+    {
+      "name": "List Repository",
+      "desc": "List Repository Github",
+      "status": "Active",
+      "path": "/vsunseeV8/github/listRepo?apikey=&tokenrepo=&visibility=",
+      "petunjuk": "Contoh : /vsunseeV8/github/listRepo?apikey=KEY&tokenrepo=ghp_xx&visibility=all"
+    }
+  ],
+  "Cloudflare": [
+    {
+      "name": "Add Domain",
+      "desc": "Add Domain Cloudflare",
+      "status": "Active",
+      "path": "/vsunseeV8/cloudflare/adddomain?apikey=&mode=add&apikeycf=&email=&domain=",
+      "petunjuk": "Contoh : /vsunseeV8/cloudflare/adddomaincf?apikey=&mode=addadd&apikeycf=apikeycfanda&email=email@gmail.com&domain=vsunsee.sbs"
+    },
+    {
+      "name": "Add Subdomain",
+      "desc": "Add SubDomain Cloudflare",
+      "status": "Active",
+      "path": "/vsunseeV8/cloudflare/addsubdomain?apikey=&mode=add&zoneid=&apitoken=&subdomain=&ip=",
+      "petunjuk": "Contoh: /vsunseeV8/cloudflare/addsubdomain?apikey=&mode=add&zoneid=zoneidcf&apitoken=apitokencf&subdomain=apiz.vsunsee.sbs&ip=23.23.23.1"
+    },
+    {
+      "name": "List Domain",
+      "desc": "List Domain Cloudflare",
+      "status": "Active",
+      "path": "/vsunseeV8/cloudflare/listdomain?apikey=&apikeycf=&email=",
+      "petunjuk": "Contoh: /vsunseeV8/cloudflare/listdomain?apikey=&apikeycf=APIKEYCF&email=email@gmail.com"
+    },
+    {
+      "name": "List SubDomain",
+      "desc": "List SubDomain Cloudflare",
+      "status": "Active",
+      "path": "/vsunseeV8/cloudflare/listsubdomain?apikey=&zoneid=&apitoken=",
+      "petunjuk": "Contoh: /vsunseeV8/cloudflare/listsubdomain?apikey=&zoneid=ZoneIdDomain&apitoken=apitoken"
+    },
+    {
+      "name": "Cloudflare Protection",
+      "desc": "Konfigurasi Keamanan Cloudflare",
+      "status": "Active",
+      "path": "/vsunseeV8/cloudflare/cfsecurity?apikey=&apikeycf=&email=&zoneid=&mode=on",
+      "petunjuk": "Contoh: /vsunseeV8/cloudflare/cfsecurity?apikey=&apikeycf=&email=&zoneid=&mode=on"
+    }
+  ],
+  "Pterodactyl": [
+    {
+      "name": "Create Panel",
+      "desc": "Create Server Panel",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/create?apikey=&domain=&apikeyptero=&capikeyptero=&nameserver=&password=&disk=&cpu=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/create?apikey=&domain=domain.com&apikeyptero=plta_xxxxxxx&capikeyptero=pltc_xxxxxxxx&nameserver=vsunsee&password=pw111&disk=10000&cpu=0"
+    },
+    {
+      "name": "List Server",
+      "desc": "List Server And User Panel",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/listserver?apikey=&domain=&capikey=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/listserver?apikey=&domain=domain.com&capikey=pltc_xxxxx"
+    },
+    {
+      "name": "Delete Server",
+      "desc": "Delete Server & User Panel",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/deleteserver?apikey=&domain=&capikey=&id=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/deleteserver?apikey=&domain=domain.com&capikey=pltc_xxxxxxx&id=5"
+    },
+    {
+      "name": "Delete All Server",
+      "desc": "Delete All Server Panel",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/deleteallserver?apikey=&domain=&capikeyptero=&pengecualian=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/deleteallserver?apikey=&domain=domain.com&capikeyptero=pltc_xxxxxxxx&pengecualian=1,2"
+    },
+    {
+      "name": "Delete All User",
+      "desc": "Delete All User Panel",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/deletealluser?apikey=&domain=&capikeyptero=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/deletealluser?apikey=&domain=domain.com&capikeyptero=pltc_xxxxxxxx"
+    },
+    {
+      "name": "Create Admin",
+      "desc": "Create User Admin",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/createadmin?apikey=&domain=&apikeyptero=&capikeyptero=&nameuser=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/createadmin?apikey=&domain=domain.com&apikeyptero=plta_xxxx&capikeyptero=pltc_xxxx&nameuser=Vanzz"
+    },
+    {
+      "name": "List Admin",
+      "desc": "List User And Server Admin",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/listadmin?apikey=&domain=&capikeyptero=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/listadmin?apikey=&domain=domain.com&capikeyptero=pltc_xxxx"
+    },
+    {
+      "name": "Delete Admin",
+      "desc": "Delete User Admin",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/deleteadmin?apikey=&domain=&capikeyptero=&userid=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/deleteadmin?apikey=&domain=domain.com&capikeyptero=pltc_xxxxx&userid=5"
+    },
+    {
+      "name": "Promote User",
+      "desc": "Set Status User Panel Menjadi Admin Atau User Biasa.",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/setadmin?apikey=&domain=&apikeyptero=&userid=&type=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/setadmin?apikey=KEY&domain=domain.com&apikeyptero=plta_xxx&userid=14&type=admin"
+    },
+    {
+      "name": "Upload File",
+      "desc": "Upload File Di File Manager",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/uploadFile?apikey=&domain=&plta=&pltc=&id=&url=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/uploadFile?apikey=&domain=https://domain.com&plta=plta_xx&pltc=pltc_xx&id=1&url=https://files.catbox.moe/rk33po.zip"
+    },
+    {
+      "name": "Delete File",
+      "desc": "Delete Di File Manager",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/deleteFile?apikey=&domain=&plta=&pltc=&id=&filedelete=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/deleteFile?apikey=&domain=https://domain.com&plta=plta_xx&pltc=pltc_xx&id=1&filedelete=package.json"
+    },
+    {
+      "name": "Backup File",
+      "desc": "Backup File Di File Manager",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/backupFile?apikey=&domain=&plta=&pltc=&id=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/backupFile?apikey=&domain=https://domain.com&plta=plta_xx&pltc=pltc_xx&id=1"
+    },
+    {
+      "name": "Console Log",
+      "desc": "Console Log Panel",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/consoleLogs?apikey=&domain=&plta=&pltc=&id=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/consoleLogs?apikey=&domain=https://domain.com&plta=plta_xx&pltc=pltc_xx&id=1"
+    },
+    {
+      "name": "List Files",
+      "desc": "Cek List File Di File Manager",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/listFile?apikey=&domain=&plta=&pltc=&id=&readfile=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/listFile?apikey=&domain=https://domain.com&plta=plta_xx&pltc=pltc_xx&id=1&readfile=Masukan+Nama+File+Jika+Ingin+Melihat+Isi"
+    },
+    {
+      "name": "Send Command",
+      "desc": "Memasukan Perintah Di Server",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/sendCommand?apikey=&domain=&plta=&pltc=&id=&command=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/sendCommand?apikey=&domain=https://domain.com&plta=plta_xx&pltc=pltc_xx&id=1&command=npm+start"
+    },
+    {
+      "name": "Suspend",
+      "desc": "Suspend Server Panel",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/suspend?apikey=&domain=&capikeyptero=&id=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/suspend?apikey=KEY&domain=domain.com&capikeyptero=pltc_xxx&id=18"
+    },
+    {
+      "name": "UnSuspend",
+      "desc": "UnSuspend Server Panel",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/unsuspend?apikey=&domain=&capikeyptero=&id=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/unsuspend?apikey=KEY&domain=domain.com&capikeyptero=pltc_xxxxxx&id=18"
+    },
+    {
+      "name": "Check Suspend",
+      "desc": "Check Suspend Server",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/checksuspend?apikey=&domain=&capikeyptero=&id=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/checksuspend?apikey=KEY&domain=domain.com&capikeyptero=pltc_xxxxx&id=18"
+    },
+    {
+      "name": "Start Server",
+      "desc": "Start Server - On",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/onserver?apikey=&domain=&capikeyptero=&id=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/onserver?apikey=KEY&domain=domain.com&capikeyptero=pltc_xxxx&id=18"
+    },
+    {
+      "name": "Stop Server",
+      "desc": "Stop Server - Off",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/offserver?apikey=&domain=&capikeyptero=&id=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/offserver?apikey=KEY&domain=domain.com&capikeyptero=pltc_xxxx&id=18"
+    },
+    {
+      "name": "Restart Server",
+      "desc": "Restart Server - Restart",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/restartserver?apikey=&domain=&capikeyptero=&id=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/restartserver?apikey=KEY&domain=domain.com&capikeyptero=pltc_xxxx&id=18"
+    },
+    {
+      "name": "Status Server",
+      "desc": "Check Status Server",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/statusserver?apikey=&domain=&capikeyptero=&id=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/statusserver?apikey=KEY&domain=domain.com&capikeyptero=pltc_xxxx&id=18"
+    },
+    {
+      "name": "Clear Offline Servers",
+      "desc": "Clear All Offline Servers",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/clearOfflineServers?apikey=&domain=&capikeyptero=",
+      "petunjuk": "Contoh: /vsunseeV8/clearOfflineServers?apikey=KEY&domain=domain.com&capikeyptero=pltc_xxxx"
+    },
+    {
+      "name": "Cek Status Api Panel",
+      "desc": "Mengecek Apakah Api Panel Terdeteksi",
+      "status": "Active",
+      "path": "/vsunseeV8/pterodactyl/statuspanel?apikey=&domain=&apikeyptero=",
+      "petunjuk": "Contoh: /vsunseeV8/pterodactyl/statuspanel?apikey=KEY&domain=domain.com&apikeyptero=plta_xxxx"
+    }
+  ],
+  "Api": [
+    {
+      "name": "Status Api",
+      "desc": "",
+      "status": "Active",
+      "path": "/api/status",
+      "petunjuk": "GET tanpa parameter, menampilkan total fitur & total request."
+    }
+  ]
+}

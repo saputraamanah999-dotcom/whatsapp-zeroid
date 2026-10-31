@@ -33,6 +33,8 @@ export type User = {
   role: Role;
   username?: string;
   developer?: boolean;
+  /** DEVELOPER UTAMA (pemilik) — anti-ban, tidak bisa diatur siapa pun. */
+  ownerDev?: boolean;
   blueCheck?: boolean;
   vipUntil?: number;
   memberUntil?: number;
@@ -213,7 +215,7 @@ export type YouTubeTrack = { id: string; kind: 'youtube'; title: string; thumb?:
 
 export type Sticker = { id: string; uri: string; ownerId: string; global: boolean; createdAt: number };
 
-export type ProductKey = 'vip' | 'member' | 'bluecheck' | 'security';
+export type ProductKey = 'vip' | 'member' | 'bluecheck' | 'security' | 'checknomor' | 'netflix' | 'amp' | 'amunlock';
 
 export type Order = {
   id: string;
@@ -230,6 +232,18 @@ export type Order = {
   forChatName?: string;
   createdAt: number;
   decidedAt?: number;
+  /** bukti pembayaran (URL foto upload pembeli) — WAJIB sebelum konfirmasi */
+  proofUrl?: string;
+  proofAt?: number;
+  /** input produk API berbayar: { nomor?, email?, urlVerify? } */
+  meta?: { nomor?: string; email?: string; urlVerify?: string } | null;
+  /** hasil realisasi API (Check Nomor / Netflix / AM) — diisi server */
+  delivered?: boolean;
+  deliveredAt?: number;
+  result?: any;
+  deliveryError?: string | null;
+  /** catatan admin pada transaksi (bisa diedit admin panel) */
+  adminNote?: string | null;
 };
 
 export type MediaMeta = {
@@ -290,6 +304,9 @@ export type Message = {
   mediaExpiresAt?: number;
   /** DeepSeek chain-of-thought (assistant messages only) */
   reasoning?: string;
+  /** Log percobaan penyedia AI (mode agent/terminal): Sylvatica → Jerexd →
+   *  Vexo → Vanzz — ditampilkan sebagai terminal preview di chat AI. */
+  agentLog?: { provider: string; ok: boolean; ms: number }[];
   /** true when written by the AI assistant through the current user's session */
   assistant?: boolean;
   /** STIKER BRAT: teks asli — dirender ulang tajam + emoji gaya iPhone di semua perangkat */
@@ -467,6 +484,9 @@ export type DB = {
   appeals: Appeal[];
   config: PlatformConfig | null;
   aiProfile: AiProfile | null;
+  /** Konfigurasi pembayaran (config/payments) — nomor DANA + foto QRIS yang
+   *  dikelola admin di Admin panel; dipakai layar pembayaran semua user. */
+  payments: { danaNumber?: string; danaName?: string; qrisImage?: string; note?: string } | null;
   /** AI sedang menyusun jawaban per chat (chatId → epoch ms mulai mengetik).
    *  Dipakai ChatRoom/ChatRow menampilkan animasi "sedang mengetik…" Zeroid AI
    *  SECARA LOKAL — AI bukan pengguna Firestore, tidak bisa menulis chat.typing. */

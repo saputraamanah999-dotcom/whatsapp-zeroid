@@ -37,7 +37,8 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { AppNotification, Call, Chat, ChatAppeal, DB, LeaderRow, Message, ModOffense, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav, Ban, Appeal, AiProfile } from './types';
-import { productOf, productSafe, rupiah, PAYMENT_METHODS } from './products';
+import { productOf, productSafe, rupiah, PAYMENT_METHODS, apiProductOf, API_PRODUCTS } from './products';
+import { vanzzDeliver } from './vanzz';
 import { applyStreak } from './streak';
 import { voMarkOpened } from './viewonce';
 import { refCodeFor, applyPendingReferral, captureRefFromUrl } from './points';
@@ -104,7 +105,7 @@ let deviceBan: DeviceBan | null = isWeb ? readDeviceBan() : null;
 
 const EMPTY: DB = {
   version: 2, users: {}, chats: {}, messages: {}, stories: [], calls: [], notifications: [],
-  reports: [], stickers: [], orders: [], announcements: [], audit: [], animeFavs: [], bans: [], appeals: [], config: null, aiProfile: null,
+  reports: [], stickers: [], orders: [], announcements: [], audit: [], animeFavs: [], bans: [], appeals: [], config: null, aiProfile: null, payments: null,
   aiTyping: {},
 };
 
@@ -260,7 +261,7 @@ function mapUser(id: string, d: DocumentData): User {
   return {
     id, name: d.name ?? 'Pengguna', email: d.email ?? '', about: d.about ?? '', avatar: d.avatar ?? null,
     banner: d.banner ?? null, bannerType: d.bannerType === 'video' ? 'video' : 'image', color: d.color ?? AVATAR_COLORS[0], phone: d.phone, role: d.role ?? 'user',
-    username: d.username, developer: !!d.developer, blueCheck: !!d.blueCheck, vipUntil: ts(d.vipUntil),
+    username: d.username, developer: !!d.developer, ownerDev: !!d.ownerDev, blueCheck: !!d.blueCheck, vipUntil: ts(d.vipUntil),
     memberUntil: ts(d.memberUntil), security: !!d.security, otpVerified: !!d.otpVerified, pin: d.pin, otpCode: d.otpCode, otpExpires: ts(d.otpExpires),
     // EKONOMI & LEADERBOARD — TANPA INI KOIN SELALU 0 DI LAYAR: server sudah
     // mengkredit check-in (leaderboard tampil benar), tapi snapshot user di aplikasi
@@ -568,6 +569,14 @@ function attachUserSubs(fbUid: string) {
     byId.delete('_schema');
     db.orders = [...byId.values()].filter((o: any) => o.id !== '_schema').sort((a: any, b: any) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
     bump();
+    // AUTO-REALISASI produk API (Cek Nomor / Netflix / AM): begitu admin
+    // konfirmasi (status 'paid'), ambil hasilnya dari server sekali otomatis.
+    for (const o of db.orders) {
+      if (o.status === 'paid' && apiProductOf(o.product) && !o.delivered && !o.deliveryError && !deliverTried.has(o.id)) {
+        deliverTried.add(o.id);
+        void deliverApiOrder(o.id);
+      }
+    }
   }, (e) => console.warn('orders sub', e)));
 
   // announcements + platform config
@@ -577,6 +586,12 @@ function attachUserSubs(fbUid: string) {
   }, () => {}));
   miscSubs.push(onSnapshot(doc(fb.db, C.config, 'platform'), (s) => {
     db.config = s.exists() ? (s.data() as PlatformConfig) : null;
+    bump();
+  }, () => {}));
+  // konfigurasi pembayaran (nomor DANA + foto QRIS) — dikelola admin panel
+  miscSubs.push(onSnapshot(doc(fb.db, C.config, 'payments'), (s) => {
+    const d = s.exists() ? (s.data() as any) : null;
+    db.payments = d ? { danaNumber: d.danaNumber ?? '', danaName: d.danaName ?? '', qrisImage: d.qrisImage ?? '', note: d.note ?? '' } : null;
     bump();
   }, () => {}));
   // profil publik Zeroid AI (nama/bio/avatar/banner) — diubah developer dari Admin panel;
@@ -1894,7 +1909,7 @@ export function typingUsers(chat: Chat, meId: string) {
 
 // ============================ messages ============================
 
-export type OutMsg = Partial<Pick<Message, 'type' | 'text' | 'uri' | 'fileName' | 'fileSize' | 'duration' | 'mime' | 'width' | 'height' | 'thumb' | 'storagePath' | 'replyTo' | 'forwarded' | 'orderId' | 'assistant' | 'lat' | 'lng' | 'locationLabel' | 'contactName' | 'contactPhone' | 'reasoning' | 'mediaExpiresAt' | 'poll' | 'viewOnce' | 'bratText' | 'videoUri' | 'bubble'>>;
+export type OutMsg = Partial<Pick<Message, 'type' | 'text' | 'uri' | 'fileName' | 'fileSize' | 'duration' | 'mime' | 'width' | 'height' | 'thumb' | 'storagePath' | 'replyTo' | 'forwarded' | 'orderId' | 'assistant' | 'lat' | 'lng' | 'locationLabel' | 'contactName' | 'contactPhone' | 'reasoning' | 'agentLog' | 'mediaExpiresAt' | 'poll' | 'viewOnce' | 'bratText' | 'videoUri' | 'bubble'>>;
 
 /** disappearing-message TTL in ms for a chat, or 0 when off */
 export const disappearingMs = (c?: Chat | null): number =>
@@ -2239,9 +2254,21 @@ export type AskOpts = {
   model?: string;
   thinking?: boolean;
   search?: boolean;
+  /** MODE AGENT (terminal): jawaban + log penyedia ditampilkan ala terminal */
+  agent?: boolean;
   imageUrl?: string;
   imagePrompt?: string;
 };
+
+/** Langkah "berpikir" yang tampil di animasi thinking / terminal agent —
+ *  progres waktu nyata (bukan data palsu): menyusun → menghubungi AI → merapikan. */
+export const AI_THINK_STEPS = [
+  'menganalisis pertanyaan…',
+  'menghubungi agent AI…',
+  'menyusun kerangka jawaban…',
+  'memeriksa keakuratan…',
+  'merapikan jawaban akhir…',
+];
 
 export async function askAssistant(chatId: string, prompt: string, opts: AskOpts = {}) {
   const me = getMe();
@@ -2264,6 +2291,7 @@ export async function askAssistant(chatId: string, prompt: string, opts: AskOpts
   } finally {
     routingKe = false;
   }
+  const t0 = Date.now();
   try {
     const persona = { aiName: db.aiProfile?.name?.trim() || 'Zeroid AI', aiBio: db.aiProfile?.bio?.trim() || '' };
     const r = opts.imageUrl
@@ -2271,7 +2299,15 @@ export async function askAssistant(chatId: string, prompt: string, opts: AskOpts
       : opts.thinking
       ? await thinkAI(prompt, { search: opts.search, sessionId: chatId, ...persona })
       : await askAI(prompt, { history, model: opts.model, sessionId: chatId, ...persona });
-    await sendMessage(chatId, { text: r.text, assistant: true, reasoning: r.reasoning });
+    const dur = ((Date.now() - t0) / 1000).toFixed(1);
+    // MODE AGENT: log penyedia (real dari server) + langkah waktu — terminal preview
+    const agentLog = opts.agent
+      ? [
+          ...(r.steps ?? []).map((s) => s),
+          { provider: 'compose', ok: true, ms: Math.round((Date.now() - t0)) },
+        ]
+      : undefined;
+    await sendMessage(chatId, { text: opts.agent ? `${r.text}\n\n— Zeroid Agent · ${r.provider ?? 'ai'} · ${dur}s` : r.text, assistant: true, reasoning: r.reasoning, agentLog });
   } catch (e: any) {
     await sendMessage(chatId, { text: `AI belum bisa menjawab sekarang. ${String(e?.message ?? 'Coba lagi beberapa saat lagi.').slice(0, 160)}` });
   } finally {
@@ -2735,6 +2771,18 @@ async function audit(action: string, target?: string, detail?: string) {
 
 export const isFullAdmin = (u: User | null) => !!u && (u.role === 'admin' || u.role === 'developer');
 
+// ============================ DEVELOPER UTAMA (OWNER) ============================
+/** Email DEVELOPER UTAMA — pemilik aplikasi. Dilindungi TOTAL:
+ *  tidak bisa dibanned, tidak bisa diubah role/VIP/centangnya, tidak bisa
+ *  diedit siapa pun (admin/moderator lain) dari user panel mana pun. */
+export const OWNER_DEV_EMAIL = 'gedejulianto148@gmail.com';
+export const isOwnerDev = (u?: User | null) =>
+  !!u && (u.ownerDev === true || String(u.email ?? '').toLowerCase() === OWNER_DEV_EMAIL);
+/** Guard aksi admin pada target OWNER — kembalikan pesan penolakan bila dilarang. */
+export function ownerBlocked(target?: User | null): string | null {
+  return isOwnerDev(target) ? 'Developer utama tidak bisa diatur dari panel — perlindungan anti-ban aktif.' : null;
+}
+
 /** UID akun BOT resmi Zeroid — hanya admin Developer boleh memasukkannya ke grup/saluran. */
 export const BOT_UID = 'zeroid-bot';
 export const isBot = (uid?: string | null) => uid === BOT_UID;
@@ -2772,6 +2820,9 @@ export function adminBan(userId: string, reason: string, durationMs: number) {
   if (!me || !fb || !isFullAdmin(me)) return;
   const u = db.users[userId];
   if (!u) return;
+  // ANTI-BAN DEVELOPER UTAMA: aksi ban terhadap OWNER ditolak Total.
+  const blocked = ownerBlocked(u);
+  if (blocked) { pushBanner({ title: 'Dilarang', body: blocked, icon: 'shield' }); audit('ban_owner_denied', userId); return; }
   const until = durationMs > 0 ? Date.now() + durationMs : 0;
   const permanent = durationMs <= 0;
   const reasonText = reason || 'Pelanggaran aturan komunitas';
@@ -2811,6 +2862,8 @@ export function adminUnban(userId: string) {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb || !isFullAdmin(me)) return;
+  const u = db.users[userId];
+  if (u) { const blocked = ownerBlocked(u); if (blocked) { pushBanner({ title: 'Dilarang', body: blocked, icon: 'shield' }); return; } }
   updateDoc(doc(fb.db, C.users, userId), { banned: false, banReason: null, suspendedUntil: 0, banUntil: 0 }).catch((e) => pushBanner({ title: 'Unban gagal', body: fbError(e), icon: 'alert' }));
   updateDoc(doc(fb.db, C.bans, userId), { active: false }).catch(() => {});
   audit('unban', userId);
@@ -2990,6 +3043,8 @@ export function adminSetMuteOff(userId: string) {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb || !isFullAdmin(me)) return;
+  const blocked = ownerBlocked(db.users[userId]);
+  if (blocked) { pushBanner({ title: 'Dilarang', body: blocked, icon: 'shield' }); return; }
   updateDoc(doc(fb.db, C.users, userId), { mutedUntil: 0 }).catch((e) => pushBanner({ title: 'Gagal', body: fbError(e), icon: 'alert' }));
   notifyFor(userId, 'admin', 'Batasan dibuka', 'Admin membuka batasan spam akunmu. Terima kasih sudah berkoordinasi!');
   audit('unmute', userId);
@@ -2999,6 +3054,10 @@ export function adminSetRole(userId: string, role: 'user' | 'moderator' | 'admin
   const me = getMe();
   const fb = firebase();
   if (!me || !fb || !isFullAdmin(me)) return;
+  const u = db.users[userId];
+  // Developer utama tidak bisa diatur role-nya oleh siapa pun.
+  const blocked = ownerBlocked(u);
+  if (blocked) { pushBanner({ title: 'Dilarang', body: blocked, icon: 'shield' }); return; }
   updateDoc(doc(fb.db, C.users, userId), { role }).catch(() => {});
   audit('set_role', userId, `role=${role}`);
 }
@@ -3007,6 +3066,8 @@ export function adminVerify(userId: string) {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb || !isFullAdmin(me)) return;
+  const blocked = ownerBlocked(db.users[userId]);
+  if (blocked) { pushBanner({ title: 'Dilarang', body: blocked, icon: 'shield' }); return; }
   updateDoc(doc(fb.db, C.users, userId), { verified: true }).catch(() => {});
   audit('verify_account', userId);
 }
@@ -3016,6 +3077,8 @@ export function adminToggleBlueCheck(userId: string) {
   const fb = firebase();
   if (!me || !fb || !isFullAdmin(me)) return;
   const u = db.users[userId];
+  const blocked = ownerBlocked(u);
+  if (blocked) { pushBanner({ title: 'Dilarang', body: blocked, icon: 'shield' }); return; }
   updateDoc(doc(fb.db, C.users, userId), { blueCheck: !u?.blueCheck }).catch(() => {});
   audit('toggle_bluecheck', userId, String(!u?.blueCheck));
 }
@@ -3026,6 +3089,8 @@ export function adminSetVip(userId: string, days: number) {
   if (!me || !fb || !isFullAdmin(me)) return;
   const u = db.users[userId];
   if (!u) return;
+  const blocked = ownerBlocked(u);
+  if (blocked) { pushBanner({ title: 'Dilarang', body: blocked, icon: 'shield' }); return; }
   const base = Math.max(Date.now(), u.vipUntil ?? 0);
   updateDoc(doc(fb.db, C.users, userId), { vipUntil: days > 0 ? base + days * 86400000 : 0 }).catch(() => {});
   audit('set_vip', userId, `days=${days}`);
@@ -3082,10 +3147,11 @@ export function adminDecideOrder(orderId: string, approve: boolean) {
   if (!me || !fb || !isFullAdmin(me)) return;
   const o = db.orders.find((x) => x.id === orderId);
   if (!o || o.status !== 'pending' || o.id === '_schema') return;
+  const isApi = !!apiProductOf(o.product);
   const p = productSafe(o.product);
   const batch = writeBatch(fb.db);
   batch.update(doc(fb.db, C.orders, orderId), { status: approve ? 'paid' : 'rejected', decidedAt: Date.now() });
-  if (approve) {
+  if (approve && !isApi) {
     const u = db.users[o.userId];
     if (u) {
       const base = (t?: number) => Math.max(Date.now(), t ?? 0) + o.days * 86400000;
@@ -3104,13 +3170,33 @@ export function adminDecideOrder(orderId: string, approve: boolean) {
     }
   }
   batch.commit().catch(() => {});
+  const buyer = db.users[o.userId]?.name ?? 'Seseorang';
   notifyFor(o.userId, 'admin', approve ? `${p.title} aktif` : 'Pesanan ditolak',
     approve ? `Pembayaran ${rupiah(o.price)} dikonfirmasi admin. Terima kasih.` : 'Pembayaran belum dapat diverifikasi. Hubungi admin di chat.', { chatId: o.chatId });
   sendMessage(o.chatId, {
     text: approve
-      ? `Transaksi dikonfirmasi. ${p.title} (${o.plan}) sudah aktif di profilmu. Terima kasih.`
+      ? (isApi ? `Pembayaran ${p.title} dikonfirmasi. Hasilnya sedang diproses — cek pesanan ini beberapa saat lagi.` : `Transaksi dikonfirmasi. ${p.title} (${o.plan}) sudah aktif di profilmu. Terima kasih.`)
       : `Maaf, pembayaran untuk ${p.title} belum dapat kami verifikasi. Silakan kirim ulang bukti transfer.`,
   });
+  // REALISASI OTOMATIS produk API: begitu status 'paid', ambil hasil dari server
+  if (approve && isApi) {
+    deliverTried.add(orderId);
+    void deliverApiOrder(orderId);
+  }
+  // NOTIFIKASI REAL-TIME ke semua user: "X membeli Y seharga Z — yok beli!"
+  if (approve) {
+    void (async () => {
+      try {
+        await addDoc(collection(fb.db, C.announcements), {
+          title: `${buyer} membeli ${p.title}`,
+          body: `${p.title} seharga ${rupiah(o.price)} baru saja dibeli. Yok beli juga sebelum harga naik!`,
+          level: 'info', popup: false, kind: 'purchase', createdBy: me.id,
+          createdAt: serverTimestamp(), activeUntil: Date.now() + 7 * 86400000,
+        });
+        void fcmPush({ topic: 'all', title: `${buyer} membeli ${p.title}`, body: `${p.title} seharga ${rupiah(o.price)}. Yok beli juga!`, kind: 'admin' });
+      } catch { /* best effort */ }
+    })();
+  }
   audit('decide_order', orderId, approve ? 'approved' : 'rejected');
 }
 
@@ -3381,6 +3467,14 @@ function normOrder(o: any): any {
     userId: o.userId ?? '',
     chatId: o.chatId ?? '',
     forChatId: o.forChatId ?? '',
+    proofUrl: o.proofUrl ?? '',
+    proofAt: Number(o.proofAt ?? 0),
+    meta: o.meta && typeof o.meta === 'object' ? o.meta : null,
+    delivered: !!o.delivered,
+    deliveredAt: Number(o.deliveredAt ?? 0),
+    result: o.result ?? null,
+    deliveryError: o.deliveryError ?? null,
+    adminNote: o.adminNote ?? '',
     createdAt: typeof o.createdAt === 'number' ? o.createdAt : 0,
   };
 }
@@ -3388,6 +3482,8 @@ function normOrder(o: any): any {
 
 // LIMIT PEMBELIAN (anti-spam): maks 5x pencet dalam 1 jam + jeda antar order.
 const ORDER_WINDOW = 60 * 60_000; // 1 jam
+/** id order API yang sudah pernah dicoba realisasi otomatis (per sesi). */
+const deliverTried = new Set<string>();
 const ORDER_MAX = 5;
 
 export function orderLimitRemaining(u?: User | null): { left: number; waitMs: number } {
@@ -3407,12 +3503,23 @@ export function planActive(k: ProductKey, u?: User | null): boolean {
   return false;
 }
 
-export function createOrder(product: ProductKey, planIdx: number, methodKey: string, forChat?: { id: string; name?: string }, priceOverride?: number, voucherCode?: string): { orderId: string; chatId: string } | { error: string } | null {
+export function createOrder(product: ProductKey, planIdx: number, methodKey: string, forChat?: { id: string; name?: string }, priceOverride?: number, voucherCode?: string, meta?: { nomor?: string; email?: string } | null): { orderId: string; chatId: string } | { error: string } | null {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb) return null;
-  const p = productOf(product);
+  // PRODUK API BERBAYAR (Cek Nomor / Netflix / AM): harga tetap, tanpa pakai plan.
+  const ap = apiProductOf(product);
+  const p = ap ? ({ ...ap, plans: [{ label: 'Sekali bayar', days: 0, price: ap.price }] } as any) : productOf(product);
   const plan = p.plans[planIdx] ?? p.plans[0];
+  // produk API: meta wajib sesuai fields
+  if (ap) {
+    for (const f of ap.fields) {
+      const v = String((meta as any)?.[f.key] ?? '').trim();
+      if (!v) return { error: `${f.label} wajib diisi.` };
+      if (f.key === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) return { error: 'Format email tidak valid.' };
+      if (f.key === 'nomor' && !/^[+]?[0-9]{8,16}$/.test(v.replace(/[\s-]/g, ''))) return { error: 'Nomor tidak valid (contoh: 081234567890).' };
+    }
+  }
   // 1) sudah aktif → jangan beli lagi sampai masa habis
   if (!forChat && planActive(product, me)) {
     const until = product === 'vip' ? me.vipUntil : product === 'member' ? me.memberUntil : 0;
@@ -3446,13 +3553,99 @@ export function createOrder(product: ProductKey, planIdx: number, methodKey: str
     status: 'pending', method: method.label, chatId, createdAt: serverTimestamp(),
     ...(voucherCode ? { voucherCode: voucherCode.toUpperCase().slice(0, 16) } : {}),
     ...(forChat ? { forChatId: forChat.id, forChatName: forChat.name ?? '' } : {}),
+    ...(ap ? { meta: { nomor: String(meta?.nomor ?? '').slice(0, 24), email: String(meta?.email ?? '').slice(0, 120) } } : {}),
+    ...(ap ? { delivered: false } : {}),
   }).catch(() => {});
   if (admin) {
     const label = forChat ? `${p.title} untuk "${forChat.name ?? forChat.id}"` : p.title;
-    sendMessage(chatId, { type: 'order', orderId, text: `${label} · ${plan.label} · ${rupiah(finalPrice)}${voucherNote}${voucherCode ? ` · voucher ${voucherCode.toUpperCase()}` : ''}` });
+    const metaNote = ap && ap.fields.length ? ` · ${ap.fields.map((f) => `${f.label}: ${(meta as any)?.[f.key] ?? '-'}`).join(', ')}` : '';
+    sendMessage(chatId, { type: 'order', orderId, text: `${label} · ${plan.label} · ${rupiah(finalPrice)}${voucherNote}${metaNote}${voucherCode ? ` · voucher ${voucherCode.toUpperCase()}` : ''}` });
     notifyFor(admin.id, 'admin', 'Pesanan baru', `${me.name} memesan ${label} (${rupiah(finalPrice)}${voucherNote}${voucherCode ? `, voucher ${voucherCode.toUpperCase()}` : ''}) via ${method.label}`, { chatId });
   }
   return { orderId, chatId };
+}
+
+// ============================ BUKTI PEMBAYARAN ============================
+/** Pembeli unggah foto bukti transfer → URL disimpan ke order (wajib sebelum
+ *  admin konfirmasi). Mengembalikan pesan galat bila order bukan miliknya / sudah diputus. */
+export async function attachOrderProof(orderId: string, proofUrl: string): Promise<{ ok: boolean; error?: string }> {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb) return { ok: false, error: 'Belum masuk.' };
+  const o = db.orders.find((x) => x.id === orderId);
+  if (!o || o.id === '_schema') return { ok: false, error: 'Pesanan tidak ditemukan.' };
+  if (o.userId !== me.id) return { ok: false, error: 'Bukan pesananmu.' };
+  if (o.status !== 'pending') return { ok: false, error: 'Pesanan sudah diputuskan admin.' };
+  const url = String(proofUrl ?? '').slice(0, 2000);
+  if (!/^https?:\/\//.test(url)) return { ok: false, error: 'URL bukti tidak valid.' };
+  try {
+    await updateDoc(doc(fb.db, C.orders, orderId), { proofUrl: url, proofAt: Date.now() });
+    // kabari admin di chat order: bukti sudah masuk
+    const msg = db.messages[o.chatId]?.find((m) => m.orderId === orderId);
+    if (msg) sendMessage(o.chatId, { text: `Bukti pembayaran untuk pesanan ${o.product} sudah dikirim — menunggu konfirmasi admin.` });
+    pushBanner({ title: 'Bukti terkirim', body: 'Admin akan memeriksa pembayaranmu.', icon: 'checkmark-circle' });
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: fbError(e) };
+  }
+}
+
+/** REALISASI produk API berbayar — panggil server /api/vanzz action deliver
+ *  (server cek order milik pemanggil + status 'paid', panggil Vanzz API,
+ *  simpan hasil). Hasil muncul realtime via snapshot orders. */
+export async function deliverApiOrder(orderId: string): Promise<{ ok: boolean; error?: string }> {
+  const o = db.orders.find((x) => x.id === orderId);
+  if (!o || !apiProductOf(o.product)) return { ok: false, error: 'Bukan produk API.' };
+  const r = await vanzzDeliver(orderId);
+  if (!r.ok) return { ok: false, error: r.error ?? 'Realisasi gagal.' };
+  return { ok: true };
+}
+
+// ============================ ADMIN: kelola transaksi ============================
+/** Admin ubah transaksi: catatan + status manual + harga (diedit bebas).
+ *  Status berubah lewat sini TIDAK memicu efek produk (aktifkan VIP dkk) —
+ *  gunakan Konfirmasi/Tolak untuk itu. */
+export function adminUpdateOrder(orderId: string, patch: { status?: 'pending' | 'paid' | 'rejected'; adminNote?: string; price?: number }) {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFullAdmin(me)) return;
+  const o = db.orders.find((x) => x.id === orderId);
+  if (!o || o.id === '_schema') return;
+  const up: Record<string, any> = {};
+  if (patch.status && ['pending', 'paid', 'rejected'].includes(patch.status)) up.status = patch.status;
+  if (patch.adminNote != null) up.adminNote = String(patch.adminNote).slice(0, 300);
+  if (patch.price != null && patch.price >= 0 && patch.price <= 200000) up.price = Math.ceil(patch.price);
+  if (!Object.keys(up).length) return;
+  updateDoc(doc(fb.db, C.orders, orderId), up).then(() => audit('order_edit', orderId, JSON.stringify(up).slice(0, 120))).catch((e) => pushBanner({ title: 'Gagal edit transaksi', body: fbError(e), icon: 'alert' }));
+}
+
+/** Admin hapus transaksi dari daftar (permanen). */
+export function adminDeleteOrder(orderId: string) {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFullAdmin(me)) return;
+  deleteDoc(doc(fb.db, C.orders, orderId)).then(() => audit('order_delete', orderId)).catch((e) => pushBanner({ title: 'Gagal hapus', body: fbError(e), icon: 'alert' }));
+}
+
+/** Admin simpan konfigurasi pembayaran (nomor DANA + nama + QRIS + catatan). */
+export async function adminSetPayments(cfg: { danaNumber?: string; danaName?: string; qrisImage?: string; note?: string }) {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFullAdmin(me)) return { ok: false };
+  try {
+    await setDoc(doc(fb.db, C.config, 'payments'), {
+      danaNumber: String(cfg.danaNumber ?? '').slice(0, 24),
+      danaName: String(cfg.danaName ?? '').slice(0, 60),
+      qrisImage: String(cfg.qrisImage ?? '').slice(0, 2000),
+      note: String(cfg.note ?? '').slice(0, 300),
+      updatedAt: Date.now(),
+    }, { merge: true });
+    audit('payments_config', undefined, 'update');
+    return { ok: true };
+  } catch (e: any) {
+    pushBanner({ title: 'Gagal simpan', body: fbError(e), icon: 'alert' });
+    return { ok: false };
+  }
 }
 
 // ============================ centang biru grup/saluran ============================

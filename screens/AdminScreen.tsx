@@ -16,8 +16,9 @@ import {
   isOnline, activeStories, messagePreview, backendMode, adminDecideAppeal, bannedNow, banRemaining, mutedRemaining,
   adminBanChat, adminUnbanChat, adminDecideChatAppeal, adminVerifyChat, adminUnverifyChat,
   adminSetMuteOff, adminMessageAll, adminBotBroadcast, chatBannedNow, chatBanRemaining, chatVerified, chatBadge,
-  updateAiProfile, adminDeleteChat,
+  updateAiProfile, adminDeleteChat, adminUpdateOrder, adminDeleteOrder, adminSetPayments, isOwnerDev,
 } from '../lib/store';
+import { apiProductOf } from '../lib/products';
 import { useBackendHealth, healthLabel, supabaseStatus } from '../lib/health';
 import { firebase, firebaseConfig } from '../lib/firebase';
 import { proxyPost } from '../lib/proxy';
@@ -188,6 +189,77 @@ function GuardPanel() {
         })}
       </Card>
     </View>
+  );
+}
+
+/** KONFIGURASI PEMBAYARAN (config/payments): nomor DANA + nama + foto QRIS +
+ *  catatan. Semua user melihat ini di layar bayar; admin mengatur di sini. */
+function PaymentsConfigPanel() {
+  const t = useTheme();
+  const { db } = useStore();
+  const cfg = db.payments;
+  const [dana, setDana] = useState('');
+  const [danaName, setDanaName] = useState('');
+  const [note, setNote] = useState('');
+  const [qris, setQris] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  React.useEffect(() => {
+    setDana(cfg?.danaNumber ?? '');
+    setDanaName(cfg?.danaName ?? '');
+    setNote(cfg?.note ?? '');
+    setQris(cfg?.qrisImage ?? null);
+  }, [cfg?.danaNumber, cfg?.danaName, cfg?.note, cfg?.qrisImage]);
+
+  const pickQris = async () => {
+    try {
+      const p = await pickGallery('images');
+      if (!p) return;
+      const up = await uploadMedia(p.uri, `payments/qris_${Date.now()}.jpg`, p.mime || 'image/jpeg');
+      if (up?.url) setQris(up.url);
+      else pushBanner({ title: 'Upload gagal', body: 'Coba gambar lain / cek koneksi.', icon: 'alert' });
+    } catch (e: any) {
+      pushBanner({ title: 'Upload gagal', body: String(e?.message ?? '').slice(0, 140), icon: 'alert' });
+    }
+  };
+
+  return (
+    <Card title="Konfigurasi pembayaran (QRIS + DANA)">
+      <View style={{ padding: 12, gap: 12 }}>
+        <T v="caption" color={t.sub}>Nomor DANA & QRIS ini yang dilihat pembeli di layar bayar. Foto QRIS statis otomatis dijadikan QRIS DINAMIS ber-nominal saat user membayar (via Vanzz API).</T>
+        <NeuInput icon="wallet" placeholder="Nomor DANA (mis. 081234567890)" keyboardType="number-pad" value={dana} onChangeText={(v: string) => setDana(v.replace(/[^0-9+]/g, '').slice(0, 16))} />
+        <NeuInput icon="person" placeholder="Nama pemilik DANA (a.n.)" value={danaName} onChangeText={(v: string) => setDanaName(v.slice(0, 60))} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          {qris ? (
+            <Pressable onPress={pickQris}>
+              <Image source={{ uri: qris }} style={{ width: 92, height: 92, borderRadius: 12, backgroundColor: '#fff' }} contentFit="contain" />
+            </Pressable>
+          ) : (
+            <Pressable onPress={pickQris} style={{ width: 92, height: 92, borderRadius: 12, borderWidth: 2, borderStyle: 'dashed', borderColor: t.border, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="qr-code" size={26} color={t.faint} />
+            </Pressable>
+          )}
+          <View style={{ flex: 1, gap: 6 }}>
+            <T v="caption">Foto QRIS statis {qris ? 'terpasang ✓ (ketuk untuk ganti)' : 'belum ada — ketuk kotak untuk unggah'}</T>
+            <Btn small variant="ghost" icon="cloud-upload" title="Pilih foto QRIS" onPress={pickQris} />
+          </View>
+        </View>
+        <NeuInput placeholder="Catatan untuk pembeli (mis. konfirmasi 1x24 jam)" value={note} onChangeText={(v: string) => setNote(v.slice(0, 300))} maxLength={300} multiline />
+        <Btn
+          small
+          variant="primary"
+          icon="checkmark"
+          title="Simpan konfigurasi pembayaran"
+          loading={busy}
+          onPress={async () => {
+            setBusy(true);
+            const r = await adminSetPayments({ danaNumber: dana.trim(), danaName: danaName.trim(), qrisImage: qris ?? '', note: note.trim() });
+            setBusy(false);
+            if (r.ok) pushBanner({ title: 'Pembayaran tersimpan', body: 'Semua pembeli melihat nomor DANA & QRIS terbaru.', icon: 'checkmark-circle' });
+          }}
+        />
+      </View>
+    </Card>
   );
 }
 
@@ -445,6 +517,10 @@ export default function AdminScreen() {
   const [aiBanner, setAiBanner] = useState<string | null>(null);
   const [aiBannerType, setAiBannerType] = useState<'image' | 'video'>('image');
   const [aiBusy, setAiBusy] = useState(false);
+  // kelola transaksi: edit catatan + hapus
+  const [editOrder, setEditOrder] = useState<string | null>(null);
+  const [editNote, setEditNote] = useState('');
+  const [deleteOrderId, setDeleteOrder] = useState<string | null>(null);
 
   // form editor AI diisi ulang setiap tab 'ai' dibuka / profil berubah (realtime dari Firestore)
   useEffect(() => {
@@ -661,7 +737,11 @@ export default function AdminScreen() {
         {tab === 'users' && (
           <>
             <NeuInput icon="search" placeholder="Cari nama, email, username, atau UID" value={q} onChangeText={setQ} autoCapitalize="none" containerStyle={{ marginBottom: 16 }} />
-            {users.map((u) => (
+            {users.map((u) => {
+              // DEVELOPER UTAMA — anti-ban & tidak bisa diatur siapa pun:
+              // semua tombol aksi (Ban/VIP/Verifikasi/Centang/Role) disembunyikan.
+              const owner = isOwnerDev(u) || u.ownerDev === true;
+              return (
               <Neu key={u.id} radius={R.lg} style={{ padding: 14, marginBottom: 12, gap: 12 }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                   <Avatar uri={u.avatar} name={u.name} color={u.color} size={46} online={isOnline(u)} />
@@ -669,6 +749,11 @@ export default function AdminScreen() {
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <T v="h3" numberOfLines={1} style={{ flexShrink: 1 }}>{u.name}</T>
                       <UserBadges user={u} />
+                      {owner && (
+                        <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: '#FFB300' }}>
+                          <T v="caption" color="#3a2600" style={{ fontSize: 10, fontWeight: '800' }}>OWNER</T>
+                        </View>
+                      )}
                       {u.banned && (
                         <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.danger }}>
                           <T v="caption" color="#fff" style={{ fontSize: 10, fontWeight: '700' }}>BANNED</T>
@@ -685,7 +770,12 @@ export default function AdminScreen() {
                     </T>
                   </View>
                 </View>
-                {u.id !== me.id && (
+                {owner ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Ionicons name="shield-checkmark" size={15} color="#FFB300" />
+                    <T v="caption" style={{ flex: 1, color: '#FFB300', fontWeight: '700' }}>Developer utama — anti-ban, tidak bisa diatur dari panel mana pun.</T>
+                  </View>
+                ) : u.id !== me.id && (
                   <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
                     <Btn small variant={bannedNow(u) ? 'primary' : 'danger'} icon={bannedNow(u) ? 'lock-open' : 'ban'} title={bannedNow(u) ? (banRemaining(u) > 0 ? 'Cabut sanksi' : 'Unban') : 'Ban'} onPress={() => (setAskBan(u.id), setBanReason(''), setBanMs(bannedNow(u) ? -1 : 86400_000))} style={{ height: 36 }} />
                     <Btn small variant="neu" icon="diamond" title="VIP" onPress={() => (setVipFor(u.id), setVipDays('30'))} style={{ height: 36 }} />
@@ -707,7 +797,7 @@ export default function AdminScreen() {
                     <Btn small variant="ghost" icon="lock-open" title="Buka batasan" onPress={() => adminSetMuteOff(u.id)} style={{ height: 32 }} />
                   </View>
                 )}
-                {u.id !== me.id && (
+                {!owner && u.id !== me.id && (
                   <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
                     {(['user', 'moderator', 'admin'] as const).map((r) => (
                       <Btn key={r} small variant={u.role === r ? 'primary' : 'ghost'} title={r} onPress={() => adminSetRole(u.id, r)} style={{ height: 32 }} />
@@ -715,7 +805,8 @@ export default function AdminScreen() {
                   </View>
                 )}
               </Neu>
-            ))}
+              );
+            })}
           </>
         )}
 
@@ -784,10 +875,12 @@ export default function AdminScreen() {
 
         {tab === 'orders' && (
           <>
-            {db.orders.length === 0 && <Empty icon="receipt-outline" title="Belum ada transaksi" body="Pesanan VIP, Member, Centang biru, dan Keamanan akan muncul di sini." />}
+            <PaymentsConfigPanel />
+            {db.orders.length === 0 && <Empty icon="receipt-outline" title="Belum ada transaksi" body="Pesanan VIP, Member, Centang biru, Keamanan, Cek Nomor, Netflix & AlightMotion akan muncul di sini." />}
             {db.orders.map((o) => {
               const p = productSafe(o.product);
               const buyer = db.users[o.userId];
+              const isApi = !!apiProductOf(o.product);
               return (
                 <Neu key={o.id} radius={R.lg} style={{ padding: 16, marginBottom: 12, gap: 10 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -800,6 +893,36 @@ export default function AdminScreen() {
                     </View>
                     <T v="h3" color={p.color}>{rupiah(o.price)}</T>
                   </View>
+                  {/* input produk API (nomor/email) */}
+                  {!!o.meta && (!!o.meta.nomor || !!o.meta.email) && (
+                    <T v="caption">Target: {o.meta.nomor ? `📞 ${o.meta.nomor}` : ''}{o.meta.email ? `${o.meta.nomor ? ' · ' : ''}✉️ ${o.meta.email}` : ''}</T>
+                  )}
+                  {/* BUKTI PEMBAYARAN */}
+                  {o.proofUrl ? (
+                    <Pressable onPress={() => nav.navigate('MediaViewer', { uri: o.proofUrl })} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <Image source={{ uri: o.proofUrl }} style={{ width: 64, height: 64, borderRadius: 10, backgroundColor: t.bg2 }} contentFit="cover" />
+                      <View style={{ flex: 1 }}>
+                        <T v="caption" style={{ fontWeight: '800' }} color={t.success}>Bukti pembayaran ✓</T>
+                        <T v="caption" color={t.faint}>Ketuk untuk memperbesar</T>
+                      </View>
+                    </Pressable>
+                  ) : o.status === 'pending' && (
+                    <T v="caption" color={t.warning}>Belum ada bukti pembayaran dari pembeli.</T>
+                  )}
+                  {/* status realisasi API */}
+                  {isApi && o.status === 'paid' && (
+                    o.delivered ? (
+                      <View style={{ borderRadius: R.md, padding: 10, backgroundColor: 'rgba(20,196,122,0.1)', gap: 4 }}>
+                        <T v="caption" style={{ fontWeight: '800' }} color={t.success}>Hasil sudah dikirim ke pembeli</T>
+                        <T v="caption" numberOfLines={4} color={t.sub}>{(() => { try { const rr = o.result?.json ? JSON.parse(o.result.json) : o.result; return JSON.stringify(rr).slice(0, 400); } catch { return String(o.result?.json ?? o.result ?? '').slice(0, 400); } })()}</T>
+                      </View>
+                    ) : o.deliveryError ? (
+                      <T v="caption" color={t.warning}>Realisasi otomatis gagal: {o.deliveryError} — kirim hasil manual ke pembeli.</T>
+                    ) : (
+                      <T v="caption" color={t.accent}>Menunggu realisasi otomatis (Check Nomor/Netflix/AM)…</T>
+                    )
+                  )}
+                  {!!o.adminNote && <T v="caption" color={t.sub}>Catatan: {o.adminNote}</T>}
                   {o.status === 'pending' ? (
                     <View style={{ flexDirection: 'row', gap: 10 }}>
                       <Btn small icon="checkmark" title="Konfirmasi" onPress={() => adminDecideOrder(o.id, true)} style={{ flex: 1 }} />
@@ -807,10 +930,17 @@ export default function AdminScreen() {
                     </View>
                   ) : (
                     <T v="sub" color={o.status === 'paid' ? t.success : t.danger}>
-                      {o.status === 'paid' ? 'Lunas — fitur sudah aktif' : 'Ditolak'}
+                      {o.status === 'paid' ? (isApi ? 'Lunas — hasil dikirim otomatis' : 'Lunas — fitur sudah aktif') : 'Ditolak'}
                     </T>
                   )}
-                  <Btn small variant="ghost" icon="chatbubbles" title="Buka chat transaksi" onPress={() => nav.navigate('ChatRoom', { chatId: o.chatId })} />
+                  {/* EDIT TRANSAKSI: status manual + catatan + hapus */}
+                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                    {o.status !== 'paid' && <Btn small variant="ghost" icon="checkmark-done" title="Tandai lunas" onPress={() => adminUpdateOrder(o.id, { status: 'paid' })} style={{ height: 32 }} />}
+                    {o.status !== 'pending' && <Btn small variant="ghost" icon="time" title="Jadikan pending" onPress={() => adminUpdateOrder(o.id, { status: 'pending' })} style={{ height: 32 }} />}
+                    <Btn small variant="ghost" icon="create" title="Catatan" onPress={() => (setEditOrder(o.id), setEditNote(o.adminNote ?? ''))} style={{ height: 32 }} />
+                    <Btn small variant="danger" icon="trash" title="Hapus" onPress={() => setDeleteOrder(o.id)} style={{ height: 32 }} />
+                    <Btn small variant="ghost" icon="chatbubbles" title="Chat" onPress={() => nav.navigate('ChatRoom', { chatId: o.chatId })} style={{ height: 32 }} />
+                  </View>
                 </Neu>
               );
             })}
@@ -1192,6 +1322,22 @@ export default function AdminScreen() {
           {!!otpMsg && <T v="sub">{otpMsg}</T>}
         </View>
       </Sheet>
+      <Sheet visible={!!editOrder} onClose={() => setEditOrder(null)} title="Catatan transaksi">
+        <View style={{ gap: 12 }}>
+          <T v="sub">Catatan internal pada transaksi (terlihat hanya di panel admin). Simpan juga bila perlu mencatat pembayaran manual.</T>
+          <NeuInput placeholder="mis. DANA terverifikasi, transfer masuk 12:30" value={editNote} onChangeText={setEditNote} maxLength={300} multiline />
+          <Btn small icon="checkmark" title="Simpan catatan" onPress={() => { if (editOrder) adminUpdateOrder(editOrder, { adminNote: editNote.trim() }); setEditOrder(null); }} />
+        </View>
+      </Sheet>
+      <Confirm
+        visible={!!deleteOrderId}
+        title="Hapus transaksi ini?"
+        body="Transaksi dihapus dari daftar dan tidak bisa dikembalikan. Data pembayaran/bukti ikut hilang."
+        confirm="Hapus"
+        danger
+        onConfirm={() => { if (deleteOrderId) adminDeleteOrder(deleteOrderId); setDeleteOrder(null); }}
+        onClose={() => setDeleteOrder(null)}
+      />
       <Confirm
         visible={!!askDeleteChat}
         title={`Hapus ${db.chats[askDeleteChat ?? '']?.type === 'channel' ? 'saluran' : 'grup'} ini?`}

@@ -1,0 +1,23 @@
+name: Zeroid Roles Fix
+
+# PERBAIKAN ROLE TERJADWAL (workflow_dispatch saja):
+#  - gedejulianto148@gmail.com → DEVELOPER UTAMA (owner): role=developer,
+#    developer=true, ownerDev=true, centang biru, bebas ban.
+#  - saputraamanah999@gmail.com → user biasa (hapus dari admin panel).
+# Secret FIREBASE_SERVICE_ACCOUNT dipakai — nilainya tidak pernah dicetak.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Jalankan perbaikan role
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node scripts/roles-fix.js
