@@ -115,6 +115,107 @@ function rateLimited(uid: string): boolean {
 
 const clean = (v: any, max = 400) => String(v ?? '').slice(0, max).trim();
 
+// ---------------------------------------------------------------------------
+// CUACA 7 HARI (Open-Meteo, tanpa API key) — prakiraan LENGKAP Senin–Minggu:
+// suhu max/min, peluang hujan %, volume hujan, angin, UV, matahari terbit/ter-
+// benam + jam-jaman (hujan mulai jam berapa). Sumber lebih kaya daripada wttr
+// (yang cuma kondisi sekarang) untuk layar Cuaca Menu Gratis.
+// ---------------------------------------------------------------------------
+const WMO: Record<number, [string, string]> = {
+  0: ['Cerah', 'sunny'], 1: ['Cerah Berawan', 'partly-sunny'], 2: ['Berawan Sebagian', 'partly-sunny'],
+  3: ['Berawan', 'cloud'], 45: ['Berkabut', 'cloud'], 48: ['Kabut Beku', 'cloud'],
+  51: ['Gerimis Ringan', 'rainy'], 53: ['Gerimis', 'rainy'], 55: ['Gerimis Lebat', 'rainy'],
+  56: ['Gerimis Beku', 'rainy'], 57: ['Gerimis Beku Lebat', 'rainy'],
+  61: ['Hujan Ringan', 'rainy'], 63: ['Hujan', 'rainy'], 65: ['Hujan Lebat', 'rainy'],
+  66: ['Hujan Beku', 'rainy'], 67: ['Hujan Beku Lebat', 'rainy'],
+  71: ['Salju Ringan', 'snow'], 73: ['Salju', 'snow'], 75: ['Salju Lebat', 'snow'], 77: ['Butiran Salju', 'snow'],
+  80: ['Hujan Lokal Ringan', 'rainy'], 81: ['Hujan Lokal', 'rainy'], 82: ['Hujan Lokal Deras', 'thunderstorm'],
+  85: ['Hujan Salju Ringan', 'snow'], 86: ['Hujan Salju Lebat', 'snow'],
+  95: ['Hujan Badai Petir', 'thunderstorm'], 96: ['Badai Petir + Hail', 'thunderstorm'], 99: ['Badai Petir Hebat', 'thunderstorm'],
+};
+const wmo = (c: any): [string, string] => WMO[Number(c)] ?? ['Berawan', 'cloud'];
+
+async function openMeteo(kota: string): Promise<any> {
+  const gc = new AbortController();
+  const gt = setTimeout(() => gc.abort(), 12000);
+  let place: any = null;
+  try {
+    const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(kota)}&count=1&language=id&format=json`, { signal: gc.signal });
+    const j = await r.json().catch(() => null);
+    place = j?.results?.[0] ?? null;
+  } catch { /* null */ } finally { clearTimeout(gt); }
+  if (!place) return { error: `Kota "${kota.slice(0, 40)}" tidak ditemukan — coba nama kota lain.` };
+
+  const fc = new AbortController();
+  const ft = setTimeout(() => fc.abort(), 15000);
+  try {
+    const u = new URL('https://api.open-meteo.com/v1/forecast');
+    u.searchParams.set('latitude', String(place.latitude));
+    u.searchParams.set('longitude', String(place.longitude));
+    u.searchParams.set('current', 'temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m,pressure_msl');
+    u.searchParams.set('hourly', 'temperature_2m,precipitation_probability,precipitation,weather_code');
+    u.searchParams.set('daily', 'weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_probability_max,wind_speed_10m_max');
+    u.searchParams.set('timezone', 'auto');
+    u.searchParams.set('forecast_days', '7');
+    const r = await fetch(u.toString(), { signal: fc.signal });
+    const j = await r.json().catch(() => null);
+    if (!j?.daily?.time) return { error: 'Prakiraan cuaca tidak tersedia saat ini.' };
+    const cur = j.current ?? {};
+    const curCode = wmo(cur.weather_code);
+    const daily = (j.daily.time as string[]).map((d: string, i: number) => {
+      const code = wmo(j.daily.weather_code?.[i]);
+      return {
+        date: d,
+        desc: code[0],
+        icon: code[1],
+        tmax: Math.round(j.daily.temperature_2m_max?.[i] ?? 0),
+        tmin: Math.round(j.daily.temperature_2m_min?.[i] ?? 0),
+        rainMm: Math.round((j.daily.precipitation_sum?.[i] ?? 0) * 10) / 10,
+        rainProb: Math.round(j.daily.precipitation_probability_max?.[i] ?? 0),
+        wind: Math.round(j.daily.wind_speed_10m_max?.[i] ?? 0),
+        uv: Math.round((j.daily.uv_index_max?.[i] ?? 0) * 10) / 10,
+        sunrise: String(j.daily.sunrise?.[i] ?? '').slice(11, 16),
+        sunset: String(j.daily.sunset?.[i] ?? '').slice(11, 16),
+      };
+    });
+    // jam-jaman 24 jam ke depan: hujan mulai jam berapa (fokus permintaan user)
+    const nowIso = new Date().toISOString().slice(0, 13);
+    const times: string[] = j.hourly?.time ?? [];
+    let start = times.findIndex((t) => t.slice(0, 13) >= nowIso);
+    if (start < 0) start = 0;
+    const hourly = times.slice(start, start + 24).map((t: string, k: number) => {
+      const idx = start + k;
+      const code = wmo(j.hourly.weather_code?.[idx]);
+      return {
+        time: t.slice(11, 16),
+        temp: Math.round(j.hourly.temperature_2m?.[idx] ?? 0),
+        rainProb: Math.round(j.hourly.precipitation_probability?.[idx] ?? 0),
+        rainMm: Math.round((j.hourly.precipitation?.[idx] ?? 0) * 10) / 10,
+        desc: code[0],
+      };
+    });
+    return {
+      place: place.name,
+      region: [place.admin1, place.country].filter(Boolean).join(', '),
+      current: {
+        desc: curCode[0], icon: curCode[1],
+        temp: Math.round(cur.temperature_2m ?? 0),
+        feels: Math.round(cur.apparent_temperature ?? 0),
+        humidity: Math.round(cur.relative_humidity_2m ?? 0),
+        wind: Math.round(cur.wind_speed_10m ?? 0),
+        windDir: Math.round(cur.wind_direction_10m ?? 0),
+        pressure: Math.round(cur.pressure_msl ?? 0),
+        precip: Math.round((cur.precipitation ?? 0) * 10) / 10,
+      },
+      daily,
+      hourly,
+      source: 'Open-Meteo',
+    };
+  } catch (e: any) {
+    return { error: e?.name === 'AbortError' ? 'Waktu tunggu cuaca habis — coba lagi.' : 'Gagal mengambil data cuaca.' };
+  } finally { clearTimeout(ft); }
+}
+
 /** Panggil endpoint Vanzz; gambar → data URL (maks ~6 MB). */
 async function vanzzGet(ep: Ep, params: Record<string, string>, key: string): Promise<{ ok: boolean; status: number; data?: any; dataUrl?: string; mime?: string; error?: string }> {
   const url = new URL(VANZZ_BASE + ep.path);
@@ -170,6 +271,11 @@ async function readBody(req: any): Promise<any> {
   } catch { return null; }
 }
 
+/** params object aman dari body luar. */
+function rawParams0(body: any): Record<string, any> {
+  return (body?.params && typeof body.params === 'object') ? body.params : {};
+}
+
 export default async function handler(req: any, res: any) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   if (req.method !== 'POST') return res.status(405).json({ error: 'Metode tidak didukung.' });
@@ -212,7 +318,6 @@ export default async function handler(req: any, res: any) {
     const product = String(o.product ?? '');
     if (o.delivered) return res.status(200).json({ ok: true, delivered: true, result: o.result ?? null, deliveredAt: o.deliveredAt ?? 0 });
     const meta = (o.meta && typeof o.meta === 'object') ? o.meta : {};
-
     // ---- PRODUK INTERNAL (tanpa API luar): followers & reaksi saluran ----
     if (product === 'followers' || product === 'reaction') {
       const amount = Math.max(1, Math.round(Number((meta as any).amount) || 0));
@@ -254,25 +359,35 @@ export default async function handler(req: any, res: any) {
         } as any);
         return res.status(200).json({ ok: true, delivered: true, result: { kind: 'followers', channel: chName, added: amount, total: next }, deliveredAt: at2 });
       }
-      // product === 'reaction' → tumpuk reaksi ke PESAN TERAKHIR saluran
-      let lastMsgId = '';
-      let lastExtra = 0;
+      // product === 'reaction' → tumpuk reaksi ke pesan saluran: PILIHAN pembeli
+      // (meta.messageId) bila valid, kalau tidak ke PESAN TERAKHIR saluran.
+      let targetMsgId = '';
+      let targetExtra = 0;
+      const wanted = clean((meta as any).messageId, 80);
       try {
-        const msgs = await fbQuery(PROJECT, `chats/${chatId}/messages`, [], 1, { field: 'createdAt', desc: true });
-        lastMsgId = (msgs ?? [])[0]?.id ?? '';
-        lastExtra = Number((msgs ?? [])[0]?.fields?.extraReactions ?? 0);
-      } catch { /* tetap kosong */ }
-      if (!lastMsgId) return res.status(404).json({ error: 'Belum ada pesan di saluran itu untuk direaksi.' });
-      const okp = await fbPatchDoc(PROJECT, `chats/${chatId}/messages/${lastMsgId}`, { extraReactions: { integerValue: String(lastExtra + amount) } } as any);
+        if (wanted) {
+          const d = await fbGetDoc(PROJECT, `chats/${chatId}/messages/${wanted}`);
+          if (d) { targetMsgId = wanted; targetExtra = Number((d as any).extraReactions ?? 0); }
+        }
+      } catch { /* jatuh ke pesan terakhir */ }
+      if (!targetMsgId) {
+        try {
+          const msgs = await fbQuery(PROJECT, `chats/${chatId}/messages`, [], 1, { field: 'createdAt', desc: true });
+          targetMsgId = (msgs ?? [])[0]?.id ?? '';
+          targetExtra = Number((msgs ?? [])[0]?.fields?.extraReactions ?? 0);
+        } catch { /* tetap kosong */ }
+      }
+      if (!targetMsgId) return res.status(404).json({ error: 'Belum ada pesan di saluran itu untuk direaksi.' });
+      const okp = await fbPatchDoc(PROJECT, `chats/${chatId}/messages/${targetMsgId}`, { extraReactions: { integerValue: String(targetExtra + amount) } } as any);
       if (!okp) return res.status(502).json({ error: 'Gagal menambahkan reaksi — coba lagi.' });
       const at2 = Date.now();
       await fbPatchDoc(PROJECT, `orders/${orderId}`, {
         delivered: { booleanValue: true },
         deliveredAt: { integerValue: String(at2) },
-        result: { mapValue: { fields: { json: { stringValue: JSON.stringify({ kind: 'reaction', channel: chName, added: amount }).slice(0, 4000) } } } },
+        result: { mapValue: { fields: { json: { stringValue: JSON.stringify({ kind: 'reaction', channel: chName, added: amount, messageId: targetMsgId }).slice(0, 4000) } } } },
         deliveryError: { nullValue: null },
       } as any);
-      return res.status(200).json({ ok: true, delivered: true, result: { kind: 'reaction', channel: chName, added: amount }, deliveredAt: at2 });
+      return res.status(200).json({ ok: true, delivered: true, result: { kind: 'reaction', channel: chName, added: amount, messageId: targetMsgId }, deliveredAt: at2 });
     }
 
     const params: Record<string, string> = {
@@ -364,6 +479,14 @@ export default async function handler(req: any, res: any) {
 
   // ---------------- Endpoint gratis (whitelist) ----------------
   const key2 = clean(body?.key, 40);
+  // CUACA LENGKAP 7 HARI — Open-Meteo via server (tanpa kunci), params: { kota }
+  if (key2 === 'cuaca7') {
+    const kota = clean(rawParams0(body)?.kota, 60);
+    if (!kota) return res.status(400).json({ error: 'Tulis nama kotanya dulu.' });
+    const out = await openMeteo(kota);
+    if (out.error) return res.status(404).json({ error: out.error });
+    return res.status(200).json({ ok: true, data: out });
+  }
   const ep = FREE[key2];
   if (!ep) return res.status(404).json({ error: 'Endpoint tidak tersedia.' });
   const rawParams = (body?.params && typeof body.params === 'object') ? body.params : {};

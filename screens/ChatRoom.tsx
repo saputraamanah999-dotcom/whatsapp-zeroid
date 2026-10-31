@@ -47,7 +47,7 @@ import {
 } from '../lib/store';
 import type { AskOpts } from '../lib/store';
 import { setActiveChat, pushBanner } from '../lib/bus';
-import { ago, dayLabel } from '../lib/format';
+import { ago, dayLabel, compactId } from '../lib/format';
 import { Message } from '../lib/types';
 import { placeCall } from './tabs/CallsTab';
 import { fireState } from '../lib/streak';
@@ -217,7 +217,7 @@ export default function ChatRoom() {
     else subtitle = 'ketuk untuk info kontak';
   } else if (chat.type === 'ai') subtitle = aiProf?.bio?.trim() || 'Asisten AI · selalu online';
   else if (chat.type === 'group') subtitle = chat.members.map((u) => (u === me.id ? 'Kamu' : db.users[u]?.name.split(' ')[0])).join(', ');
-  else if (chat.type === 'channel') subtitle = `${followersCount(chat).toLocaleString('id-ID')} pengikut`;
+  else if (chat.type === 'channel') subtitle = `${compactId(followersCount(chat))} pengikut`;
   else if (chat.type === 'global') subtitle = `${Object.values(db.users).length} anggota · terbuka untuk semua`;
 
   const canPost = chat.type !== 'channel' || chat.admins.includes(me.id) || me.role === 'admin';

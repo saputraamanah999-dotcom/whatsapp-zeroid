@@ -167,3 +167,17 @@ export const productSafe = (k?: string): Product => (k && PRODUCTS.find((p) => p
  *  krash "Cannot read properties of undefined (reading 'toLocaleString')"
  *  yang mematikan seluruh layar (ErrorBoundary "Terjadi kesalahan tampilan"). */
 export const rupiah = (n?: number | null) => 'Rp' + Number(n ?? 0).toLocaleString('id-ID');
+
+/** Rupiah RINGKAS untuk label sempit: 3000 → "Rp3rb", 5000 → "Rp5rb",
+ *  60000 → "Rp60rb", 149000 → "Rp149rb", 1200000 → "Rp1,2jt" (anti teks kepanjangan). */
+export function rupiahShort(n?: number | null): string {
+  const v = Math.max(0, Math.round(Number(n ?? 0)));
+  const trim = (x: number) => {
+    const r = x >= 100 ? Math.round(x) : Math.round(x * 10) / 10;
+    return r.toLocaleString('id-ID', { maximumFractionDigits: 1 });
+  };
+  if (v < 1000) return `Rp${v}`;
+  if (v < 1_000_000) return `Rp${trim(v / 1000)}rb`;
+  if (v < 1_000_000_000) return `Rp${trim(v / 1_000_000)}jt`;
+  return `Rp${trim(v / 1_000_000_000)}m`;
+}

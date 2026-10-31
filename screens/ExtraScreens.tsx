@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, ScrollView, Pressable, Platform, ActivityIndicator, Linking, Alert } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -12,6 +12,7 @@ import { DEFAULT_STICKERS } from '../components/Emoji';
 import { useTheme, R } from '../lib/theme';
 import {
   useStore,
+  followersCount,
   canSee,
   isOnline,
   openDirect,
@@ -37,12 +38,15 @@ import {
 import { spendKoin } from '../lib/points';
 import { attachOrderProof, adminUpdateOrder } from '../lib/store';
 import { getVoucher, voucherUsable, redeemVoucher, priceWithDiscount, Voucher } from '../lib/vouchers';
-import { PRODUCTS, PAYMENT_METHODS, rupiah, productOf, productSafe, API_PRODUCTS, apiProductOf } from '../lib/products';
+import { PRODUCTS, PAYMENT_METHODS, rupiah, rupiahShort, productOf, productSafe, API_PRODUCTS, apiProductOf, unitPriceOf } from '../lib/products';
 import { vanzzQris, vanzzCall } from '../lib/vanzz';
 import { resolveMedia } from '../lib/spotify';
 import { pickGallery, uploadMedia, pickVideo, uploadMediaDirect } from '../lib/media';
 import { pushBanner } from '../lib/bus';
-import { ago, chatTime } from '../lib/format';
+import { ago, chatTime, compactId } from '../lib/format';
+import { VerifiedBadge } from '../lib/icons';
+import { firebase } from '../lib/firebase';
+import { collection, query as fsQuery, orderBy as fsOrderBy, limit as fsLimit, getDocs } from 'firebase/firestore';
 import { placeCall } from './tabs/CallsTab';
 import { ProductKey } from '../lib/types';
 import { MusicSong, MusicPlaylist, MusicArtist, musicSearch, TRENDING } from '../lib/music';
@@ -53,7 +57,6 @@ import { setTheme } from '../lib/store';
 import { useThemeMode, ThemeMode } from '../lib/theme';
 import { Segmented } from '../components/ui';
 import { vanzzAmVerify, vanzzDeliver } from '../lib/vanzz';
-import { unitPriceOf, isUnitProduct } from '../lib/products';
 
 // ---------------- Contact / user profile ----------------
 export function UserProfile() {
@@ -341,68 +344,83 @@ function ResRow({ label, value, color }: { label: string; value: string; color?:
 /**
  * KARTU HASIL CANTIK (bukan JSON!) — semua produk API tampil sebagai kartu
  * berwarna dengan ikon + baris label-nilai sesuai jenis produknya.
+ * v24: pembungkus payload benar (result.result / result.data) — dulu Cek Nomor
+ * cuma tampil "true" karena field sebenarnya bersarang satu level di dalam.
  */
 function ResultCard({ order, title, color, icon }: { order: any; title: string; color: string; icon: string }) {
   const t = useTheme();
   const r = resultObj(order) ?? {};
+  // payload sebenarnya bisa di r.result / r.data / r langsung (bentuk berbeda tiap endpoint)
+  const p = (r.result && typeof r.result === 'object' ? r.result : r.data && typeof r.data === 'object' ? r.data : r) ?? {};
   const kind = String(r.kind ?? order.product ?? '');
   const isFollowers = kind === 'followers';
   const isReaction = kind === 'reaction';
-  const isVerifyDone = r.verifyDone === true || String(r.status ?? '') === 'success' || !!r.premium;
+  const isVerifyDone = r.verifyDone === true || String(p.status ?? '') === 'success' || !!r.premium;
   const isAmp = order.product === 'amp' || order.product === 'amunlock';
   // pasangan [label, nilai] per produk
   let rows: [string, string][] = [];
   let headline = '';
   let sub = '';
   if (isFollowers) {
-    headline = `${Number(r.added ?? 0).toLocaleString('id-ID')} followers terkirim`;
+    headline = `${compactId(Number(r.added ?? 0))} followers terkirim`;
     sub = `Saluran "${r.channel ?? '-'}"`;
-    rows = [['Total pengikut', `${Number(r.total ?? 0).toLocaleString('id-ID')}`], ['Diproses', order.deliveredAt ? chatTime(order.deliveredAt) : '']];
+    rows = [['Total pengikut', compactId(Number(r.total ?? 0))], ['Diproses', order.deliveredAt ? chatTime(order.deliveredAt) : '']];
   } else if (isReaction) {
-    headline = `${Number(r.added ?? 0).toLocaleString('id-ID')} reaksi terkirim`;
-    sub = `Saluran "${r.channel ?? '-'}" · pesan terakhir`;
+    headline = `${compactId(Number(r.added ?? 0))} reaksi terkirim`;
+    sub = `Saluran "${r.channel ?? '-'}" · ${r.messageId ? 'pesan pilihanmu' : 'pesan terakhir'}`;
     rows = [['Diproses', order.deliveredAt ? chatTime(order.deliveredAt) : '']];
   } else if (order.product === 'checknomor') {
-    const d = r.data && typeof r.data === 'object' ? r.data : r;
-    headline = pickAny(d, ['nomor', 'number', 'phone']) || 'Nomor terlacak';
+    // bentuk nyata: { result: { phone, operator:{name,prefix4}, region:{country,network},
+    //   validity:{status,expiredAt}, quota:{estimate}, block:{status}, meta:{note} } }
+    const op = p.operator && typeof p.operator === 'object' ? p.operator : {};
+    const rg = p.region && typeof p.region === 'object' ? p.region : {};
+    const vl = p.validity && typeof p.validity === 'object' ? p.validity : {};
+    const qt = p.quota && typeof p.quota === 'object' ? p.quota : {};
+    const bl = p.block && typeof p.block === 'object' ? p.block : {};
+    headline = String(p.phone ?? p.input ?? 'Nomor terlacak');
     rows = [
-      ['Operator', pickAny(d, ['operator', 'provider', 'provider_name', 'card'])],
-      ['Prefix', pickAny(d, ['prefix', 'awalan'])],
-      ['Wilayah', pickAny(d, ['region', 'wilayah', 'area', 'location', 'lokasi'])],
-      ['Jaringan', pickAny(d, ['network', 'jaringan', 'tipe'])],
-      ['Status', pickAny(d, ['status', 'state'])],
-      ['Terdaftar', pickAny(d, ['registered', 'registered_at', 'terdaftar', 'created'])],
-      ['Berlaku s/d', pickAny(d, ['expired', 'expired_at', 'berlaku', 'valid_until'])],
+      ['Operator', [op.name, op.prefix4 ? `(${op.prefix4})` : ''].filter(Boolean).join(' ')],
+      ['Jangkauan', [rg.country, rg.network].filter(Boolean).join(' · ')],
+      ['Status kartu', vl.status],
+      ['Berlaku s/d', vl.expiredAt],
+      ['Estimasi paket', qt.estimate],
+      ['Kondisi', bl.status],
     ];
+    sub = bl.description ?? '';
   } else if (order.product === 'cekresi') {
-    const d = r.data && typeof r.data === 'object' ? r.data : r;
-    // riwayat perjalanan paket (bila API memberi array)
-    const hist = Array.isArray(d?.history) ? d.history : Array.isArray(d?.riwayat) ? d.riwayat : Array.isArray(d?.data) ? d.data : [];
-    headline = pickAny(d, ['status', 'status_pengiriman', 'latest_status']) || 'Paket ditemukan';
+    // bentuk nyata: { result: { message, data: { resi, ekspedisi, status,
+    //   tanggalKirim, lastPosition, history:[{tanggal,keterangan}] } } }
+    const d = p.data && typeof p.data === 'object' ? p.data : p;
+    const hist = Array.isArray(d?.history) ? d.history : [];
+    headline = String(d?.status ?? 'Paket ditemukan');
     rows = [
-      ['Resi', pickAny(d, ['noresi', 'resi', 'waybill', 'awb']) || order?.meta?.resi],
-      ['Ekspedisi', pickAny(d, ['ekspedisi', 'courier', 'kurir', 'carrier']) || order?.meta?.ekspedisi],
-      ['Penerima', pickAny(d, ['receiver', 'penerima', 'received_by'])],
-      ['Posisi', pickAny(d, ['position', 'posisi', 'last_location', 'lokasi_terakhir'])],
-      ['Waktu', pickAny(d, ['delivertime', 'delivered_time', 'waktu', 'timestamp', 'updated_at'])],
+      ['Resi', d?.resi || order?.meta?.resi],
+      ['Ekspedisi', d?.ekspedisi || order?.meta?.ekspedisi],
+      ['Dikirim', d?.tanggalKirim],
+      ['Posisi terakhir', d?.lastPosition],
+      ['Bantuan', d?.customerService],
     ];
+    // riwayat perjalanan (maks 5) ditampilkan sebagai baris waktu
+    if (hist.length) rows.push(...hist.slice(0, 5).map((h: any) => [String(h?.tanggal ?? ''), String(h?.keterangan ?? '')] as [string, string]));
   } else if (order.product === 'netflix') {
-    const d = r.data && typeof r.data === 'object' ? r.data : r;
+    // bentuk nyata: { result: { successCount, data: { token, expiry, profile:{country,plan}, links:{pc} } } }
+    const d = p.data && typeof p.data === 'object' ? p.data : p;
+    const pr = d?.profile && typeof d.profile === 'object' ? d.profile : {};
     headline = 'Akun Netflix siap dipakai';
     rows = [
-      ['Token', pickAny(d, ['token', 'access_token', 'key'])],
-      ['Berlaku s/d', pickAny(d, ['expired', 'expired_at', 'valid', 'valid_until', 'masa_aktif'])],
-      ['Negara', pickAny(d, ['country', 'negara'])],
-      ['Paket', pickAny(d, ['plan', 'paket', 'profile'])],
-      ['Catatan', pickAny(d, ['note', 'catatan', 'info', 'pesan'])],
+      ['Berlaku s/d', d?.expiry],
+      ['Negara', pr.country],
+      ['Paket', pr.plan],
+      ['Jenis', d?.type],
+      ['Sukses', d ? `${d.successCount ?? p.successCount ?? 1} akun` : ''],
     ];
   } else if (isAmp) {
     headline = isVerifyDone ? 'Yeay! Akun kamu udah premium' : 'Magic link terkirim ke email';
     rows = [
       ['Email', pickAny(r, ['email']) || order?.meta?.email],
       ['Status', isVerifyDone ? 'Premium aktif' : 'Menunggu verifikasi'],
-      ['Pesan', pickAny(d0(r), ['message', 'msg', 'info'])],
-      ['Berlaku s/d', pickAny(r, ['expired', 'expired_at', 'valid_until'])],
+      ['Pesan', pickAny(p, ['message', 'msg', 'info'])],
+      ['Berlaku s/d', pickAny(p, ['expired', 'expired_at', 'valid_until'])],
     ];
   } else {
     // fallback generik — tampil rapi per baris, BUKAN JSON mentah
@@ -428,30 +446,34 @@ function ResultCard({ order, title, color, icon }: { order: any; title: string; 
           <ResRow key={`${k}${i}`} label={k} value={v.length > 160 ? v.slice(0, 160) + '…' : v} />
         ))}
       </View>
-      {/* token panjang (Netflix dkk) — blok monospace dengan tombol salin */}
+      {/* token panjang (Netflix dkk) — blok monospace + tombol SALIN (SVG), anti lewat tepi */}
       {(() => {
-        const tok = pickAny(resultObj(order), ['token', 'access_token', 'key']);
-        return /^[\w-]{20,}$/.test(tok) ? (
+        const d = p.data && typeof p.data === 'object' ? p.data : p;
+        const tok = pickAny(d, ['token', 'access_token', 'key']) || pickAny(r, ['token', 'access_token', 'key']);
+        return tok ? (
           <Pressable
             onPress={async () => { try { await (await import('expo-clipboard')).setStringAsync(tok); pushBanner({ title: 'Token disalin', body: 'Tempel saat login.', icon: 'copy' }); } catch {} }}
             style={{ padding: 10, borderRadius: R.md, backgroundColor: t.bg2, flexDirection: 'row', alignItems: 'center', gap: 8 } as any}
           >
-            <T v="caption" style={{ flex: 1, fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }} numberOfLines={1}>{tok}</T>
+            <T v="caption" style={{ flex: 1, fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }} numberOfLines={2}>{tok}</T>
             <Ionicons name="copy" size={16} color={t.accent} />
             <T v="caption" color={t.accent} style={{ fontWeight: '800' }}>Salin</T>
           </Pressable>
         ) : null;
       })()}
-      {/* URL verifikasi AlightMotion — tombol buka */}
+      {/* Netflix: tombol buka langsung + URL verifikasi AlightMotion */}
       {(() => {
-        const url = pickAny(resultObj(order), ['url', 'link', 'verify_url', 'urlVerify']);
+        const d = p.data && typeof p.data === 'object' ? p.data : p;
+        const url = pickAny(d, ['url', 'link', 'verify_url', 'urlVerify']) || (order.product === 'netflix' ? String(d?.links?.pc ?? '') : '');
         return /^https?:\/\//.test(url) ? (
           <Pressable
             onPress={() => (Platform.OS === 'web' ? window.open(url, '_blank') : Linking.openURL(url).catch(() => {}))}
             style={{ padding: 10, borderRadius: R.md, backgroundColor: color + '18', flexDirection: 'row', alignItems: 'center', gap: 8 } as any}
           >
-            <Ionicons name="open-outline" size={16} color={color} />
-            <T v="caption" color={color} style={{ flex: 1, fontWeight: '800' }} numberOfLines={1}>{url}</T>
+            <Ionicons name={order.product === 'netflix' ? 'play' : 'open-outline'} size={16} color={color} />
+            <T v="caption" color={color} style={{ flex: 1, fontWeight: '800' }} numberOfLines={1}>
+              {order.product === 'netflix' ? 'Buka Netflix dengan token ini' : url}
+            </T>
           </Pressable>
         ) : null;
       })()}
@@ -459,12 +481,16 @@ function ResultCard({ order, title, color, icon }: { order: any; title: string; 
   );
 }
 
-/** Objek nested → daftar pasangan [label, nilai] untuk fallback generik. */
+/** Objek nested → daftar pasangan [label, nilai] untuk fallback generik.
+ *  Kunci teknis (status boolean, creator, jumlah sukses) dilewati agar kartu
+ *  tetap terbaca manusiawi — dulu tampil "Status: true / Creator: Vanzz Ryuichi". */
+const SKIP_KEYS = new Set(['status', 'creator', 'successcount', 'errorcount', 'totalrequested', 'query', 'code', 'success', 'verifydone', 'fetchedat', 'timestamp', 'userid', 'method']);
 function flatPairs(o: any, prefix = '', depth = 0): [string, string][] {
   if (!o || typeof o !== 'object' || depth > 2) return [];
   const out: [string, string][] = [];
   for (const [k, v] of Object.entries(o)) {
     if (v == null) continue;
+    if (SKIP_KEYS.has(k.toLowerCase())) continue;
     const label = k.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
     if (typeof v !== 'object') out.push([label, String(v)]);
     else if (Array.isArray(v) && v.length && typeof v[0] !== 'object') out.push([label, v.join(', ')]);
@@ -474,6 +500,185 @@ function flatPairs(o: any, prefix = '', depth = 0): [string, string][] {
 }
 /** helper kecil untuk akses r.data aman */
 function d0(r: any): any { return r?.data && typeof r.data === 'object' ? r.data : r; }
+
+// ---------------- KARTU TUMBUH SALURAN (followers & reaksi) ----------------
+/**
+ * v24 — pengganti form generik utk produk followers/reaksi sesuai permintaan:
+ *  · pilih saluran BENERAN dari daftar (nama + foto profil + jumlah pengikut ringkas)
+ *  · pilih mau diisi PENGIKUT atau REAKSI (toggle)
+ *  · kalau reaksi → pilih pesan yang mana (radio daftar pesan saluran, default terakhir)
+ *  · harga ditulis PENDEK (Rp3rb/5 · Rp5rb/10) + total ringkas, anti teks kepanjangan
+ */
+function BoostCard({ onBuy }: { onBuy: (product: ProductKey, meta: Record<string, string>) => void }) {
+  const t = useTheme();
+  const { db } = useStore();
+  const channels = useMemo(() => Object.values(db.chats).filter((c) => c.type === 'channel' && c.id !== '_schema'), [db.chats]);
+  const [mode, setMode] = useState<'followers' | 'reaction'>('followers');
+  const [chatId, setChatId] = useState<string>('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [amount, setAmount] = useState('100');
+  const [msgId, setMsgId] = useState('');
+  const [msgs, setMsgs] = useState<{ id: string; text: string }[] | null>(null);
+
+  const cur = channels.find((c) => c.id === chatId);
+  const ap = apiProductOf(mode)!;
+  const amountNum = Math.max(0, Number((amount || '').replace(/[^0-9]/g, '')) || 0);
+  const min = mode === 'followers' ? 5 : 10;
+  const total = unitPriceOf(mode, amountNum || min);
+
+  // muat pesan saluran utk pemilih reaksi (channel publik → boleh dibaca)
+  useEffect(() => {
+    setMsgs(null); setMsgId('');
+    if (mode !== 'reaction' || !chatId) return;
+    let alive = true;
+    (async () => {
+      try {
+        const fb = firebase();
+        if (!fb) return;
+        const q = fsQuery(collection(fb.db, 'chats', chatId, 'messages'), fsOrderBy('createdAt', 'desc'), fsLimit(8));
+        const snap = await getDocs(q);
+        if (!alive) return;
+        setMsgs(snap.docs.filter((d) => d.id !== '_schema').map((d) => ({ id: d.id, text: String(d.data()?.text ?? d.data()?.caption ?? '') })).filter((x) => x.id));
+      } catch { if (alive) setMsgs([]); }
+    })();
+    return () => { alive = false; };
+  }, [chatId, mode]);
+
+  const chips = mode === 'followers' ? [5, 25, 100, 500, 1000, 5000] : [10, 50, 100, 500, 1000, 5000];
+  const setAmt = (v: number) => setAmount(String(Math.min(mode === 'followers' ? 1_000_000 : 500_000, Math.max(min, v))));
+
+  return (
+    <Neu inset radius={R.lg} style={{ padding: 14, marginTop: 10, gap: 12 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+        <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: (mode === 'followers' ? '#1E9BFF' : '#FF5A8A') + '22', alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name={mode === 'followers' ? 'people' : 'heart'} size={22} color={mode === 'followers' ? '#1E9BFF' : '#FF5A8A'} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <T v="h3" style={{ fontSize: 15 }}>{mode === 'followers' ? 'Followers Saluran' : 'Reaksi Saluran'}</T>
+          <T v="caption" color={t.sub}>{mode === 'followers' ? 'Tambah pengikut saluran pilihanmu' : 'Reaksi ke pesan saluran pilihanmu'}</T>
+        </View>
+        {/* HARGA PENDEK — dulu "Rp3.000 / 5 followers" sampai kebawah */}
+        <T v="h3" style={{ fontSize: 14 }} color={mode === 'followers' ? '#1E9BFF' : '#FF5A8A'}>
+          {mode === 'followers' ? 'Rp3rb/5' : 'Rp5rb/10'}
+        </T>
+      </View>
+
+      {/* toggle pengikut / reaksi */}
+      <Segmented
+        value={mode}
+        onChange={(v: 'followers' | 'reaction') => setMode(v)}
+        options={[{ value: 'followers', label: 'Pengikut' }, { value: 'reaction', label: 'Reaksi' }] as any}
+      />
+
+      {/* PEMILIH SALURAN: nama + foto profil + pengikut */}
+      <Pressable onPress={() => setPickerOpen(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: R.md, backgroundColor: t.bg }}>
+        <Avatar uri={cur?.avatar ?? null} name={cur?.name ?? '?'} color={cur?.color} size={38} />
+        <View style={{ flex: 1, minWidth: 0 }}>
+          {!!cur ? (
+            <>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <T v="caption" style={{ fontWeight: '900' }} numberOfLines={1}>{cur.name}</T>
+                {cur.verified === true && <VerifiedBadge size={13} />}
+              </View>
+              <T v="caption" color={t.faint}>{compactId(followersCount(cur))} pengikut</T>
+            </>
+          ) : (
+            <>
+              <T v="caption" style={{ fontWeight: '800' }}>Pilih saluran</T>
+              <T v="caption" color={t.faint}>Ketuk untuk melihat daftar saluran</T>
+            </>
+          )}
+        </View>
+        <Ionicons name="chevron-down" size={16} color={t.sub} />
+      </Pressable>
+
+      {/* PEMILIH PESAN (hanya reaksi) */}
+      {mode === 'reaction' && !!chatId && (
+        <View style={{ gap: 6 }}>
+          <T v="caption" color={t.faint} style={{ fontWeight: '800' }}>Reaksi untuk pesan yang mana?</T>
+          {msgs === null && <ActivityIndicator size="small" color={t.accent} />}
+          {msgs?.length === 0 && <T v="caption" color={t.faint}>Belum bisa memuat pesan — reaksi masuk ke pesan terakhir.</T>}
+          {(msgs ?? []).length > 0 && (
+            <View style={{ gap: 4 }}>
+              {msgs!.map((m, i) => (
+                <Pressable key={m.id} onPress={() => setMsgId(i === 0 ? '' : m.id)} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 9, borderRadius: R.md, backgroundColor: (i === 0 ? msgId === '' : msgId === m.id) ? t.accentSoft : t.bg2 }}>
+                  <Ionicons name={(i === 0 ? msgId === '' : msgId === m.id) ? 'radio-button-on' : 'radio-button-off'} size={16} color={t.accent} />
+                  <T v="caption" style={{ flex: 1 }} numberOfLines={1}>{i === 0 ? `${m.text || '(media)'} — pesan terakhir` : m.text || '(media)'}</T>
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* JUMLAH + chip cepat */}
+      <View style={{ gap: 8 }}>
+        <NeuInput
+          icon="grid"
+          placeholder={mode === 'followers' ? 'Jumlah pengikut (kelipatan 5)' : 'Jumlah reaksi (kelipatan 10)'}
+          value={amount}
+          onChangeText={(v: string) => setAmount(v.replace(/[^0-9]/g, '').slice(0, 8))}
+          keyboardType="number-pad"
+        />
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          {chips.map((n) => (
+            <Pressable key={n} onPress={() => setAmt(n)} style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: amountNum === n ? t.accent : t.bg2 }}>
+              <T v="caption" color={amountNum === n ? '#fff' : t.sub} style={{ fontWeight: '800' }}>{compactId(n)}</T>
+            </Pressable>
+          ))}
+        </View>
+        {!!amountNum && amountNum >= min && (
+          <T v="caption" color={t.success} style={{ fontWeight: '900' }}>
+            Total {rupiahShort(total)} · {compactId(amountNum)} {mode === 'followers' ? 'pengikut' : 'reaksi'}
+          </T>
+        )}
+      </View>
+
+      <Btn
+        small
+        variant="primary"
+        icon="flash"
+        title={`Beli ${mode === 'followers' ? 'Pengikut' : 'Reaksi'} · ${rupiahShort(total)}`}
+        onPress={() => {
+          if (!cur) { pushBanner({ title: 'Pilih saluran dulu', body: 'Ketuk baris saluran lalu pilih tujuannya.', icon: 'megaphone' }); return; }
+          if (!amountNum || amountNum < min) { pushBanner({ title: 'Jumlah belum cukup', body: `Minimal ${min}.`, icon: 'alert' }); return; }
+          const meta: Record<string, string> = { channel: String(cur.name ?? ''), amount: String(amountNum) };
+          if (mode === 'reaction' && msgId) meta.messageId = msgId;
+          onBuy(mode, meta);
+        }}
+      />
+      <T v="caption" color={t.faint}>
+        {mode === 'followers'
+          ? 'Pengikut masuk otomatis beberapa menit setelah admin konfirmasi pembayaran.'
+          : 'Reaksi ditumpuk ke pesan pilihanmu (atau pesan terakhir) setelah konfirmasi admin.'}
+      </T>
+
+      {/* SHEET daftar saluran */}
+      <Sheet visible={pickerOpen} onClose={() => setPickerOpen(false)} title="Pilih saluran">
+        <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ gap: 6, paddingBottom: 20 }}>
+          {channels.length === 0 && <T v="sub" color={t.sub}>Belum ada saluran yang bisa dipilih.</T>}
+          {channels.map((c) => (
+            <Pressable
+              key={c.id}
+              onPress={() => { setChatId(c.id); setPickerOpen(false); }}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: R.md, backgroundColor: chatId === c.id ? t.accentSoft : t.bg }}
+            >
+              <Avatar uri={c.avatar ?? null} name={c.name ?? '?'} color={c.color} size={40} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <T v="caption" style={{ fontWeight: '900' }} numberOfLines={1}>{c.name || '(tanpa nama)'}</T>
+                  {c.verified === true && <VerifiedBadge size={13} />}
+                </View>
+                <T v="caption" color={t.faint}>{compactId(followersCount(c))} pengikut</T>
+              </View>
+              {chatId === c.id && <Ionicons name="checkmark" size={18} color={t.accent} />}
+            </Pressable>
+          ))}
+        </ScrollView>
+      </Sheet>
+    </Neu>
+  );
+}
 
 export function PremiumScreen() {
   const t = useTheme();
@@ -789,6 +994,16 @@ export function PremiumScreen() {
           {API_PRODUCTS.map((ap) => {
             const amountStr = apiMeta[`${ap.key}.amount`] ?? '';
             const shownPrice = ap.unit ? unitPriceOf(ap.key, Number((amountStr.replace(/[^0-9]/g, '')) || ap.minAmount || ap.unit)) : ap.price;
+            // FOLLOWERS & REAKSI → kartu khusus (pilih saluran asli + foto profil +
+            // jumlah pengikut + pesan reaksi). Harga pendek, tanpa form jelek.
+            if (ap.key === 'followers' || ap.key === 'reaction') {
+              return (
+                <BoostCard
+                  key={ap.key}
+                  onBuy={(product, meta) => openBuy(product, 0, meta)}
+                />
+              );
+            }
             return (
             <Neu key={ap.key} inset radius={R.lg} style={{ padding: 14, marginTop: 10, gap: 10 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -799,7 +1014,8 @@ export function PremiumScreen() {
                   <T v="h3" style={{ fontSize: 15 }}>{ap.title}</T>
                   <T v="caption" color={t.sub}>{ap.desc}</T>
                 </View>
-                <T v="h3" color={ap.color}>{ap.unit ? `${rupiah(ap.price)} / ${ap.unit} ${ap.unitLabel}` : rupiah(ap.price)}</T>
+                {/* harga PENDEK (anti kepanjangan sampai kebawah) */}
+                <T v="h3" style={{ fontSize: 14 }} color={ap.color}>{rupiahShort(ap.price)}</T>
               </View>
               {ap.fields.map((f) => (
                 <NeuInput
@@ -812,17 +1028,12 @@ export function PremiumScreen() {
                   autoCapitalize="none"
                 />
               ))}
-              {!!ap.unit && !!amountStr && (
-                <T v="caption" color={ap.color} style={{ fontWeight: '800' }}>
-                  Total: {Number(amountStr || 0).toLocaleString('id-ID')} {ap.unitLabel} = {rupiah(shownPrice)}
-                </T>
-              )}
               <T v="caption" color={t.faint}>{ap.note}</T>
               <Btn
                 small
                 variant="primary"
                 icon="flash"
-                title={`Beli ${ap.title} · ${rupiah(shownPrice)}`}
+                title={`Beli ${ap.title} · ${rupiahShort(shownPrice)}`}
                 onPress={() => {
                   const meta: Record<string, string> = {};
                   for (const f of ap.fields) meta[f.key] = (apiMeta[`${ap.key}.${f.key}`] ?? '').trim();

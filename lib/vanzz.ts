@@ -103,3 +103,62 @@ export const FREE_TABS: { key: string; label: string; search?: boolean; searchKe
   { key: 'amfinder', label: 'AM Finder', search: true, searchKey: 'url', placeholder: 'URL TikTok preset…' },
   { key: 'jadwalsholat', label: 'Sholat', search: true, searchKey: 'kota', placeholder: 'nama kota…' },
 ];
+
+// ---------------------------------------------------------------------------
+// ANIME ENGINE (animein) — mesin baru layar Anime.
+// Sumber lama (siputzx otakudesu/samehadaku/anichin) MATI di hulu (503/route
+// hilang) → sekarang: search → info(id) → streams(idEpisode) via /api/vanzz.
+// ---------------------------------------------------------------------------
+export type AnimeInMovie = {
+  id: string; title: string; synopsis?: string; synonyms?: string;
+  image_poster?: string; image_cover?: string; type?: string; year?: string | number;
+  status?: string; key_status?: string; views?: string; favorites?: string;
+  studio?: string; day?: string; aired_start?: string; aired_end?: string; genre?: string;
+};
+export type AnimeInEpisode = { id: string; index: string; title: string; id_movie: string; key_time?: string; image?: string; views?: string };
+export type AnimeInInfo = { movie: AnimeInMovie; episodes: AnimeInEpisode[]; type?: string; season?: any };
+export type AnimeInStreamServer = { id?: string; link: string; quality?: string; name?: string; type?: string };
+
+/** Cari anime (animein) → daftar movie. */
+export async function animeInSearch(kw: string): Promise<AnimeInMovie[]> {
+  const r = await vanzzCall('anime_search', { keyword: kw }, 45000);
+  if (!r.ok) throw new Error(r.error ?? 'Pencarian gagal.');
+  return (r.data?.result?.movie ?? []).filter((m: any) => m?.id && m?.title);
+}
+
+/** Info lengkap + daftar episode (input = id movie animein). */
+export async function animeInInfo(id: string): Promise<AnimeInInfo> {
+  const r = await vanzzCall('anime_info', { input: id }, 45000);
+  if (!r.ok) throw new Error(r.error ?? 'Detail tidak tersedia.');
+  const res = r.data?.result ?? {};
+  return { movie: res.movie ?? {}, episodes: res.episodes ?? [], type: res.type, season: res.season };
+}
+
+/** Server streaming utk 1 episode → direct mp4 (bisa diputar) + semi (embed) + next. */
+export async function animeInStreams(epId: string): Promise<{ servers: AnimeInStreamServer[]; next?: { id: string; title?: string } }> {
+  const r = await vanzzCall('anime_streams', { id: epId }, 45000);
+  if (!r.ok) throw new Error(r.error ?? 'Sumber tidak tersedia.');
+  const res = r.data?.result ?? {};
+  return {
+    servers: (res.server ?? []).filter((s: any) => typeof s?.link === 'string' && /^https?:\/\//.test(s.link)),
+    next: res.episode_next?.id ? { id: String(res.episode_next.id), title: res.episode_next.title } : undefined,
+  };
+}
+
+/** Anime yang lagi naik (FYP animein) — dipakai tab Populer. */
+export async function animeFyp(): Promise<{ id_movie?: string; anime: string; episode?: string; poster?: string; views?: string }[]> {
+  const r = await vanzzCall('anime_fyp', {}, 45000);
+  if (!r.ok) throw new Error(r.error ?? 'Gagal memuat.');
+  return (r.data?.result?.fyp ?? []).map((x: any) => ({
+    id_movie: String(x.id_movie ?? ''), anime: String(x.anime ?? ''), episode: String(x.episode ?? ''),
+    poster: typeof x.poster === 'string' ? x.poster : undefined, views: x.count_views ? String(x.count_views) : undefined,
+  })).filter((x: any) => x.anime);
+}
+
+/** Rilisan terbaru OtakuDesu (via Vanzz — sumber otakudesu lama mati). */
+export async function otakudesuLatest(): Promise<{ title: string; episode?: string; url?: string; thumb?: string }[]> {
+  const r = await vanzzCall('otakudesu_latest', {}, 45000);
+  if (!r.ok) throw new Error(r.error ?? 'Gagal memuat.');
+  const res = r.data?.result ?? {};
+  return (res.ongoing_anime ?? []).map((x: any) => ({ title: String(x.title ?? ''), episode: x.episode, url: x.url, thumb: x.thumb }));
+}

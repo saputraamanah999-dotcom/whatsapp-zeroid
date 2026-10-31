@@ -1,5 +1,92 @@
 # WORKLOG — ZEROID WHATSAPP
 
+## Ronde: v24 — VIDEO CALL TANPA MIRROR + STIKER FIXED + SIDEBAR PREMIUM + CUACA 7 HARI + ANIME ENGINE BARU (2026-10-31)
+
+Semua klaim di bawah diverifikasi LIVE (login admin gedejulianto148@gmail.com via REST,
+probe endpoint produksi sebelum & sesudah perubahan — bukan asumsi).
+
+### 1. VIDEO CALL Jangan MIRRORING (front & belakang)
+- `screens/CallScreen.tsx`: prop `mirror` DIHAPUS dari SEMUA RTCVideo lokal
+  (fullscreen preview + PiP kecil). Kamera depan maupun belakang tampil apa adanya,
+  tidak dibalik. (Mirror hanya properti TAMPILAN; kini default komponen = false.)
+
+### 2. STIKER: hapus satu menghapus semua / koleksi berlipat — AKAR & FIX
+- AKAR: `createSticker` dulu bikin id LOKAL (uid('st_')) berbeda dari id dokumen
+  Firestore (addDoc) → hapus via id lokal tidak pernah mengenai dokumen aslinya,
+  salinan cache bertumpuk tiap sesi, tampilan dobel (global milik sendiri muncul 2x
+  karena 2 listener saling menumpuk).
+- FIX: setDoc dengan id ditentukan di awal (id lokal == id Firestore) + optimistic
+  insert; deleteSticker kini optimistic (hilang seketika) + deleteDoc benar; KEDUA
+  listener snapshot dibangun ulang dengan dedupe by id (Map).
+
+### 3. SIDEBAR MENU GRATIS BARU (mengikuti referensi desain premium — anti AI slop)
+- Struktur persis referensi: Brand logo (blok gradien "Z") → label seksi MENU →
+  item navigasi horizontal (ikon kotak rounded + label, aktif highlight lembut
+  berwarna) → sub-level SUMBER BERITA / JENIS QUOTES menjorok dgn indikator titik →
+  kartu CTA gradien "Zeroid Premium" (tombol putih) → footer workspace (pembatas +
+  avatar + nama + role) → tombol ciut/kembang 76px ↔ 236px (ala minimize/maximize).
+- Konten Cuaca/Gempa/Quotes/AM Finder ditata ulang; tombol Motivasi melar (bug
+  layout lama) hilang karena seksi Quotes diganti kartu kutipan rapi dgn ikon.
+
+### 4. CUACA LENGKAP (keluhan: cuma kondisi sekarang, tanpa hujan Senin-Minggu)
+- ENDPOINT BARU `cuaca7` di api/vanzz.ts: Open-Meteo (geocoding + forecast, tanpa
+  API key) — VERIFIED LIVE: Denpasar 7 hari, hujan 100% hari-0, 168 jam hourly.
+- Layar Cuaca: hero (suhu besar, terasa, deskripsi) + 6 chip detail (kelembaban,
+  angin, tekanan, presipitasi, UV, terbit/terbenam) + PRAKIRAAN 7 HARI Senin–Minggu
+  (nama hari Indonesia, bar suhu min-max, peluang hujan %, mm, ikon) + banner
+  "perkiraan hujan <hari>" + JAM-JAMAN 24 jam (scroll horizontal, hujan disorot).
+
+### 5. GEMPA RAPI (dulu kartu kosong — parser tidak mengenali bentuk BMKG)
+- Parser gempa/bmkg diperbaiki (result.auto.Infogempa.gempa + terkini[]):
+  kartu gempa terbaru (magnitudo besar, kedalaman, koordinat, potensi, skala
+  dirasakan) + PETA SHAKEMAP BMKG tampil + daftar "Gempa terkini" 8 entri.
+
+### 6. ANIME ENGINE BARU — sumber lama MATI dibuktikan live
+- Bukti: siputzx otakudesu/samehadaku/anichin = 503 "All nodes failed" / route 404
+  / data kosong → detail anime lama selalu "tidak dapat dibaca" (keluhan user:
+  "keluar hasil aja, bacanya aslinya gaada").
+- Mesin baru (VERIFIED LIVE via /api/vanzz): Cari = animein search (movie[] lengkap
+  sinopsis+poster) · Terbaru = otakudesu_latest (thumb) · Populer = animein FYP
+  (poster asli + id) · Detail = animein info(id): sinopsis ASLI + daftar episode +
+  genre/studio/status · Nonton = animein streams(episodeId): server kualitas
+  (direct mp4 diputar in-app + embed dibuka browser) + tombol episode berikutnya.
+- Slug detail: "ain:<id>" / "q:<judul>" (cari otomatis); favorit lama tetap jalan.
+- Jere schedule/quotes/news dipertahankan (fallback Jikan/ANN resmi masih hidup).
+
+### 7. CEK NOMOR / NETFLIX / RESI — kartu hasil diperbaiki (dulu "true" doang)
+- Payload sebenarnya di-probe dengan order nyata (create pending → paid → deliver):
+  - Cek Nomor: result.operator{name,prefix4} region{country,network}
+    validity{status,expiredAt} quota{estimate} block{status} → kartu kini menampilkan
+    Operator/Jangkauan/Status kartu/Berlaku/Estimasi paket/Kondisi (bukan "true").
+  - Netflix: result.data{token, expiry, profile{country,plan}, links.pc} → token
+    dalam blok monospace 2 baris (anti lewat tepi) + tombol SALIN + tombol
+    "Buka Netflix dengan token ini".
+  - Cek Resi: status + resi/ekspedisi/tanggalKirim/posisi terakhir + 5 riwayat
+    perjalanan sebagai timeline.
+- flatPairs fallback: kunci teknis (status/creator/successCount/...) DISKIP —
+  kartu tidak pernah lagi tampil "Status: true / Creator: Vanzz Ryuichi".
+
+### 8. BELI FOLLOWERS/REAKSI SALURAN — pengalaman baru (sesuai permintaan)
+- Kartu khusus BoostCard menggantikan form generik: pilih saluran BENERAN dari
+  daftar (foto profil + nama + centang + jumlah pengikut ringkas), toggle
+  Pengikut/Reaksi, kalau reaksi → RADIO pilih pesan yang mana (pesannya dimuat
+  dari saluran; default pesan terakhir), chip jumlah cepat (5..5000).
+- SERVER: deliver reaction kini menghormati meta.messageId (pesan pilihan
+  pembeli; fallback pesan terakhir) — backward compatible.
+- Harga semua produk API ditulis RINGKAS (rupiahShort): Rp3rb/5, Rp5rb/10,
+  Rp7rb, Rp5rb — anti teks kepanjangan sampai kebawah.
+
+### 9. ANGKA PENGIKUT RINGKAS di SEMUA tampilan saluran
+- compactId() baru di lib/format: 1.000→1rb, 103.000→103rb, 1.000.103→1jt,
+  2.400.000→2,4jt, 1.5 milyar→1m. Dipakai di ChatRoom (header), ChatInfo,
+  Discover, Admin GrowPanel, kartu hasil followers/reaksi, BoostCard.
+
+### 10. LAIN-LAIN
+- Nama "Vanzz" di label provider AI terminal → "Saputra" (komentar kode tidak
+  dilihat user, dibiarkan); teks creator di kartu hasil sudah di-skip bersih.
+- Versi 1.6.8 (versionCode 14) — picu build APK baru dengan semua fix ini.
+- tsc 0 error; expo export web sukses (8.6 MB, 2 bundle).
+
 ## Ronde: v23 — BOT GRUP FIXED + NOTIFIKASI + CEK RESI + FOLLOWERS/REAKSI MASSAL + RAPIIN UI (2026-10-31)
 
 ### 0. AKAR BOT BISU DIBUKTIKAN — DUA BUG SERVER, dibuktikan via uji live (bukan asumsi)

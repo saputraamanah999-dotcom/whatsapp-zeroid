@@ -23,7 +23,7 @@ import { apiProductOf } from '../lib/products';
 import { useBackendHealth, healthLabel, supabaseStatus } from '../lib/health';
 import { firebase, firebaseConfig } from '../lib/firebase';
 import { proxyPost } from '../lib/proxy';
-import { ago } from '../lib/format';
+import { ago, compactId } from '../lib/format';
 import { pushBanner } from '../lib/bus';
 import { checkServerRules, rulesBanner, type RuleProbe } from '../lib/rulescheck';
 import { pickGallery, uploadMedia, uploadMediaDirect } from '../lib/media';
@@ -348,7 +348,7 @@ function GrowPanel() {
                     onPress={() => setChatId(c.id)}
                     style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: on ? t.accent : t.bg, boxShadow: on ? t.insetSm : t.raisedSm } as any}
                   >
-                    <T v="caption" color={on ? '#fff' : t.sub} style={{ fontWeight: '800' }} numberOfLines={1}>{c.name || '(tanpa nama)'} · {followersCount(c).toLocaleString('id-ID')}</T>
+                    <T v="caption" color={on ? '#fff' : t.sub} style={{ fontWeight: '800' }} numberOfLines={1}>{c.name || '(tanpa nama)'} · {compactId(followersCount(c))}</T>
                   </Pressable>
                 );
               })}
@@ -358,7 +358,7 @@ function GrowPanel() {
             <Neu inset radius={R.md} style={{ padding: 12, gap: 4 }}>
               <T v="caption" color={t.faint}>Saluran terpilih</T>
               <T v="body" style={{ fontWeight: '800' }}>{cur.name}</T>
-              <T v="caption" color={t.sub}>{followersCount(cur).toLocaleString('id-ID')} pengikut saat ini ({cur.members.length} asli + {cur.extraFollowers ?? 0} tambahan)</T>
+              <T v="caption" color={t.sub}>{compactId(followersCount(cur))} pengikut saat ini ({cur.members.length} asli + {cur.extraFollowers ?? 0} tambahan)</T>
             </Neu>
           )}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>

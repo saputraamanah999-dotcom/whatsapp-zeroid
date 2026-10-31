@@ -146,7 +146,7 @@ export default function CallScreen() {
           {remote ? (
             <RTCVideo stream={remote} style={{ flex: 1 }} muted={false} />
           ) : local && call.status !== 'ongoing' && !camOff ? (
-            <RTCVideo stream={local} mirror style={{ flex: 1, opacity: 0.85 }} />
+            <RTCVideo stream={local} style={{ flex: 1, opacity: 0.85 }} />
           ) : (
             <View style={{ flex: 1, backgroundColor: '#0B1220' }} />
           )}
@@ -212,7 +212,7 @@ export default function CallScreen() {
 
       {video && local && !camOff && (call.status === 'ongoing' || remote) && (
         <View style={{ position: 'absolute', top: insets.top + 64, right: 16, width: 110, height: 160, borderRadius: 20, overflow: 'hidden', borderWidth: 2, borderColor: 'rgba(255,255,255,0.6)' }}>
-          <RTCVideo stream={local} mirror style={{ flex: 1 }} />
+          <RTCVideo stream={local} style={{ flex: 1 }} />
         </View>
       )}
 

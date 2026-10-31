@@ -87,6 +87,24 @@ export function initials(name: string) {
 
 export const isEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(s.trim());
 
+/**
+ * Angka ringkas gaya Indonesia: 950 → 950, 1.000 → 1rb, 12.500 → 12,5rb,
+ * 103.000 → 103rb, 1.000.103 → 1jt, 2.400.000 → 2,4jt, 1.500.000.000 → 1m.
+ * Dipakai untuk pengikut saluran/reaksi supaya UI rapi (bukan angka panjang).
+ */
+export function compactId(n?: number | null): string {
+  const v = Math.max(0, Math.round(Number(n ?? 0)));
+  const fmt = (x: number, suf: string) => {
+    const r = x >= 100 ? Math.round(x) : Math.round(x * 10) / 10;
+    const s = r.toLocaleString('id-ID', { maximumFractionDigits: 1 });
+    return `${s}${suf}`;
+  };
+  if (v < 1000) return String(v);
+  if (v < 1_000_000) return fmt(v / 1000, 'rb');
+  if (v < 1_000_000_000) return fmt(v / 1_000_000, 'jt');
+  return fmt(v / 1_000_000_000, 'm');
+}
+
 /** Tiny non-cryptographic hash for local-mode passwords (Firebase Auth handles real credentials). */
 export function hash(s: string) {
   let h = 2166136261;

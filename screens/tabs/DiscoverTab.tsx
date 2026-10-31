@@ -7,6 +7,7 @@ import { T, IconBtn, Avatar, Neu, Btn, Badge } from '../../components/ui';
 import { useTheme, R } from '../../lib/theme';
 import { useStore, toggleFollow, unreadCount, lastMessage, messagePreview, openAI, chatBadge, chatLastMsg, followersCount } from '../../lib/store';
 import { Chat } from '../../lib/types';
+import { compactId } from '../../lib/format';
 import { VerifiedBadge } from '../../lib/icons';
 
 export default function DiscoverTab() {
@@ -39,7 +40,7 @@ export default function DiscoverTab() {
             {chatBadge(c, db) && <VerifiedBadge size={14} animate={false} />}
           </View>
           <T v="sub" numberOfLines={1}>
-            {isFollowing ? `${followersCount(c).toLocaleString('id-ID')} pengikut · ${c.description ?? ''}` : messagePreview(last) || c.description}
+            {isFollowing ? `${compactId(followersCount(c))} pengikut · ${c.description ?? ''}` : messagePreview(last) || c.description}
           </T>
         </View>
         {isFollowing ? (

@@ -380,11 +380,11 @@ async function chatFullPrompt(fullPrompt: string, model: string, budgetMs: numbe
         if (r.ok && r.text) { sticky = p; return { text: r.text, provider: p }; }
       } else {
         const r = await vanzzAI(slice, sessionId, Math.min(per, 40000));
-        steps?.push({ provider: r.ok ? `Vanzz·${r.model}` : 'Vanzz', ok: r.ok, ms: Date.now() - st0 });
+        steps?.push({ provider: r.ok ? `Saputra·${r.model}` : 'Saputra', ok: r.ok, ms: Date.now() - st0 });
         if (r.ok && r.text) { sticky = p; return { text: r.text, provider: p }; }
       }
     } catch {
-      steps?.push({ provider: p === 'vanzz' ? 'Vanzz' : p[0].toUpperCase() + p.slice(1), ok: false, ms: Date.now() - st0 });
+      steps?.push({ provider: p === 'vanzz' ? 'Saputra' : p[0].toUpperCase() + p.slice(1), ok: false, ms: Date.now() - st0 });
       /* penyedia berikutnya */
     }
   }

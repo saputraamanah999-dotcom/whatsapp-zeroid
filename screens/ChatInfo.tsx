@@ -33,7 +33,7 @@ import {
   followersCount,
 } from '../lib/store';
 import { rupiah } from '../lib/products';
-import { ago } from '../lib/format';
+import { ago, compactId } from '../lib/format';
 import { placeCall } from './tabs/CallsTab';
 import { pickGallery, uploadMedia } from '../lib/media';
 import { pushBanner } from '../lib/bus';
@@ -84,7 +84,7 @@ export default function ChatInfo() {
   if (chat.type === 'ai') sub = aiProf?.bio?.trim() || 'Asisten AI · selalu online';
   else if (chat.type === 'direct' && peer) sub = canSee(me, peer, peer.privacy.lastSeen) ? (isOnline(peer) ? 'online' : `terakhir dilihat ${ago(peer.lastSeen)}`) : peer.email;
   else if (chat.type === 'group') sub = `Grup · ${chat.members.length} anggota`;
-  else if (chat.type === 'channel') sub = `Channel · ${followersCount(chat).toLocaleString('id-ID')} pengikut`;
+  else if (chat.type === 'channel') sub = `Channel · ${compactId(followersCount(chat))} pengikut`;
   else sub = 'Chat publik untuk semua pengguna';
 
   const changePhoto = async () => {

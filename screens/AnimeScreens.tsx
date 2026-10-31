@@ -1,9 +1,16 @@
 /**
- * Anime — powered by the Jerexd anime endpoints through the /api/jere proxy.
- * Hub (terbaru / populer / jadwal / quotes / berita / cari / favorit)
- *  → detail (sinopsis, genre, episode, unduhan, favorit)
- *  → nonton (pemain langsung bila sumber direct video tersedia).
- * Favorit tersimpan di Firestore (anime_favs) sehingga sinkron antar perangkat.
+ * ANIME — mesin BARU (animein via /api/vanzz). Sumber lama (otakudesu/samehadaku/
+ * anichin siputzx) MATI di hulu — detail selalu "tidak dapat dibaca". Sekarang:
+ *   Terbaru : otakudesu_latest (thumb+judul, via Vanzz) → ketuk = cari animein
+ *   Populer : anime_fyp (poster asli + id movie) → detail langsung
+ *   Jadwal  : /api/jere (fallback Jikan resmi — masih hidup)
+ *   Quotes/Berita: /api/jere (Jikan/ANN)
+ *   Cari    : animein search → movie (sinopsis, poster, tahun)
+ *   Detail  : animein info(id) — sinopsis ASLI + daftar episode
+ *   Nonton  : animein streams(idEpisode) — server kualitas, direct mp4 diputar
+ *             di dalam app, embed dibuka eksternal + tombol episode berikutnya.
+ * Slug detail: "ain:<idMovie>" (langsung) / "q:<judul>" (cari dulu) / URL lama
+ * (dicoba dicari via judul).
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, FlatList, ScrollView, Pressable, ActivityIndicator, Linking, useWindowDimensions } from 'react-native';
@@ -11,12 +18,12 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
-import { T, Btn, Card, Empty, Header, IconBtn, Neu, NeuInput, Row, Screen, Segmented } from '../components/ui';
+import { T, Btn, Card, Empty, Header, IconBtn, Neu, NeuInput, Row, Screen } from '../components/ui';
 import VideoPlayer from '../components/VideoPlayer';
-import { Sheet } from '../components/Sheet';
 import { useTheme, R } from '../lib/theme';
 import { isAnimeFav, toggleAnimeFav, useStore } from '../lib/store';
-import { animeDetail, animeHot, animeLatest, animeSchedule, animeSearch, animeQuotes, animeNews, AnimeCard, AnimeDetail, AnimeQuote, AnimeNews } from '../lib/jere';
+import { animeSchedule, animeQuotes, animeNews, AnimeCard, AnimeQuote, AnimeNews } from '../lib/jere';
+import { animeInSearch, animeInInfo, animeInStreams, animeFyp, otakudesuLatest, AnimeInMovie, AnimeInEpisode } from '../lib/vanzz';
 
 /** Cache poster fallback per judul (Jikan/MyAnimeList — CORS publik). */
 const posterFallback = new Map<string, string>();
@@ -25,9 +32,7 @@ function Poster({ uri, title, style }: { uri?: string; title?: string; style?: a
   const [src, setSrc] = React.useState<string | undefined>(uri);
   React.useEffect(() => { setSrc(uri); }, [uri]);
   const onErr = React.useCallback(() => {
-    // v21: poster sumber sering URL MATI (oploverz redirect ke HTML). Saat gambar
-    // gagal dimuat, cari poster asli via Jikan sekali per judul (cache) — jalan
-    // di web & APK tanpa tergantung IP server (Jikan membatasi IP Vercel).
+    // poster sumber kadang mati → cari poster asli via Jikan sekali per judul (cache)
     const t = String(title ?? '').trim();
     if (!t) return;
     if (posterFallback.has(t)) { setSrc(posterFallback.get(t)); return; }
@@ -49,29 +54,16 @@ function Poster({ uri, title, style }: { uri?: string; title?: string; style?: a
   );
 }
 
-function AnimeCardItem({ a, onPress }: { a: AnimeCard; onPress: () => void }) {
+type Card = { slug: string; title: string; poster?: string; sub?: string; id?: string };
+
+function AnimeCardItem({ a, onPress }: { a: Card; onPress: () => void }) {
   const t = useTheme();
   return (
     <Pressable onPress={onPress} style={({ pressed }) => ({ flex: 1, margin: 5, borderRadius: R.lg, overflow: 'hidden', backgroundColor: t.surface, boxShadow: pressed ? t.insetSm : t.raisedSm, transform: [{ scale: pressed ? 0.98 : 1 }] } as any)}>
       <Poster uri={a.poster} title={a.title} style={{ width: '100%', aspectRatio: 0.7 }} />
       <View style={{ padding: 9, gap: 3 }}>
-        <T v="caption" numberOfLines={2} style={{ fontWeight: '700', minHeight: 30 }}>
-          {a.title}
-        </T>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-          {!!a.episode && (
-            <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: t.accentSoft }}>
-              <T v="caption" color={t.accent} style={{ fontWeight: '800' }}>EP {a.episode}</T>
-            </View>
-          )}
-          {!!a.rating && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-              <Ionicons name="star" size={11} color="#F5A623" />
-              <T v="caption" color={t.sub} style={{ fontWeight: '700' }}>{a.rating}</T>
-            </View>
-          )}
-        </View>
-        {!!a.releaseDay && <T v="caption" color={t.faint} numberOfLines={1}>{a.releaseDay}</T>}
+        <T v="caption" numberOfLines={2} style={{ fontWeight: '700', minHeight: 30 }}>{a.title}</T>
+        {!!a.sub && <T v="caption" color={t.faint} numberOfLines={1}>{a.sub}</T>}
       </View>
     </Pressable>
   );
@@ -88,23 +80,19 @@ const TABS: { value: HubTab; label: string }[] = [
   { value: 'fav', label: 'Favorit' },
 ];
 
-/**
- * When the provider's OtakuDesu scraper cluster is down (upstream 500), the
- * still-working search endpoint keeps the section alive: these curated queries
- * build a recommendation list instead of a dead screen.
- */
-const FALLBACK_QUERIES = ['one piece', 'jujutsu kaisen', 'blue lock', 'solo leveling', 'dandadan', 'frieren'];
+/** bersihkan judul otakudesu → kata kunci pencarian (buang "Episode … Subtitle Indonesia"). */
+const cleanTitle = (s: string) => s.replace(/episode\s+\d+.*$/i, '').replace(/subtitle\s+indonesia/i, '').replace(/\s{2,}/g, ' ').trim();
 
 export function AnimeScreen() {
   const t = useTheme();
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const rt = useRoute<any>();
   const { db } = useStore();
   const [tab, setTab] = useState<HubTab>('latest');
   const [query, setQuery] = useState('');
-  const [searchRes, setSearchRes] = useState<AnimeCard[] | null>(null);
-  const [lists, setLists] = useState<Partial<Record<HubTab, AnimeCard[]>>>({});
-  const [fallback, setFallback] = useState<Partial<Record<HubTab, boolean>>>({});
+  const [searchRes, setSearchRes] = useState<Card[] | null>(null);
+  const [lists, setLists] = useState<Partial<Record<HubTab, Card[]>>>({});
   const [quotes, setQuotes] = useState<AnimeQuote[] | null>(null);
   const [news, setNews] = useState<AnimeNews[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -113,29 +101,28 @@ export function AnimeScreen() {
   const searchSeq = useRef(0);
   const [tick, setTick] = useState(0);
 
-  /** fetch a tab without the cache guard — also used by every retry button */
+  const openDetail = useCallback((c: Card) => {
+    nav.navigate('AnimeDetail', { slug: c.slug, title: c.title, poster: c.poster });
+  }, [nav]);
+
   const fetchTab = useCallback(async (which: HubTab) => {
-    if (which === 'fav') return; // favs come from the store subscription
-    setLoading(true);
-    setErr('');
+    if (which === 'fav') return;
+    setLoading(true); setErr('');
     try {
-      const list = which === 'latest' ? await animeLatest() : which === 'hot' ? await animeHot() : await animeSchedule();
-      setLists((x) => ({ ...x, [which]: list }));
-      setFallback((x) => ({ ...x, [which]: false }));
-      if (!list.length) setErr('Daftar kosong dari layanan. Coba lagi nanti.');
+      let cards: Card[] = [];
+      if (which === 'latest') {
+        const rows = await otakudesuLatest();
+        cards = rows.map((r) => ({ slug: `q:${cleanTitle(r.title)}`, title: r.title, poster: r.thumb, sub: r.episode ? `EP ${r.episode}` : undefined }));
+      } else if (which === 'hot') {
+        const rows = await animeFyp();
+        cards = rows.map((r) => ({ slug: r.id_movie ? `ain:${r.id_movie}` : `q:${r.anime}`, title: r.anime, poster: r.poster, sub: r.episode ? `EP ${r.episode}` : undefined }));
+      } else {
+        const list = await animeSchedule(); // jere — fallback Jikan resmi masih hidup
+        cards = list.map((a: AnimeCard) => ({ slug: a.slug, title: a.title, poster: a.poster, sub: a.episode ? `EP ${a.episode}` : a.releaseDay }));
+      }
+      setLists((x) => ({ ...x, [which]: cards }));
+      if (!cards.length) setErr('Daftar kosong dari layanan. Coba lagi nanti.');
     } catch (e: any) {
-      // upstream outage → curated recommendation list from the search endpoint
-      try {
-        const res = await Promise.all(FALLBACK_QUERIES.map((q) => animeSearch(q).catch(() => [] as AnimeCard[])));
-        const seen = new Set<string>();
-        const merged: AnimeCard[] = [];
-        for (const arr of res) for (const a of arr) { if (a.slug && !seen.has(a.slug)) { seen.add(a.slug); merged.push(a); } }
-        if (merged.length) {
-          setLists((x) => ({ ...x, [which]: merged }));
-          setFallback((x) => ({ ...x, [which]: true }));
-          return;
-        }
-      } catch { /* show original error */ }
       setErr(e?.message ?? 'Gagal memuat.');
     } finally {
       setLoading(false);
@@ -144,7 +131,7 @@ export function AnimeScreen() {
 
   const load = useCallback(
     async (which: HubTab) => {
-      if (which === 'fav') return; // favs come from the store subscription
+      if (which === 'fav') return;
       if (lists[which]) return;
       await fetchTab(which);
     },
@@ -153,28 +140,14 @@ export function AnimeScreen() {
 
   const loadQuotes = useCallback(async () => {
     if (quotes) return;
-    setLoading(true);
-    setErr('');
-    try {
-      setQuotes(await animeQuotes());
-    } catch (e: any) {
-      setErr(e?.message ?? 'Gagal memuat kutipan.');
-    } finally {
-      setLoading(false);
-    }
+    setLoading(true); setErr('');
+    try { setQuotes(await animeQuotes()); } catch (e: any) { setErr(e?.message ?? 'Gagal memuat kutipan.'); } finally { setLoading(false); }
   }, [quotes]);
 
   const loadNews = useCallback(async () => {
     if (news) return;
-    setLoading(true);
-    setErr('');
-    try {
-      setNews(await animeNews());
-    } catch (e: any) {
-      setErr(e?.message ?? 'Gagal memuat berita.');
-    } finally {
-      setLoading(false);
-    }
+    setLoading(true); setErr('');
+    try { setNews(await animeNews()); } catch (e: any) { setErr(e?.message ?? 'Gagal memuat berita.'); } finally { setLoading(false); }
   }, [news]);
 
   useEffect(() => {
@@ -186,23 +159,26 @@ export function AnimeScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, searchRes, tick]);
 
+  // param q dari layar lain (Menu Gratis FYP) → langsung cari
+  useEffect(() => {
+    const q = rt.params?.q;
+    if (q) { setTab('latest'); doSearch(String(q)); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rt.params?.q]);
+
   const doSearch = (q: string) => {
     setQuery(q);
     if (debounce.current) clearTimeout(debounce.current);
-    if (!q.trim()) {
-      setSearchRes(null);
-      setErr('');
-      return;
-    }
+    if (!q.trim()) { setSearchRes(null); setErr(''); return; }
     debounce.current = setTimeout(async () => {
       const seq = ++searchSeq.current;
-      setLoading(true);
-      setErr('');
+      setLoading(true); setErr('');
       try {
-        const res = await animeSearch(q.trim());
+        const movies = await animeInSearch(q.trim());
         if (seq !== searchSeq.current) return;
-        setSearchRes(res);
-        if (!res.length) setErr(`Tidak ada hasil untuk "${q.trim()}".`);
+        const cards: Card[] = movies.map((m: AnimeInMovie) => ({ slug: `ain:${m.id}`, title: m.title, poster: m.image_poster, sub: [m.type, m.year].filter(Boolean).join(' · ') }));
+        setSearchRes(cards);
+        if (!cards.length) setErr(`Tidak ada hasil untuk "${q.trim()}".`);
       } catch (e: any) {
         if (seq !== searchSeq.current) return;
         setErr(e?.message ?? 'Pencarian gagal.');
@@ -213,13 +189,15 @@ export function AnimeScreen() {
     }, 450);
   };
 
-  const shown = searchRes ?? (tab === 'fav' ? db.animeFavs.map((f) => ({ slug: f.slug, title: f.title, poster: f.poster })) : lists[tab] ?? []);
+  const shown: Card[] = searchRes ?? (tab === 'fav'
+    ? db.animeFavs.map((f) => ({ slug: f.slug, title: f.title, poster: f.poster }))
+    : lists[tab] ?? []);
   const { width } = useWindowDimensions();
   const cols = Math.max(2, Math.min(4, Math.floor(width / 165)));
 
   return (
     <Screen>
-      <Header title="Anime" subtitle="OtakuDesu via Jerexd · cari, tonton, favorit, unduh" back />
+      <Header title="Anime" subtitle="Cari, tonton & favorit — sub Indo" back />
       <View style={{ paddingHorizontal: 14, gap: 10 }}>
         <NeuInput icon="search" placeholder="Cari anime… (mis. one piece)" value={query} onChangeText={doSearch} />
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 7 }}>
@@ -228,11 +206,7 @@ export function AnimeScreen() {
             return (
               <Pressable
                 key={x.value}
-                onPress={() => {
-                  setSearchRes(null);
-                  setQuery('');
-                  setTab(x.value);
-                }}
+                onPress={() => { setSearchRes(null); setQuery(''); setTab(x.value); }}
                 style={{ paddingHorizontal: 13, paddingVertical: 7, borderRadius: 999, backgroundColor: on ? t.accent : t.surface, borderWidth: 1, borderColor: on ? t.accent : t.border }}
               >
                 <T v="caption" color={on ? '#fff' : t.sub} style={{ fontWeight: '800' }}>{x.label}</T>
@@ -247,16 +221,7 @@ export function AnimeScreen() {
           <ActivityIndicator color={t.accent} />
         </View>
       )}
-      {!loading && !!err && <Empty icon="cloud-offline" title="Gagal memuat" body={err} action={<Btn title="Coba lagi" onPress={() => { setSearchRes(null); setQuery(''); setLists((x) => ({ ...x, [tab]: undefined as any })); setFallback((x) => ({ ...x, [tab]: false })); if (tab === 'quotes') setQuotes(null); if (tab === 'news') setNews(null); setTick((x) => x + 1); }} />} />}
-
-      {!loading && !err && !!fallback[tab] && !searchRes && (
-        <View style={{ paddingHorizontal: 14, gap: 8 }}>
-          <T v="caption" color={t.warning} style={{ textAlign: 'center' }}>
-            Mode rekomendasi — sumber utama sedang maintenance di penyedia.
-          </T>
-          <Btn small variant="neu" icon="refresh" title="Coba sumber asli lagi" onPress={() => { setLists((x) => ({ ...x, [tab]: undefined as any })); setFallback((x) => ({ ...x, [tab]: false })); setTick((x) => x + 1); }} />
-        </View>
-      )}
+      {!loading && !!err && <Empty icon="cloud-offline" title="Gagal memuat" body={err} action={<Btn title="Coba lagi" onPress={() => { setSearchRes(null); setQuery(''); setLists((x) => ({ ...x, [tab]: undefined as any })); if (tab === 'quotes') setQuotes(null); if (tab === 'news') setNews(null); setTick((x) => x + 1); }} />} />}
 
       {!loading && !err && tab === 'quotes' && (
         <FlatList
@@ -280,7 +245,7 @@ export function AnimeScreen() {
         <FlatList
           data={news ?? []}
           keyExtractor={(_, i) => `n${i}`}
-          contentContainerStyle={{ padding: 14, paddingBottom: 40 + insets.bottom, gap: 10 }}
+          contentContainerStyle={{ padding: 14, paddingBottom: 40 + insets.bottom }}
           ListEmptyComponent={<Empty icon="newspaper" title="Belum ada berita" />}
           renderItem={({ item }) => (
             <Pressable onPress={() => item.url && Linking.openURL(item.url).catch(() => {})}>
@@ -301,7 +266,7 @@ export function AnimeScreen() {
       {!loading && !err && tab !== 'quotes' && tab !== 'news' && (
         <FlatList
           key={`grid-${cols}`}
-          data={shown as AnimeCard[]}
+          data={shown}
           numColumns={cols}
           keyExtractor={(x, i) => x.slug || `i${i}`}
           contentContainerStyle={{ padding: 9, paddingBottom: 40 + insets.bottom }}
@@ -312,7 +277,7 @@ export function AnimeScreen() {
               body={tab === 'fav' ? 'Tekan ikon hati di halaman detail anime untuk menyimpannya di sini.' : 'Coba tab lain atau cari judul.'}
             />
           }
-          renderItem={({ item }) => <AnimeCardItem a={item as AnimeCard} onPress={() => nav.navigate('AnimeDetail', { slug: (item as AnimeCard).slug, card: item as AnimeCard })} />}
+          renderItem={({ item }) => <AnimeCardItem a={item} onPress={() => openDetail(item)} />}
         />
       )}
     </Screen>
@@ -326,64 +291,79 @@ export function AnimeDetailScreen() {
   const nav = useNavigation<any>();
   const rt = useRoute<any>();
   const { width } = useWindowDimensions();
-  const initial: AnimeCard | undefined = rt.params?.card;
-  const slug: string = rt.params?.slug ?? initial?.slug ?? '';
-  const [d, setD] = useState<AnimeDetail | null>(null);
+  const slug: string = rt.params?.slug ?? '';
+  const [d, setD] = useState<{ movie: AnimeInMovie; episodes: AnimeInEpisode[] } | null>(null);
   const [err, setErr] = useState('');
   const [loading, setLoading] = useState(true);
-  const [fav, setFav] = useState(initial ? isAnimeFav(initial.slug) : false);
-  const [dl, setDl] = useState(false);
+  const [fav, setFav] = useState(isAnimeFav(slug));
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const a = await animeDetail(slug);
+        let id = '';
+        let posterHint = rt.params?.poster;
+        let titleHint = rt.params?.title ?? '';
+        if (slug.startsWith('ain:')) id = slug.slice(4);
+        else if (slug.startsWith('jikan:')) {
+          // favorit lama dari Jikan — coba cari di animein dengan judul param
+          const m = await animeInSearch(titleHint || slug.slice(6));
+          if (m[0]?.id) id = m[0].id;
+        } else {
+          // URL otakudesu lama / "q:" → cari dulu berdasarkan judul
+          const kw = slug.startsWith('q:') ? slug.slice(2) : decodeURIComponent(slug).replace(/^https?:\/\/[^/]+\/anime\//, '').replace(/\/$/, '').replace(/-/g, ' ');
+          const m = await animeInSearch(kw.slice(0, 70));
+          if (m[0]?.id) { id = m[0].id; titleHint = m[0].title; posterHint = m[0].image_poster ?? posterHint; }
+        }
+        if (!id) throw new Error('Judul tidak ditemukan di katalog — coba cari manual.');
+        const info = await animeInInfo(id);
         if (!alive) return;
-        setD(a);
-        setFav(isAnimeFav(a.slug || slug));
+        setD({ movie: { ...info.movie, image_poster: info.movie.image_poster ?? posterHint, title: info.movie.title || titleHint }, episodes: info.episodes });
+        setFav(isAnimeFav(`ain:${id}`));
       } catch (e: any) {
         if (alive) setErr(e?.message ?? 'Gagal memuat detail.');
       } finally {
         if (alive) setLoading(false);
       }
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, [slug, tick]);
 
-  const poster = d?.poster ?? initial?.poster;
-  const title = d?.title ?? initial?.title ?? 'Anime';
+  const movie = d?.movie;
+  const poster = movie?.image_poster ?? rt.params?.poster;
+  const title = movie?.title || rt.params?.title || 'Anime';
 
   if (loading)
     return (
       <Screen>
-        <Header title={initial?.title ?? 'Anime'} back />
+        <Header title={rt.params?.title ?? 'Anime'} back />
         <View style={{ padding: 30, alignItems: 'center' }}>
           <ActivityIndicator color={t.accent} />
         </View>
       </Screen>
     );
 
-  if (err || !d)
+  if (err || !d || !movie)
     return (
       <Screen>
         <Header title={title} back />
         <Empty
           icon="cloud-offline"
-          title="Sumber detail sedang maintenance"
-          body={`${err || 'Detail tidak tersedia.'} — sumber anime di penyedia kadang down. Coba lagi, atau cari judul ini langsung di OtakuDesu lewat browser.`}
+          title="Detail tidak tersedia"
+          body={`${err || 'Coba lagi.'}`}
           action={
             <View style={{ gap: 8, alignItems: 'center' }}>
               <Btn title="Coba lagi" onPress={() => { setErr(''); setLoading(true); setTick((x) => x + 1); }} />
-              <Btn variant="neu" icon="open" title="Cari di OtakuDesu (browser)" onPress={() => Linking.openURL(`https://otakudesu.cloud/?s=${encodeURIComponent(initial?.title ?? slug)}&post_type=anime`).catch(() => {})} />
+              <Btn variant="neu" icon="search" title="Cari judul ini" onPress={() => nav.navigate('Anime')} />
             </View>
           }
         />
       </Screen>
     );
+
+  const favSlug = slug.startsWith('ain:') ? slug : movie.id ? `ain:${movie.id}` : slug;
+  const genres = String(movie.genre ?? '').split(',').map((g) => g.trim()).filter(Boolean);
 
   return (
     <Screen>
@@ -394,7 +374,7 @@ export function AnimeDetailScreen() {
           <IconBtn
             icon={fav ? 'heart' : 'heart-outline'}
             color={fav ? '#FF4D6D' : t.sub}
-            onPress={async () => setFav(await toggleAnimeFav({ slug: d.slug || slug, title, poster }))}
+            onPress={async () => setFav(await toggleAnimeFav({ slug: favSlug, title, poster }))}
           />
         }
       />
@@ -404,69 +384,58 @@ export function AnimeDetailScreen() {
           <View style={{ flex: 1, gap: 6 }}>
             <T style={{ fontWeight: '900', fontSize: 20 }}>{title}</T>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-              {!!d.rating && <Chip icon="star" text={d.rating} color="#F5A623" />}
-              {!!d.status && <Chip text={d.status} />}
+              {!!movie.status && <Chip text={movie.status} />}
+              {!!movie.type && <Chip text={movie.type} />}
+              {!!movie.year && <Chip text={String(movie.year)} />}
               {!!d.episodes?.length && <Chip text={`${d.episodes.length} episode`} />}
-              {!!d.duration && <Chip text={d.duration} />}
-              {!!d.released && <Chip text={d.released} />}
+              {!!movie.studio && <Chip text={movie.studio} />}
             </View>
-            {!!d.genres?.length && (
+            {!!genres.length && (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 2 }}>
-                {d.genres.map((g) => (
+                {genres.slice(0, 8).map((g) => (
                   <View key={g} style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: t.accentSoft }}>
                     <T v="caption" color={t.accent} style={{ fontWeight: '700' }}>{g}</T>
                   </View>
                 ))}
               </View>
             )}
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-              <Btn icon="play" title="Tonton" onPress={() => nav.navigate('AnimeWatch', { slug: d.slug || slug, title })} disabled={!d.episodes?.length} />
-              <Btn icon="download" title="Unduh" variant="neu" onPress={() => setDl(true)} disabled={!d.downloads?.length} />
-            </View>
+            {!!movie.views && (
+              <T v="caption" color={t.faint}>
+                {Number(movie.views).toLocaleString('id-ID')} tayangan{movie.favorites ? ` · ${Number(movie.favorites).toLocaleString('id-ID')} favorit` : ''}
+              </T>
+            )}
           </View>
         </View>
 
-        {!!d.synopsis && (
+        {!!movie.synopsis && (
           <Card title="Sinopsis">
-            <T color={t.sub}>{d.synopsis}</T>
+            <T color={t.sub}>{movie.synopsis}</T>
           </Card>
         )}
 
         <Card title={`Episode (${d.episodes?.length ?? 0})`}>
           {d.episodes?.length ? (
             <View style={{ gap: 6 }}>
-              {d.episodes.slice(0, 60).map((e) => (
-                <Row key={e.slug} icon="play-circle" title={e.title} subtitle={e.date} onPress={() => nav.navigate('AnimeWatch', { slug: e.slug, title: `${title} — ${e.title}` })} />
+              {d.episodes.slice(0, 80).map((e) => (
+                <Row
+                  key={e.id}
+                  icon="play-circle"
+                  title={e.title}
+                  subtitle={[e.key_time, e.views ? `${Number(e.views).toLocaleString('id-ID')}x ditonton` : ''].filter(Boolean).join(' · ')}
+                  onPress={() => nav.navigate('AnimeWatch', { epId: e.id, title: `${title} — ${e.title}` })}
+                />
               ))}
-              {(d.episodes.length ?? 0) > 60 && <T v="caption" color={t.faint}>… dan {d.episodes.length - 60} episode lain (buka lewat unduhan)</T>}
             </View>
           ) : (
             <T color={t.faint}>Daftar episode tidak tersedia.</T>
           )}
         </Card>
       </ScrollView>
-
-      <Sheet visible={dl} onClose={() => setDl(false)} title="Unduh">
-        <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ gap: 10, paddingBottom: 20 }}>
-          {d.downloads?.length ? (
-            d.downloads.map((grp, i) => (
-              <View key={`g${i}`} style={{ gap: 5 }}>
-                <T v="caption" style={{ fontWeight: '900' }}>{grp.label}</T>
-                {grp.urls.map((u, j) => (
-                  <Btn key={`u${i}-${j}`} icon="download" title={u.label} variant="neu" small onPress={() => Linking.openURL(u.url).catch(() => {})} />
-                ))}
-              </View>
-            ))
-          ) : (
-            <T color={t.faint}>Tautan unduhan tidak tersedia.</T>
-          )}
-        </ScrollView>
-      </Sheet>
     </Screen>
   );
 }
 
-function Chip({ icon, text, color }: { icon?: keyof typeof Ionicons.glyphMap; text: string; color?: string }) {
+function Chip({ text, icon, color }: { text: string; icon?: keyof typeof Ionicons.glyphMap; color?: string }) {
   const t = useTheme();
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, backgroundColor: t.bg2 }}>
@@ -482,11 +451,12 @@ export function AnimeWatchScreen() {
   const t = useTheme();
   const nav = useNavigation<any>();
   const rt = useRoute<any>();
-  const slug: string = rt.params?.slug ?? '';
+  const epId: string = rt.params?.epId ?? '';
   const label: string = rt.params?.title ?? 'Tonton';
   const [err, setErr] = useState('');
-  const [video, setVideo] = useState<string | null>(null);
-  const [links, setLinks] = useState<{ label: string; url: string }[]>([]);
+  const [servers, setServers] = useState<{ link: string; quality?: string; name?: string; type?: string }[]>([]);
+  const [next, setNext] = useState<{ id: string; title?: string } | null>(null);
+  const [sel, setSel] = useState(0);
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
 
@@ -494,24 +464,24 @@ export function AnimeWatchScreen() {
     let alive = true;
     (async () => {
       try {
-        const d = await animeDetail(slug);
+        const r = await animeInStreams(epId);
         if (!alive) return;
-        const found: { label: string; url: string }[] = [];
-        for (const grp of d.downloads ?? []) for (const u of grp.urls ?? []) found.push({ label: `${grp.label} · ${u.label}`, url: u.url });
-        const playable = found.find((x) => /\.(mp4|webm|m3u8)(\?|$)/i.test(x.url));
-        setVideo(playable?.url ?? null);
-        setLinks(found);
-        if (!playable && !found.length) setErr('Tidak ada sumber video/unduhan untuk episode ini.');
+        setServers(r.servers);
+        setNext(r.next ?? null);
+        setSel(0);
+        if (!r.servers.length) setErr('Tidak ada server untuk episode ini — coba lagi nanti.');
       } catch (e: any) {
         if (alive) setErr(e?.message ?? 'Gagal memuat sumber video.');
       } finally {
         if (alive) setLoading(false);
       }
     })();
-    return () => {
-      alive = false;
-    };
-  }, [slug, tick]);
+    return () => { alive = false; };
+  }, [epId, tick]);
+
+  const direct = servers.filter((s) => /\.(mp4|webm|m3u8)(\?|$)/i.test(s.link) || s.type === 'direct');
+  const embed = servers.filter((s) => !direct.includes(s));
+  const cur = direct[sel];
 
   return (
     <Screen>
@@ -521,35 +491,44 @@ export function AnimeWatchScreen() {
           <ActivityIndicator color={t.accent} />
         </View>
       )}
-      {!loading && video && (
-        <View style={{ padding: 16, gap: 14 }}>
-          <VideoPlayer uri={video} height={230} />
-          <T v="caption" color={t.faint}>Memutar sumber langsung: {video.slice(0, 60)}…</T>
+      {!loading && cur && (
+        <View style={{ padding: 16, gap: 12 }}>
+          <VideoPlayer uri={cur.link} height={230} />
+          {/* pilih kualitas/server */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 7 }}>
+            {direct.map((s, i) => (
+              <Pressable
+                key={`${s.link}${i}`}
+                onPress={() => setSel(i)}
+                style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: i === sel ? t.accent : t.surface, borderWidth: 1, borderColor: i === sel ? t.accent : t.border }}
+              >
+                <T v="caption" color={i === sel ? '#fff' : t.sub} style={{ fontWeight: '800' }}>{[s.quality, s.name].filter(Boolean).join(' · ') || `Server ${i + 1}`}</T>
+              </Pressable>
+            ))}
+          </ScrollView>
+          {next && (
+            <Btn icon="play-forward" variant="neu" title={`Episode berikutnya${next.title ? ` — ${next.title}` : ''}`} onPress={() => nav.replace('AnimeWatch', { epId: next.id, title: label.replace(/ — .*$/, '') + (next.title ? ` — ${next.title}` : '') })} />
+          )}
         </View>
       )}
-      {!loading && !video && !err && (
+      {!loading && !cur && !err && (
         <View style={{ padding: 16, gap: 8 }}>
-          <Empty icon="videocam-off" title="Pemain langsung tidak tersedia" body="Unduh lewat tautan di bawah, atau buka di browser." />
+          <Empty icon="videocam-off" title="Pemain langsung tidak tersedia" body="Buka lewat server embed di bawah." />
         </View>
       )}
       {!loading && !!err && (
         <Empty
           icon="cloud-offline"
           title="Gagal memuat sumber"
-          body={`${err} — coba lagi, atau buka episode ini lewat browser OtakuDesu.`}
-          action={
-            <View style={{ gap: 8, alignItems: 'center' }}>
-              <Btn title="Coba lagi" onPress={() => { setErr(''); setLoading(true); setTick((x) => x + 1); }} />
-              <Btn variant="neu" icon="open" title="Buka OtakuDesu (browser)" onPress={() => Linking.openURL(`https://otakudesu.cloud/?s=${encodeURIComponent(label)}&post_type=anime`).catch(() => {})} />
-            </View>
-          }
+          body={err}
+          action={<Btn title="Coba lagi" onPress={() => { setErr(''); setLoading(true); setTick((x) => x + 1); }} />}
         />
       )}
-      {!loading && !!links.length && (
+      {!loading && !!embed.length && (
         <ScrollView contentContainerStyle={{ padding: 16, paddingTop: 4, gap: 8, paddingBottom: 40 }}>
-          <T v="caption" style={{ fontWeight: '900' }}>Tautan unduhan / pemutar eksternal</T>
-          {links.slice(0, 24).map((l, i) => (
-            <Btn key={i} icon="download" title={l.label} variant="neu" small onPress={() => Linking.openURL(l.url).catch(() => {})} />
+          <T v="caption" style={{ fontWeight: '900' }}>Server embed (buka browser)</T>
+          {embed.slice(0, 12).map((s, i) => (
+            <Btn key={`e${i}`} icon="open" title={[s.quality, s.name].filter(Boolean).join(' · ') || `Server ${i + 1}`} variant="neu" small onPress={() => Linking.openURL(s.link).catch(() => {})} />
           ))}
         </ScrollView>
       )}

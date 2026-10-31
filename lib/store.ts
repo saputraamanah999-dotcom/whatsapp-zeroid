@@ -552,15 +552,23 @@ function attachUserSubs(fbUid: string) {
     bump();
   }, (e) => console.warn('calls-out sub', e)));
 
-  // my stickers + global stickers (skip penanda '_schema')
+  // my stickers + global stickers (skip penanda '_schema') — DEDUPE by id:
+  // dulu salinan ganda (global milik sendiri muncul 2x, salinan cache dgn id lama
+  // ikut terbawa) → daftar stiker kelihatan "berlipat-lipat".
   miscSubs.push(onSnapshot(query(collection(fb.db, C.stickers), where('ownerId', '==', fbUid)), (s) => {
     const mine = s.docs.filter((d) => d.id !== '_schema').map(rawDoc) as Sticker[];
-    db.stickers = [...mine, ...db.stickers.filter((x) => x.global)];
+    const byId = new Map<string, Sticker>();
+    for (const m of mine) byId.set(m.id, m);
+    for (const x of db.stickers) if (x.global && x.ownerId !== fbUid && !byId.has(x.id)) byId.set(x.id, x);
+    db.stickers = [...byId.values()];
     bump();
   }, () => {}));
   miscSubs.push(onSnapshot(query(collection(fb.db, C.stickers), where('global', '==', true), fsLimit(100)), (s) => {
     const globals = s.docs.filter((d) => d.id !== '_schema').map(rawDoc) as Sticker[];
-    db.stickers = [...db.stickers.filter((x) => x.ownerId !== fbUid), ...globals];
+    const byId = new Map<string, Sticker>();
+    for (const g of globals) byId.set(g.id, g);
+    for (const x of db.stickers) if (x.ownerId === fbUid && !byId.has(x.id)) byId.set(x.id, x);
+    db.stickers = [...byId.values()];
     bump();
   }, () => {}));
 
@@ -3484,8 +3492,17 @@ export function createSticker(uri: string, global = false): Sticker | null {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb) return null;
-  const s: Sticker = { id: uid('st_'), uri, ownerId: me.id, global: global && (isFullAdmin(me)), createdAt: Date.now() };
-  addDoc(collection(fb.db, C.stickers), { uri, ownerId: me.id, global: s.global, createdAt: serverTimestamp() }).catch(() => {});
+  // FIX BUG STIKER: dulu id LOKAL (uid('st_')) beda dengan id dokumen Firestore
+  // (addDoc membuat id sendiri) → hapus satu via id lokal TIDAK PERNAH menghapus
+  // dokumen aslinya & salinan cache bertumpuk tiap sesi. Sekarang id dokumen
+  // DITENTUKAN DI AWAL (setDoc) sehingga id lokal == id Firestore, dan stiker
+  // langsung tampil optimistik tanpa menunggu snapshot.
+  const id = uid('st_');
+  const s: Sticker = { id, uri, ownerId: me.id, global: global && (isFullAdmin(me)), createdAt: Date.now() };
+  setDoc(doc(fb.db, C.stickers, id), { uri, ownerId: me.id, global: s.global, createdAt: serverTimestamp() }).catch(() => {});
+  // optimistik: langsung masuk daftar (dedupe by id)
+  if (!db.stickers.some((x) => x.id === id)) db.stickers = [s, ...db.stickers];
+  bump();
   return s;
 }
 
@@ -3495,6 +3512,10 @@ export function deleteSticker(id: string) {
   const st = db.stickers.find((x) => x.id === id);
   if (!me || !fb || !st) return;
   if (st.ownerId !== me.id && !isFullAdmin(me)) return;
+  // optimistik: hapus dari daftar SEKARANG (dulu menunggu snapshot → terasa
+  // "tidak terhapus" atau salinan lama masih muncul)
+  db.stickers = db.stickers.filter((x) => x.id !== id);
+  bump();
   deleteDoc(doc(fb.db, C.stickers, id)).catch(() => {});
 }
 
