@@ -641,3 +641,32 @@
 - Kirim ulang pesan: idempoten (doc id sama), gagal lagi → status failed + alasan.
 - Ikon ban baru (BanGlyph SVG gradasi+glow) di layar blokir perangkat & akun.
 - Typecheck 0 error; build produksi web LULUS.
+
+## v22.1 (31 Okt 2026) — BAGIAN 5 tuntas + akses admin dipulihkan + APK 1.6.5 + ZIP final
+
+- **METADATA AI TIDAK TAMPIL LAGI (BAGIAN 5)**: pembersih internal-markup di DUA sisi —
+  server `api/ai.ts` (`stripInternalMarkup`: :::tag{...} seimbang-kurung + ekstrak isi
+  dari dalam metadata, `<think>` termasuk yang terpotong, `[TOOL_CALL]`, rapikan baris)
+  untuk chat/thinking/vision/bot-reply; klien `lib/aiText.ts` dipakai `lib/ai.ts`
+  (askAI/thinkAI/analyzeImage) DAN MessageBubble (pesan lama yang masih menyimpan
+  metadata ikut rapi saat render). Uji: `scripts/test_aitext.ts` **10/10 PASS** +
+  harness `/api/ai` **10/10 PASS** (2 cek regresi baru). Chat AI NYATA produksi diuji:
+  jawaban bersih tanpa :::writing (6,2 dtk, provider sylvatica).
+- **AKUN DEVELOPER DIPULIHKAN**: perintah `whois` baru di CI maintenance (email
+  di-log DISAMARKAN — repo publik). Hasil: akun utama `banned=false` (liftban v22
+  berhasil) tetapi `role=user` → Admin Panel masih terkunci. `setrole developer`
+  dijalankan via CI (run 41175937151) — sekarang KEDUA akun dev `role=developer`,
+  `banned=false`. Inspect lama yang mencetak email sudah dipatch jadi tersamarkan.
+- **AUDIT AI**: `jerePost` menolak POST tanpa kunci (dulu key kosong tetap dikirim —
+  boros request & menutupi 503 jujur). Konsisten dgn vexo/sylvatica yang sudah guard.
+- **APK 1.6.5 (versionCode 12)**: dibangun CI dari 7e36084 — bundle di dalam APK
+  diverifikasi memuat pembersih AI (regex TOOL_CALL/:::/think ada di bundle).
+- **LAPORAN PENGUJIAN JUJUR** `docs/TEST-REPORT.md`: 45 butir dgn status
+  PASS/FAIL/BLOCKED/NOT TESTED — 18/18 uji rules LIVE PASS, yang butuh perangkat
+  fisik (instal APK, FCM background, call 2 perangkat) ditulis BLOCKED/NOT TESTED
+  tanpa mengarang.
+- **ZIP FINAL** `ZEROID-WHATSAPP-FIXED-COMPLETE.zip` (112 MB, 1769 file): source +
+  rules + indexes + functions + docs/panduan + .env.example + laporan uji + APK di
+  `release/` — TANPA node_modules/.git/.env/kredensial (terverifikasi skrip).
+- Deploy Vercel hijau di setiap push; `/api/version` = commit terbaru; endpoint
+  upload/music/guard/fcm sehat; scan rahasia 0 temuan.
