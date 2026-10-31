@@ -648,7 +648,13 @@ export default async function handler(req: any, res: any) {
   const rawParams = (body?.params && typeof body.params === 'object') ? body.params : {};
   const params: Record<string, string> = {};
   for (const p of ep.params ?? []) params[p] = clean((rawParams as any)[p], p === 'link' || p === 'url' ? 2000 : 400);
-  const r = await vanzzGet(ep, params, key);
+  let r = await vanzzGet(ep, params, key);
+  // Vanzz kadang gagal SESaat lalu normal lagi (404/502/503 terbukti live) →
+  // coba SEKALI lagi setelah jeda pendek sebelum menyatakan gagal.
+  if (!r.ok && r.status !== 401) {
+    await new Promise((res) => setTimeout(res, 1200));
+    r = await vanzzGet(ep, params, key);
+  }
   // GEMPA/BMKG: Vanzz flaky (404/503 terbukti live) → fallback LANGSUNG BMKG
   if (!r.ok && (key2 === 'gempa' || key2 === 'bmkg')) {
     const b = await bmkgDirect();
