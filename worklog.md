@@ -81,6 +81,36 @@ probe endpoint produksi sebelum & sesudah perubahan — bukan asumsi).
   2.400.000→2,4jt, 1.5 milyar→1m. Dipakai di ChatRoom (header), ChatInfo,
   Discover, Admin GrowPanel, kartu hasil followers/reaksi, BoostCard.
 
+### 11. UPSTREAM "VANZZ" MATI TOTAL DIBUKTIKAN & SEMUA FITUR TETAP HIDUP (uji live berulang)
+- Malam ini `apiz.vsunsee.qzz.io` = **DEPLOYMENT_NOT_FOUND** (host hilang, bukan gangguan
+  sesaat) — diverifikasi langsung ke host. Fitur yang tadinya bergantung penuh kini punya
+  CADANGAN RESMI (diuji LIVE satu per satu di produksi):
+  · GEMPA   → fallback LANGSUNG BMKG (autogempa + gempaterkini + gempadirasakan.json) ✓ live
+  · QUOTES  → pool kutipan Indonesia bawaan server (motivasi/galau/gombal, acak) ✓ live
+  · BERITA  → RSS resmi 6 media (CNN/CNBC/Sindo langsung + Kompas/Liputan6/Antara via
+    Google News RSS; pemilih feed sudah diuji satu-satu — feed mati dibuang) ✓ live
+  · CUACA   → sudah lewat Open-Meteo (cuaca7) sejak subbab 4 ✓ live
+  · ANIME   → animein dulu; kalau host mati → Jikan/MyAnimeList resmi via /api/jere
+    (Terbaru/Populer/Cari/Detail `jikan:` slug) + JIKAN GATE di klien (maks 2 panggilan
+    poster bersamaan + timeout — dulu ratusan fallback poster menelan 429 dan pencarian
+    mati; terbukti lewat uji browser) + buang kartu sampah tanpa judul/skor N/A (scraper
+    komikindo terbukti balik title kosong) ✓ live
+  · STIKER  → Brat dirender LOKAL di perangkat (sudah ada) ✓
+  · PENGUMUMAN jujur di layar ketika satu sumber maintenance — tidak ada JSON mentah.
+- KETIKA host Vanzz kembali online, semua endpoint utama (animein, netflix, cek nomor,
+  resi, amfinder, QRIS dinamis) otomatis terpakai lagi — TANPA perubahan kode.
+
+### 12. FIX KRITIS TAMBAHAN (dibuktikan via uji order nyata)
+- **Deliver followers/reaksi selalu "Saluran tidak ditemukan"**: fbQuery dikirim string
+  mentah; Firestore REST butuh nilai bertipe `{stringValue}` → kedua pencarian saluran
+  balik []. FIX + uji LIVE: order nyata reaksi ke pesan TERPILIH (messageId) →
+  extraReactions pesan 0→10 ✓; followers 1.000.100→1.000.105 ✓ (tampil "1jt").
+- **Kartu hasil Cek Nomor order lama pemilik** (085858922037) kini tampil penuh:
+  Operator Indosat Ooredoo Hutchison (IM3) (0858), Jangkauan Indonesia (+62) · Jaringan
+  Domestik Nasional, Status kartu Aktif (2 Tahun Lagi), Berlaku s/d 3 Oktober 2028,
+  Estimasi paket 25.0 GB Full 24 Jam, Kondisi Terblokir/Suspend — dulu "true" doang.
+- Kartu followers/reaksi di Premium kini TAMPIL SEKALI (dulu dobel).
+
 ### 10. LAIN-LAIN
 - Nama "Vanzz" di label provider AI terminal → "Saputra" (komentar kode tidak
   dilihat user, dibiarkan); teks creator di kartu hasil sudah di-skip bersih.
