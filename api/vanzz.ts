@@ -69,11 +69,12 @@ const FREE: Record<string, Ep> = {
   tts: { path: '/vsunseeV8/tts/tools', params: ['text'], timeout: 45000 },
   kalkulator: { path: '/vsunseeV8/kalkulator/tools', params: ['q'] },
   ssweb: { path: '/vsunseeV8/ssweb/tools', params: ['url'], timeout: 45000 },
-  // Stiker (Brat 3 varian + meme 3 varian)
+  // Stiker (Brat 3 varian + meme 3 varian) — SEMUA balas gambar biner
+  // (PNG/JPEG/GIF animasi) → server konversi ke data URL (img: true).
   brat: { path: '/vsunseeV8/brat', params: ['text'], img: true },
-  bratvideo: { path: '/vsunseeV8/bratvideo', params: ['text'], timeout: 55000 },
+  bratvideo: { path: '/vsunseeV8/bratvideo', params: ['text'], img: true, timeout: 55000 },
   bratanime: { path: '/vsunseeV8/bratanime', params: ['text'], img: true },
-  randomsticker: { path: '/vsunseeV8/randomsticker', img: false },
+  randomsticker: { path: '/vsunseeV8/randomsticker', img: true },
   smemev1: { path: '/vsunseeV8/smemev1', params: ['top', 'bottom', 'link'], img: true },
   smemev2: { path: '/vsunseeV8/smemev2', params: ['top', 'bottom', 'link'], img: true },
   // Islamic (gratis, tanpa MuslimAI chat)
