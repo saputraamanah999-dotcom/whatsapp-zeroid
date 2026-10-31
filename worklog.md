@@ -1,5 +1,79 @@
 # WORKLOG — ZEROID WHATSAPP
 
+## Ronde: v23 — BOT GRUP FIXED + NOTIFIKASI + CEK RESI + FOLLOWERS/REAKSI MASSAL + RAPIIN UI (2026-10-31)
+
+### 0. AKAR BOT BISU DIBUKTIKAN — DUA BUG SERVER, dibuktikan via uji live (bukan asumsi)
+- **Bug 1 — `fsServerTime()` di documents:create**: `{serverValue:'REQUEST_TIME'}` hanya sah
+  di API commit; `documents:createDocument` MENOLAK seluruh dokumen (400) → `fbCreateDoc`
+  untuk pesan bot balik `false` → `/api/ai` bot-reply 502 "Gagal mengirim balasan bot".
+  Kenapa lolos audit lama: patch members (bot join) pakai `fbPatchDoc` (jalan), hanya
+  PESAN yang gagal → bot "tergabung tapi tak pernah bicara".
+  FIX: 6 payload di api/ai.ts → `createdAt: fsTimeMs()` (timestamp asli ISO) +
+  `sanitizeCreateFields()` di fbCreateDoc (konversi otomatis, anti ulang).
+- **Bug 2 — createdAt integer vs timestamp**: perbaikan pertama pakai integerValue →
+  pesan bot tersimpan tapi urut DI BAWAH semua pesan (tipe number < timestamp di
+  Firestore) → "hilang" dari daftar. FIX final: `fsTimeMs()` timestampValue.
+- **Bug 3 — subscribeMessages ASC+limit**: query `orderBy createdAt asc, limit 60`
+  mengambil 60 pesan TERLAMA; begitu chat >60 pesan, pesan BARU jatuh DI LUAR
+  jendela listener → tidak pernah masuk real-time (nyambung ke keluhan "delay,
+  harus buka chat dulu"). FIX: DESC + limit lalu reverse (ascending) — UI tak diubah.
+- **VERIFIKASI LIVE (browser + curl, akun gedejulianto148@gmail.com)**:
+  @zeroid → "Zeroid Bot: PONG" balas DETIK itu, realtime, terlihat di chat ✓
+
+### 1. NOTIFIKASI PESAN BARU (keluhan: "chat aja orang gak muncul notif harus buka chat dulu")
+- `sendMessage` kini menulis notifikasi + FCM push untuk SETIAP pesan sungguhan:
+  direct (nama pengirim), grup (nama grup · pengirim), saluran (nama saluran).
+  Mention di-skip (anti dobel), mute & pengirim di-skip, maks 80 penerima per pesan.
+
+### 2. PRODUK BARU + HASIL CANTIK (bukan JSON!)
+- **Cek Resi Rp5.000** (resi + ekspedisi) → `/vsunseeV8/resi/check`.
+- **Followers Saluran Rp3.000/5** & **Reaksi Saluran Rp5.000/10** — harga satuan
+  (`unitPriceOf`), pembeli pilih nama saluran + jumlah (kelipatan 5/10, maks 1 juta).
+  Deliver SERVER-SIDE via service account: cari saluran by nama → `chats/{id}.extraFollowers`
+  / `messages/{id}.extraReactions` (ditumpuk, anggota asli utuh).
+- **Kartu hasil per produk** (`ResultCard`): Cek Nomor (operator/wilayah/status),
+  Resi (kurir/status/posisi), Netflix (token + tombol SALIN + masa aktif),
+  Followers/Reaksi (jumlah terkirim + total), fallback baris generik anti-kosong.
+- **ALUR ALIGHTMOTION 2 LANGKAH** (permintaan eksplisit): deliver → magic link ke email →
+  kartu "Langkah terakhir — verifikasi email" (bar loading + input URL) → aksi baru
+  `amverify` {orderId, urlVerify} → unlock → **"Yeay! Akun kamu udah premium"**.
+- **Teks "GRATIS untuk admin/developer" DIHAPUS dari layar** (perilaku staff-free tetap,
+  tanpa publikasi).
+
+### 3. UI DIRAPIIN (keluhan "numpuk njir")
+- **Topbar chat pribadi**: HANYA nama + centang biru + video call + call. Streak api &
+  kucing + wallpaper + gaya balon PINDAH ke profil user (tap avatar/nama → kartu
+  "Kustomisasi chat"). Tema aplikasi → "Tampilan aplikasi" di profil sendiri.
+- **MeTab dibersihkan**: baris Gaya balon/Wallpaper/Tema segmented dihapus (ke profil).
+- **Menu Gratis**: SIDEBAR vertikal kiri (dulu chips horizontal susah ditekan).
+- **Header glassmorphism** (ala iPhone): semi-transparan + hairline bawah, dark+light.
+- **Branding**: "Buat stiker Vanzz" → "Buat stiker"; banner "Stiker Vanzz jadi" →
+  "Stiker jadi"; teks UI lain bebas "Vanzz" (hanya komentar kode).
+
+### 4. AI GUARD PANEL DIPERLUAS (permintaan: "banyakin pengaturan buat dia")
+- Skill baru: **Virtext/bom karakter** (ban jam), **Bom media** (ban jam + ambang 3-100),
+  **Spam stiker** (ban jam + ambang), **Tangguhkan grup otomatis** (durasi menit),
+  **Kunci IP & perangkat** on/off, **Admin/developer kebal Guard** on/off,
+  **Peringatan dulu sebelum ban** (maks N kali). Semua tersimpan di `guardconfig/main`,
+  realtime ke SEMUA klien (`applyGuardCfg`) — deteksi klien ikut aturan admin.
+
+### 5. TUMBUHKAN SALURAN (admin) — massal followers & reaksi
+- Tab baru "Tumbuhkan": pilih saluran → followers/reaksi → jumlah (s.d. 1 juta/500rb)
+  → langsung masuk & tampil semua klien (`followersCount()` dipakai di daftar chat,
+  header chat, info, Discover). Emoji reaksi pilihan. Audit log grow_*.
+- VERIFIKASI LIVE: "SAPUTRA || DEV · 103 (3 asli + 100 tambahan)" ✓ + 100 reaksi
+  tersimpan (extraReactions:100 di Firestore) ✓
+
+### 6. LAIN-LAIN
+- **Tag @diri sendiri** tidak lagi muncul di saran mention (`mentionCandidates(…, meId)`).
+- **Metadata AI bocor** (`variant="chat_message"` / `{"variant":…}`): cleaner baru di
+  `lib/aiText.ts` (8/8 uji PASS) + `messagePreview` ikut dibersihkan → daftar chat tak
+  lagi tampilkan `:::writing{...}`.
+- **APK anti-macet** (1.6.7 / code 13): font dimuat via `loadAsync` + timeout 10 dtk
+  (dulu useFonts bisa gantung), boot screen logo + "Menyiapkan Zeroid…" (bukan layar
+  mati), BootError 12 dtk tetap.
+- Meme acak randomsticker terverifikasi LIVE via proxy (gambar JPEG balik) ✓.
+
 ## Ronde: VANZZ API + PEMBAYARAN QRIS/DANA + OWNER PROTECTION + MENU GRATIS (2026-10-31)
 
 ### 1. Vanzz API terintegrasi penuh (apiz.vsunsee.qzz.io) — 199 endpoint diambil live
