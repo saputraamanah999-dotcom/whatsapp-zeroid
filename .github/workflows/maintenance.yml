@@ -1,0 +1,74 @@
+name: Zeroid Maintenance
+
+# Alat admin darurat (HANYA bisa dijalankan pemilik repo — workflow_dispatch):
+#   inspect      — lihat status ban (users/bans/banips/devices)
+#   liftban      — buka ban akun: users.banned=false + hapus banips/devices miliknya
+#   setrole      — ubah role akun (darurat)
+#   verifyrules  — uji rules Firestore DENGAN AKUN NYATA (REST + idToken) → PASS/FAIL
+#
+# Rahasia TIDAK PERNAH dicetak: skrip hanya menampilkan field non-rahasia
+# (uid, email, flag, id dokumen ber-hash). Setiap eksekusi tercatat di riwayat
+# Actions — jejak audit penuh (siapa, kapan, apa).
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Perintah: inspect | liftban | setrole | verifyrules'
+        required: true
+        default: 'inspect'
+        type: choice
+        options:
+          - inspect
+          - liftban
+          - setrole
+          - verifyrules
+      email:
+        description: 'Email target (liftban/setrole) — boleh dikosongkan'
+        required: false
+        default: ''
+      uid:
+        description: 'UID target (liftban) — boleh dikosongkan'
+        required: false
+        default: ''
+      role:
+        description: 'Role baru (setrole): admin | developer | user | moderator'
+        required: false
+        default: ''
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Jalankan maintenance
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          ZEROID_WEB_ENV: ${{ secrets.ZEROID_WEB_ENV }}
+          CMD_ACTION: ${{ github.event.inputs.action }}
+          CMD_EMAIL: ${{ github.event.inputs.email }}
+          CMD_UID: ${{ github.event.inputs.uid }}
+          CMD_ROLE: ${{ github.event.inputs.role }}
+        run: |
+          set -eu
+          # API key publik (identik dengan bundle web) — dibutuhkan verifyrules
+          if [ -n "$ZEROID_WEB_ENV" ]; then
+            echo "$ZEROID_WEB_ENV" | base64 -d > .env
+            APIKEY=$(grep -E '^EXPO_PUBLIC_FIREBASE_API_KEY=' .env | head -1 | cut -d= -f2- || true)
+            if [ -n "$APIKEY" ]; then export EXPO_PUBLIC_FIREBASE_API_KEY="$APIKEY"; fi
+            rm -f .env
+          fi
+          ARGS=""
+          case "$CMD_ACTION" in
+            liftban)
+              [ -n "$CMD_EMAIL" ] && for e in $(echo "$CMD_EMAIL" | tr ',' ' '); do ARGS="$ARGS --email=$e"; done
+              [ -n "$CMD_UID" ] && for u in $(echo "$CMD_UID" | tr ',' ' '); do ARGS="$ARGS --uid=$u"; done
+              ;;
+            setrole) ARGS="--email=$CMD_EMAIL --role=$CMD_ROLE" ;;
+          esac
+          node scripts/admin_maintenance.mjs "$CMD_ACTION" $ARGS
