@@ -994,16 +994,18 @@ export function PremiumScreen() {
           {API_PRODUCTS.map((ap) => {
             const amountStr = apiMeta[`${ap.key}.amount`] ?? '';
             const shownPrice = ap.unit ? unitPriceOf(ap.key, Number((amountStr.replace(/[^0-9]/g, '')) || ap.minAmount || ap.unit)) : ap.price;
-            // FOLLOWERS & REAKSI → kartu khusus (pilih saluran asli + foto profil +
+            // FOLLOWERS & REAKSI → satu kartu khusus (pilih saluran asli + foto profil +
             // jumlah pengikut + pesan reaksi). Harga pendek, tanpa form jelek.
-            if (ap.key === 'followers' || ap.key === 'reaction') {
+            // Toggle Pengikut/Reaksi ada di dalam kartu — cukup dirender SEKALI.
+            if (ap.key === 'followers') {
               return (
                 <BoostCard
-                  key={ap.key}
+                  key="boost"
                   onBuy={(product, meta) => openBuy(product, 0, meta)}
                 />
               );
             }
+            if (ap.key === 'reaction') return null;
             return (
             <Neu key={ap.key} inset radius={R.lg} style={{ padding: 14, marginTop: 10, gap: 10 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
