@@ -52,7 +52,8 @@ import { askAI, thinkAI, analyzeImage, AI_PROVIDERS, askBotReply, webSearch, gua
 import { firebase, isFirebaseConfigured, COLLECTIONS as C, firebaseConfig } from './firebase';
 import { fcmPush } from './fcm';
 import { recordFbError } from './health';
-import { detectViolation, virtexHit } from './moderation';
+import { detectViolation, virtexHit, applyGuardCfg, guardCfgNow } from './moderation';
+import { cleanAiText, isAiText } from './aiText';
 import { getDeviceHash, sha256Hex } from './device';
 
 const THEME_KEY = 'zeroid-theme';
@@ -305,7 +306,21 @@ function mapChat(id: string, d: DocumentData): Chat {
     // STREAK API — TANPA INI API TIDAK PERNAH MUNCUL (selalu terbaca 0)
     streakCount: d.streakCount ?? 0, streakDay: d.streakDay ?? 0, streakUpdatedAt: d.streakUpdatedAt ?? 0,
     streakDeadNotifiedAt: d.streakDeadNotifiedAt ?? 0,
+    // FOLLOWERS TAMBAHAN (paket beli followers saluran)
+    extraFollowers: Number(d.extraFollowers ?? 0) || 0,
   };
+}
+
+/** Jumlah pengikut saluran yang tampil = anggota nyata + followers tambahan (paket). */
+export function followersCount(c?: Chat | null): number {
+  if (!c) return 0;
+  return (c.members?.length ?? 0) + (c.extraFollowers ?? 0);
+}
+
+/** Jumlah reaksi pesan yang tampil = reaksi nyata + reaksi tambahan (paket). */
+export function reactionsCount(m?: Message | null): number {
+  if (!m) return 0;
+  return Object.keys(m.reactions ?? {}).length + (m.extraReactions ?? 0);
 }
 
 /** Centang biru grup/saluran aktif? (kadaluarsa otomatis lewat verifiedUntil) */
@@ -357,6 +372,8 @@ function mapMessage(id: string, d: DocumentData): Message {
     bubble: d.bubble ?? undefined,
     bratText: d.bratText ?? undefined,
     videoUri: d.videoUri ?? undefined,
+    // reaksi tambahan (paket beli reaksi saluran)
+    extraReactions: Number(d.extraReactions ?? 0) || 0,
   };
 }
 
@@ -600,6 +617,11 @@ function attachUserSubs(fbUid: string) {
     db.aiProfile = s.exists() ? (rawDoc(s) as unknown as AiProfile) : null;
     bump();
   }, () => {}));
+  // KONFIGURASI AI GUARD — dibaca SEMUA klien (rules: read user login) supaya
+  // deteksi di klien ikut aturan terbaru yang diatur admin panel (realtime).
+  miscSubs.push(onSnapshot(doc(fb.db, 'guardconfig', 'main'), (s) => {
+    applyGuardCfg(s.exists() ? s.data() : null);
+  }, () => {}));
 
   // admin extras
   const isAdminish = () => {
@@ -696,6 +718,8 @@ function guardIncoming(chatId: string, m: Message) {
   if (!chat) return;
   if (chat.type !== 'group' && chat.type !== 'channel' && chat.type !== 'global') return;
   if (chatBannedNow(chat)) return; // sudah ditangguhkan/banned — cukup
+  // staffExempt: admin/developer tidak pernah ditangguhkan oleh AI Guard
+  if (guardCfgNow().staffExempt && ['admin', 'developer', 'moderator'].includes(db.users[m.senderId ?? '']?.role ?? '')) return;
   const v = detectViolation(m, db.messages[chatId] ?? []);
   if (!v) return;
   void autoSuspendGroup(chat, m, v);
@@ -710,6 +734,8 @@ async function autoSuspendGroup(chat: Chat, msg: Message, v: { kind: string; rea
   if (now - last < 5 * 60_000) return; // dedup antar klien/perangkat
   guardSeen.set(chat.id, now);
 
+  const cfg = guardCfgNow();
+  if (!cfg.autoSuspend.on) return; // admin matikan penangguhan otomatis grup
   const sender = db.users[msg.senderId];
   const offense: ModOffense = {
     msgId: msg.id,
@@ -721,7 +747,7 @@ async function autoSuspendGroup(chat: Chat, msg: Message, v: { kind: string; rea
     excerpt: (msg.text ?? '').slice(0, 90),
     at: now,
   };
-  const until = now + 60 * 60_000; // 60 menit — developer bisa buka lebih cepat
+  const until = now + Math.max(1, cfg.autoSuspend.minutes) * 60_000; // default 60 menit — developer bisa buka lebih cepat
   const who = offense.senderUsername ? `${offense.senderName} (@${offense.senderUsername})` : offense.senderName;
   const label = chat.type === 'channel' ? 'Saluran' : chat.type === 'global' ? 'Obrolan global' : 'Grup';
   try {
@@ -1162,7 +1188,9 @@ export function messagePreview(m?: Message) {
     case 'order': return m.text ?? 'Pesanan';
     case 'poll': return `Polling: ${m.text ?? ''}`;
     case 'call': return m.text ?? 'Panggilan';
-    default: return m.text ?? '';
+    // metadata internal AI (:::writing{...} / {"variant":...}) TIDAK boleh bocor
+    // ke daftar chat — bersihkan juga di preview (v23).
+    default: return isAiText(m) ? cleanAiText(m.text ?? '') : (m.text ?? '');
   }
 }
 
@@ -2091,6 +2119,22 @@ export async function sendMessage(chatId: string, payload: OutMsg): Promise<Mess
     }
     // STREAK API: rawat api + kucing chat (hanya pesan sungguhan, bukan sistem/AI)
     if (!payload.assistant && payload.type !== 'system') void applyStreak(db.chats[chatId] ?? chat, getMe()!);
+    // NOTIFIKASI PESAN BARU (v23): dulu chat langsung/grup biasa TIDAK PERNAH
+    // memicu notifikasi — penerima baru tahu ada pesan setelah membuka chat.
+    // Kini SETIAP pesan sungguhan menulis dokumen notifikasi + FCM push (juga
+    // untuk penerima yang aplikasinya tutup). Mention di-skip agar tidak dobel;
+    // mute & pengirim sendiri di-skip; bot/AI punya jalur masing-masing.
+    if (!payload.assistant && payload.type !== 'system' && payload.type !== 'order') {
+      const senderName = db.users[sender]?.name ?? 'Seseorang';
+      const preview = local.text || (local.type === 'image' ? 'Mengirim foto' : local.type === 'video' ? 'Mengirim video' : local.type === 'sticker' ? 'Stiker' : local.type === 'audio' ? 'Pesan suara' : local.type === 'document' ? 'Dokumen' : local.type === 'poll' ? 'Polling' : 'Pesan baru');
+      const mentioned = new Set(men.uids);
+      const targets = (chat.members ?? []).filter((u) => u !== sender && !mentioned.has(u) && !(chat.mutedBy ?? []).includes(u));
+      for (const u of targets.slice(0, 80)) {
+        if (chat.type === 'direct') notifyFor(u, 'message', senderName, preview.slice(0, 120), { chatId });
+        else if (chat.type === 'group') notifyFor(u, 'group', `${chat.name ?? 'Grup'} · ${senderName}`, preview.slice(0, 120), { chatId });
+        else if (chat.type === 'channel') notifyFor(u, 'group', chat.name ?? 'Saluran', preview.slice(0, 120), { chatId });
+      }
+    }
     // mention notifications: @username / @semua di grup & global (realtime ke yang disebut)
     for (const u of men.uids.slice(0, 30)) {
       const name = db.users[sender]?.name ?? 'Seseorang';
@@ -3504,7 +3548,8 @@ export function planActive(k: ProductKey, u?: User | null): boolean {
   return false;
 }
 
-export function createOrder(product: ProductKey, planIdx: number, methodKey: string, forChat?: { id: string; name?: string }, priceOverride?: number, voucherCode?: string, meta?: { nomor?: string; email?: string } | null): { orderId: string; chatId: string } | { error: string } | null {
+export type OrderMeta = { nomor?: string; email?: string; urlVerify?: string; resi?: string; ekspedisi?: string; channel?: string; amount?: number; emoji?: string };
+export function createOrder(product: ProductKey, planIdx: number, methodKey: string, forChat?: { id: string; name?: string }, priceOverride?: number, voucherCode?: string, meta?: OrderMeta | null): { orderId: string; chatId: string } | { error: string } | null {
   const me = getMe();
   const fb = firebase();
   if (!me || !fb) return null;
@@ -3519,6 +3564,15 @@ export function createOrder(product: ProductKey, planIdx: number, methodKey: str
       if (!v) return { error: `${f.label} wajib diisi.` };
       if (f.key === 'email' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) return { error: 'Format email tidak valid.' };
       if (f.key === 'nomor' && !/^[+]?[0-9]{8,16}$/.test(v.replace(/[\s-]/g, ''))) return { error: 'Nomor tidak valid (contoh: 081234567890).' };
+      if (f.key === 'channel' && v.length < 2) return { error: 'Nama saluran minimal 2 huruf.' };
+      if (f.key === 'amount') {
+        const n = Number(v.replace(/[^0-9]/g, ''));
+        if (!n || n < (ap.minAmount ?? 1)) return { error: `Minimal ${ap.minAmount ?? 1} ${ap.unitLabel ?? ''}.` };
+        if (n > (ap.maxAmount ?? 1000000)) return { error: `Maksimal ${(ap.maxAmount ?? 1000000).toLocaleString('id-ID')} ${ap.unitLabel ?? ''}.` };
+        if (ap.unit && n % ap.unit !== 0) return { error: `Jumlah harus kelipatan ${ap.unit}.` };
+      }
+      if (f.key === 'resi' && v.length < 5) return { error: 'Nomor resi tidak valid.' };
+      if (f.key === 'ekspedisi' && v.length < 2) return { error: 'Nama ekspedisi wajib diisi.' };
     }
   }
   // 1) sudah aktif → jangan beli lagi sampai masa habis
@@ -3554,8 +3608,20 @@ export function createOrder(product: ProductKey, planIdx: number, methodKey: str
     status: 'pending', method: method.label, chatId, createdAt: serverTimestamp(),
     ...(voucherCode ? { voucherCode: voucherCode.toUpperCase().slice(0, 16) } : {}),
     ...(forChat ? { forChatId: forChat.id, forChatName: forChat.name ?? '' } : {}),
-    ...(ap ? { meta: { nomor: String(meta?.nomor ?? '').slice(0, 24), email: String(meta?.email ?? '').slice(0, 120) } } : {}),
-    ...(ap ? { delivered: false } : {}),
+    ...(ap
+      ? {
+          meta: {
+            nomor: String(meta?.nomor ?? '').slice(0, 24),
+            email: String(meta?.email ?? '').slice(0, 120),
+            resi: String(meta?.resi ?? '').slice(0, 60),
+            ekspedisi: String(meta?.ekspedisi ?? '').slice(0, 40),
+            channel: String(meta?.channel ?? '').slice(0, 80),
+            ...(meta?.amount ? { amount: Math.max(1, Math.round(Number(meta.amount))) } : {}),
+            ...(meta?.emoji ? { emoji: String(meta.emoji).slice(0, 8) } : {}),
+          },
+          delivered: false,
+        }
+      : {}),
   }).catch(() => {});
   if (admin) {
     const label = forChat ? `${p.title} untuk "${forChat.name ?? forChat.id}"` : p.title;
@@ -3618,6 +3684,45 @@ export function adminUpdateOrder(orderId: string, patch: { status?: 'pending' | 
   if (patch.price != null && patch.price >= 0 && patch.price <= 200000) up.price = Math.ceil(patch.price);
   if (!Object.keys(up).length) return;
   updateDoc(doc(fb.db, C.orders, orderId), up).then(() => audit('order_edit', orderId, JSON.stringify(up).slice(0, 120))).catch((e) => pushBanner({ title: 'Gagal edit transaksi', body: fbError(e), icon: 'alert' }));
+}
+
+// ============================ ADMIN: TUMBUHKAN SALURAN (massal) ============================
+/**
+ * Tambah FOLLOWERS saluran secara massal — ditumpuk di atas anggota nyata
+ * (chat.extraFollowers). Angka tampil di semua klien (daftar chat, info,
+ * Discover) sebagai jumlah pengikut. Bisa jutaan — aman karena hanya angka.
+ */
+export function adminGrowFollowers(chatId: string, amount: number): { ok: boolean; error?: string } {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFullAdmin(me)) return { ok: false, error: 'Hanya admin.' };
+  const n = Math.max(1, Math.min(1_000_000, Math.round(Number(amount) || 0)));
+  const chat = db.chats[chatId];
+  if (!chat) return { ok: false, error: 'Saluran tidak ditemukan.' };
+  const next = (chat.extraFollowers ?? 0) + n;
+  updateDoc(doc(fb.db, C.chats, chatId), { extraFollowers: next })
+    .then(() => audit('grow_followers', chatId, `+${n} followers (${chat.name ?? ''}) → total ${next}`))
+    .catch((e) => pushBanner({ title: 'Gagal tambah followers', body: fbError(e), icon: 'alert' }));
+  return { ok: true };
+}
+
+/**
+ * Tambah REAKSI saluran secara massal ke pesan terakhirnya (pesan.extraReactions).
+ * emoji dipakai sebagai gaya tampilan ringkasan (opsional).
+ */
+export function adminGrowReactions(chatId: string, amount: number, emoji?: string): { ok: boolean; error?: string } {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFullAdmin(me)) return { ok: false, error: 'Hanya admin.' };
+  const n = Math.max(1, Math.min(500_000, Math.round(Number(amount) || 0)));
+  const msgs = (db.messages[chatId] ?? []).filter((m) => !m.deletedForAll);
+  const last = msgs[msgs.length - 1];
+  if (!last) return { ok: false, error: 'Belum ada pesan di saluran ini.' };
+  const next = (last.extraReactions ?? 0) + n;
+  updateDoc(doc(fb.db, C.chats, chatId, 'messages', last.id), { extraReactions: next })
+    .then(() => audit('grow_reactions', chatId, `+${n} reaksi ke pesan ${last.id}${emoji ? ` (${emoji})` : ''} → total ${next}`))
+    .catch((e) => pushBanner({ title: 'Gagal tambah reaksi', body: fbError(e), icon: 'alert' }));
+  return { ok: true };
 }
 
 /** Admin hapus transaksi dari daftar (permanen). */

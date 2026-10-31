@@ -286,7 +286,21 @@ export function Header({ title, subtitle, subtitleNode, titleNode, back = true, 
   const nav = useNavigation();
   const insets = useSafeAreaInsets();
   return (
-    <View style={{ paddingTop: insets.top + 10, paddingHorizontal: 18, paddingBottom: 12, backgroundColor: t.bg, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+    <View
+      style={{
+        paddingTop: insets.top + 10,
+        paddingHorizontal: 18,
+        paddingBottom: 12,
+        // GLASS BAR (ala iPhone): permukaan semi-transparan + hairline bawah —
+        // bukan lagi blok warna datar yang terkesan "pengumuman".
+        backgroundColor: t.dark ? 'rgba(16,20,28,0.86)' : 'rgba(255,255,255,0.82)',
+        borderBottomWidth: 1,
+        borderBottomColor: t.dark ? 'rgba(255,255,255,0.07)' : 'rgba(10,20,40,0.06)',
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+      }}
+    >
       {back && <IconBtn icon="chevron-back" size={42} onPress={() => (nav.canGoBack() ? nav.goBack() : (nav as any).navigate('Main'))} label="Kembali" />}
       {left}
       <Pressable onPress={onTitlePress} disabled={!onTitlePress} style={{ flex: 1 }}>

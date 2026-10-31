@@ -110,6 +110,63 @@ export function profanityHit(raw: string): Violation | null {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// KONFIGURASI AI GUARD (guardconfig/main — diubah admin panel, realtime ke
+// SEMUA klien supaya deteksi klien ikut aturan terbaru).
+// ---------------------------------------------------------------------------
+export type GuardCfg = {
+  profanity: { on: boolean; hours: number };
+  porn: { on: boolean; days: number };
+  spam: { on: boolean; hours: number };
+  virtex: { on: boolean; hours: number };
+  mediaBomb: { on: boolean; hours: number; threshold: number };
+  stickerSpam: { on: boolean; hours: number; threshold: number };
+  autoSuspend: { on: boolean; minutes: number };
+  ipBan: { on: boolean };
+  staffExempt: { on: boolean };
+  warnFirst: { on: boolean; maxWarns: number };
+};
+
+export const GUARD_CFG_DEFAULTS: GuardCfg = {
+  profanity: { on: true, hours: 2 },
+  porn: { on: true, days: 7 },
+  spam: { on: true, hours: 24 },
+  virtex: { on: true, hours: 6 },
+  mediaBomb: { on: true, hours: 12, threshold: 15 },
+  stickerSpam: { on: true, hours: 6, threshold: 8 },
+  autoSuspend: { on: true, minutes: 60 },
+  ipBan: { on: true },
+  staffExempt: { on: true },
+  warnFirst: { on: false, maxWarns: 2 },
+};
+
+/** Snapshot config aktif — di-set store saat guardconfig/main berubah. */
+let guardCfg: GuardCfg = { ...GUARD_CFG_DEFAULTS };
+
+/** Terapkan konfigurasi dari Firestore (partial aman — field hilang = default). */
+export function applyGuardCfg(d: any): void {
+  if (!d || typeof d !== 'object') return;
+  const num = (v: any, dflt: number) => Math.max(1, Math.min(8760, Number(v) || dflt));
+  const sec = <K extends keyof GuardCfg>(k: K, dflt: GuardCfg[K]) => {
+    const src = d[k];
+    return src && typeof src === 'object' ? { ...dflt, ...src } : dflt;
+  };
+  guardCfg = {
+    profanity: sec('profanity', GUARD_CFG_DEFAULTS.profanity),
+    porn: sec('porn', GUARD_CFG_DEFAULTS.porn),
+    spam: sec('spam', GUARD_CFG_DEFAULTS.spam),
+    virtex: sec('virtex', GUARD_CFG_DEFAULTS.virtex),
+    mediaBomb: { ...sec('mediaBomb', GUARD_CFG_DEFAULTS.mediaBomb), threshold: Math.max(3, Math.min(100, num(d.mediaBomb?.threshold, 15))) },
+    stickerSpam: { ...sec('stickerSpam', GUARD_CFG_DEFAULTS.stickerSpam), threshold: Math.max(3, Math.min(100, num(d.stickerSpam?.threshold, 8))) },
+    autoSuspend: { ...sec('autoSuspend', GUARD_CFG_DEFAULTS.autoSuspend), minutes: Math.max(1, Math.min(1440, num(d.autoSuspend?.minutes, 60))) },
+    ipBan: sec('ipBan', GUARD_CFG_DEFAULTS.ipBan),
+    staffExempt: sec('staffExempt', GUARD_CFG_DEFAULTS.staffExempt),
+    warnFirst: { ...sec('warnFirst', GUARD_CFG_DEFAULTS.warnFirst), maxWarns: Math.max(1, Math.min(10, num(d.warnFirst?.maxWarns, 2))) },
+  };
+}
+
+export const guardCfgNow = (): GuardCfg => guardCfg;
+
 /** Pesan yang dianggap "media" untuk penghitungan spam (stiker/gambar/video). */
 function isMedia(m: Message): boolean {
   return m.type === 'sticker' || m.type === 'image' || m.type === 'video';
@@ -119,41 +176,49 @@ function isMedia(m: Message): boolean {
  * Deteksi pelanggaran untuk pesan yang BARU MASUK di grup.
  * `recent` = pesan-pesan sebelumnya di chat yang sama (sudah terurut).
  * Hanya dipanggil untuk chat group / channel / global, pesan non-sistem.
+ * Semua skill mengikuti guardconfig/main (admin panel) — mati = lewati.
  */
 export function detectViolation(msg: Message, recent: Message[]): Violation | null {
   if (msg.type === 'system' || msg.assistant) return null;
+  const cfg = guardCfg;
 
   // 0) VIRTEX / BOM KARAKTER (anti bug crash) — dicek paling awal supaya
   //    aplikasi penerima tidak sempat menggambar teks raksasanya
-  const vx = virtexHit(msg.text ?? '');
-  if (vx) return vx;
+  if (cfg.virtex.on) {
+    const vx = virtexHit(msg.text ?? '');
+    if (vx) return vx;
+  }
 
   // 1) konten 18+: teks langsung, caption media, maupun isi tautan
-  const textHit = pornHit(msg.text ?? '');
-  if (textHit) return textHit;
-  if (msg.type === 'image' || msg.type === 'video' || msg.type === 'sticker') {
-    const cap = pornHit(msg.fileName ?? '');
-    if (cap) return cap;
+  if (cfg.porn.on) {
+    const textHit = pornHit(msg.text ?? '');
+    if (textHit) return textHit;
+    if (msg.type === 'image' || msg.type === 'video' || msg.type === 'sticker') {
+      const cap = pornHit(msg.fileName ?? '');
+      if (cap) return cap;
+    }
   }
 
   // 1b) kata kasar (AI Guard skill) — teks pesan biasa
-  const prof = profanityHit(msg.text ?? '');
-  if (prof) return prof;
+  if (cfg.profanity.on) {
+    const prof = profanityHit(msg.text ?? '');
+    if (prof) return prof;
+  }
 
-  // 2) spam stiker: >= 8 stiker dalam 90 detik oleh pengirim sama
+  // 2) spam stiker: >= threshold stiker dalam 90 detik oleh pengirim sama
   const now = msg.createdAt || Date.now();
   const same = recent.filter((m) => m.senderId === msg.senderId && !m.deletedForAll);
-  if (msg.type === 'sticker') {
+  if (cfg.stickerSpam.on && msg.type === 'sticker') {
     const wins = same.filter((m) => m.type === 'sticker' && now - m.createdAt < 90_000);
-    if (wins.length + 1 >= 8) {
+    if (wins.length + 1 >= cfg.stickerSpam.threshold) {
       return { kind: 'sticker_spam', reason: 'spam stiker berlebihan', label: 'spam stiker' };
     }
   }
 
-  // 3) bom media: >= 15 media dalam 60 detik oleh pengirim sama
-  if (isMedia(msg)) {
+  // 3) bom media: >= threshold media dalam 60 detik oleh pengirim sama
+  if (cfg.mediaBomb.on && isMedia(msg)) {
     const wins = same.filter((m) => isMedia(m) && now - m.createdAt < 60_000);
-    if (wins.length + 1 >= 15) {
+    if (wins.length + 1 >= cfg.mediaBomb.threshold) {
       return { kind: 'media_bomb', reason: 'bom media (gambar/video beruntun)', label: 'bom media' };
     }
   }

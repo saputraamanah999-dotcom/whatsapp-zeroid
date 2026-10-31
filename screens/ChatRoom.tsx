@@ -43,14 +43,14 @@ import {
   askAssistant,
   aiTypingIn,
   AI_THINK_STEPS,
+  followersCount,
 } from '../lib/store';
 import type { AskOpts } from '../lib/store';
 import { setActiveChat, pushBanner } from '../lib/bus';
 import { ago, dayLabel } from '../lib/format';
 import { Message } from '../lib/types';
 import { placeCall } from './tabs/CallsTab';
-import FirePet from '../components/FirePet';
-import { fireState, reviveFire, FIRE_MIN_STREAK, REVIVES_PER_MONTH } from '../lib/streak';
+import { fireState } from '../lib/streak';
 
 const EMOJIS = ['\u2764\uFE0F', '\u{1F44D}', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}', '\u{1F525}'];
 
@@ -88,7 +88,6 @@ export default function ChatRoom() {
   const [forwarding, setForwarding] = useState<Message | null>(null);
   const [fwdTargets, setFwdTargets] = useState<string[]>([]);
   const [reporting, setReporting] = useState<Message | null>(null);
-  const [petOpen, setPetOpen] = useState(false);
   const [highlight, setHighlight] = useState<string | null>(null);
   const [search, setSearch] = useState(false);
   const [awayFromNewest, setAwayFromNewest] = useState(0);
@@ -218,13 +217,14 @@ export default function ChatRoom() {
     else subtitle = 'ketuk untuk info kontak';
   } else if (chat.type === 'ai') subtitle = aiProf?.bio?.trim() || 'Asisten AI · selalu online';
   else if (chat.type === 'group') subtitle = chat.members.map((u) => (u === me.id ? 'Kamu' : db.users[u]?.name.split(' ')[0])).join(', ');
-  else if (chat.type === 'channel') subtitle = `${chat.members.length} pengikut`;
+  else if (chat.type === 'channel') subtitle = `${followersCount(chat).toLocaleString('id-ID')} pengikut`;
   else if (chat.type === 'global') subtitle = `${Object.values(db.users).length} anggota · terbuka untuk semua`;
 
   const canPost = chat.type !== 'channel' || chat.admins.includes(me.id) || me.role === 'admin';
   const blocked = chat.type === 'direct' && peer && me.blocked.includes(peer.id);
   const callable = chat.type === 'direct'; // panggilan WebRTC hanya chat pribadi (infra peer-to-peer)
-  const st = fireState(chat, me); // streak api chat ini (rawat bareng semua anggota)
+  const st = fireState(chat, me); // streak api chat ini (tampil di profil user, bukan bar atas)
+  void st;
 
   const jumpTo = (id: string) => {
     const idx = items.findIndex((x) => x.kind === 'msg' && x.m.id === id);
@@ -273,15 +273,6 @@ export default function ChatRoom() {
         }
         right={
           <View style={{ flexDirection: 'row', gap: 10 }}>
-            {st.count >= FIRE_MIN_STREAK && (
-              <IconBtn
-                icon="flame"
-                size={40}
-                color={st.dead ? t.faint : st.color ?? '#FF8A00'}
-                onPress={() => setPetOpen(true)}
-                label="Streak api & kucing"
-              />
-            )}
             {chat.type === 'ai' && (
               <IconBtn
                 icon="sparkles"
@@ -296,9 +287,10 @@ export default function ChatRoom() {
                 label="Pengaturan AI"
               />
             )}
+            {/* BAR ATAS RAPI (v23): chat pribadi HANYA video call + call — streak,
+                wallpaper & gaya balon pindah ke PROFIL USER (tap avatar/nama). */}
             {callable && !blocked && (
               <>
-                <IconBtn icon="color-palette" size={40} color={wallpaper || (me.chatTheme ?? 'default') !== 'default' ? t.accent2 : t.sub} onPress={() => nav.navigate('Wallpaper', { chatId })} label="Wallpaper & tema" />
                 <IconBtn icon="videocam" size={40} color={t.accent} onPress={() => placeCall(nav, chatId, true)} label="Video call" />
                 <IconBtn icon="call" size={40} color={t.accent} onPress={() => placeCall(nav, chatId, false)} label="Voice call" />
               </>
@@ -593,44 +585,6 @@ export default function ChatRoom() {
             setForwarding(null);
           }}
         />
-      </Sheet>
-
-      <Sheet visible={petOpen} onClose={() => setPetOpen(false)} title="Api & kucing streak">
-        <View style={{ alignItems: 'center', gap: 10, paddingVertical: 8 }}>
-          <FirePet count={st.count} color={st.color} lit={!st.dead} dimmed={st.dimmed} size={120} />
-          <T v="h2" style={{ fontWeight: '900' }}>
-            {st.dead ? 'Api padam' : st.count >= FIRE_MIN_STREAK ? `${st.count} hari beruntun!` : 'Rawat terus apinya'}
-          </T>
-          <T v="caption" color={t.sub} style={{ textAlign: 'center', lineHeight: 19 }}>
-            Kucing ini dirawat bareng seluruh anggota chat. Kirim pesan tiap hari supaya api terus menyala —
-            1 jam kosong apinya melemah, 1 hari penuh kosong apinya padam. Tiap 10 hari beruntun warna api
-            berganti dan makin menyala — angkanya tampil di daftar chat, contoh 100🔥 = 100 hari.
-          </T>
-          {st.dead && (
-            <T v="caption" color={t.danger} style={{ textAlign: 'center' }}>
-              Kesempatan hidupkan lagi: {st.revivesLeft} dari {REVIVES_PER_MONTH}x bulan ini.
-            </T>
-          )}
-          {st.dead && (
-            <Btn
-              title={st.reviveable ? 'Hidupkan api lagi (1 kesempatan)' : 'Lewat 7 hari — mulai dari awal'}
-              icon="flame"
-              disabled={!st.reviveable || st.revivesLeft <= 0}
-              onPress={async () => {
-                const r = await reviveFire(chat, me);
-                if (r.ok) {
-                  pushBanner({ title: 'Api menyala kembali!', body: 'Kirim pesan hari ini untuk melanjutkan streak.', icon: 'flame' });
-                  setPetOpen(false);
-                } else pushBanner({ title: 'Gagal', body: r.error ?? 'Coba lagi.', icon: 'alert' });
-              }}
-            />
-          )}
-          {!st.dead && st.count >= FIRE_MIN_STREAK && (
-            <T v="caption" color={st.dimmed ? t.danger : t.success}>
-              {st.dimmed ? 'Api melemah — 1 jam tanpa pesan. Kirim pesan sekarang!' : 'Api menyala penuh — pertahankan!'}
-            </T>
-          )}
-        </View>
       </Sheet>
 
       <Sheet visible={badgeInfo} onClose={() => setBadgeInfo(false)} title="Tentang centang biru">

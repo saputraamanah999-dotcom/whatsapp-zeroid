@@ -41,6 +41,9 @@ export const vanzzQris = (amount: number) => post({ action: 'qris', amount }, 40
 /** Realisasi pesanan produk berbayar yang sudah dikonfirmasi admin. */
 export const vanzzDeliver = (orderId: string) => post({ action: 'deliver', orderId }, 55000);
 
+/** LANGKAH 2 AlightMotion — tempel URL verifikasi dari email (SPAM) → unlock premium. */
+export const vanzzAmVerify = (orderId: string, urlVerify: string) => post({ action: 'amverify', orderId, urlVerify }, 55000);
+
 // ---------------------------------------------------------------------------
 // MENU GRATIS — definisi layar (dipakai screens/AnimeScreens.tsx / FreeMenu)
 // ---------------------------------------------------------------------------

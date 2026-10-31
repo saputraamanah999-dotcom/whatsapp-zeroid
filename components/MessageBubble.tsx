@@ -110,6 +110,13 @@ export default function MessageBubble({
   const subFg = mine ? 'rgba(255,255,255,0.75)' : t.faint;
   const reactions = Object.values(m.reactions);
   const grouped = reactions.reduce<Record<string, number>>((a, e) => ((a[e] = (a[e] ?? 0) + 1), a), {});
+  // REAKSI TAMBAHAN (paket beli) — tumpuk ke emoji terbanyak, tampil sebagai
+  // angka besar; reaksi nyata tetap utuh per pengguna.
+  const extraRx = Number(m.extraReactions ?? 0);
+  if (extraRx > 0) {
+    const topEmoji = Object.entries(grouped).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '❤️';
+    grouped[topEmoji] = (grouped[topEmoji] ?? 0) + extraRx;
+  }
   const isMedia = (m.type === 'image' || m.type === 'video') && !m.deletedForAll;
   // FOTO/VIDEO SEKALI LIHAT: penerima belum membuka → media tersembunyi (ketuk utk
   // buka 1x); sudah membuka → bubble jadi placeholder "dibuka"; pengirim melihat
@@ -151,7 +158,7 @@ export default function MessageBubble({
             </T>
             {mine && <Ticks status={status} />}
           </View>
-          {reactions.length > 0 && (
+          {Object.keys(grouped).length > 0 && (
             <View style={{ flexDirection: 'row', gap: 2, marginTop: 2 }}>
               {Object.entries(grouped).map(([e, n]) => (
                 <View key={e} style={{ flexDirection: 'row', alignItems: 'center', gap: 1 }}>
@@ -510,7 +517,7 @@ export default function MessageBubble({
           {mine && !m.deletedForAll && chat.type !== 'channel' && <Ticks status={status} color="rgba(255,255,255,0.8)" />}
         </View>
       </Pressable>
-      {reactions.length > 0 && (
+      {Object.keys(grouped).length > 0 && (
         <View style={{ flexDirection: 'row', gap: 2, marginTop: -6, marginHorizontal: 10, backgroundColor: t.bg, borderRadius: R.pill, paddingHorizontal: 7, paddingVertical: 2, boxShadow: t.raisedSm } as any}>
           {Object.entries(grouped).map(([e, n]) => (
             <View key={e} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>

@@ -118,17 +118,45 @@ export async function fbCreateDoc(
 ): Promise<boolean> {
   const tok = await googleAccessToken(DATASTORE_SCOPE);
   if (!tok) return false;
+  // PENGAMAN (v23): {serverValue:'REQUEST_TIME'} hanya sah di API commit —
+  // di documents:create Firestore menolak SELURUH dokumen (400) sehingga
+  // bot/guard bisu tanpa jejak. Konversi otomatis ke epoch ms.
+  const cleanFields = sanitizeCreateFields(fields);
   try {
     const r = await fetch(`${base(project, parentPath)}?documentId=${encodeURIComponent(docId)}`, {
       method: 'POST',
       headers: { authorization: `Bearer ${tok}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ fields }),
+      body: JSON.stringify({ fields: cleanFields }),
       signal: AbortSignal.timeout(10000),
     });
     return r.ok;
   } catch {
     return false;
   }
+}
+
+/** Ganti {serverValue:'REQUEST_TIME'} dengan {integerValue: Date.now()} secara rekursif. */
+function sanitizeCreateFields(fields: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(fields ?? {})) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      if ((v as any).serverValue === 'REQUEST_TIME') { out[k] = { integerValue: String(Date.now()) }; continue; }
+      if ((v as any).mapValue?.fields) {
+        out[k] = { mapValue: { fields: sanitizeCreateFields((v as any).mapValue.fields) } };
+        continue;
+      }
+      if ((v as any).arrayValue?.values) {
+        out[k] = { arrayValue: { values: (v as any).arrayValue.values.map((x: any) => {
+          if (x && typeof x === 'object' && x.serverValue === 'REQUEST_TIME') return { integerValue: String(Date.now()) };
+          if (x && typeof x === 'object' && x.mapValue?.fields) return { mapValue: { fields: sanitizeCreateFields(x.mapValue.fields) } };
+          return x;
+        }) } };
+        continue;
+      }
+    }
+    out[k] = v;
+  }
+  return out;
 }
 
 /** PATCH dokumen dengan updateMask merge (hanya field yang dikirim yang berubah). */

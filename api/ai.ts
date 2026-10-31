@@ -614,7 +614,7 @@ export default async function handler(req: any, res: any) {
         await fbCreateDoc(project, `chats/${chatId}/messages`, `sys_${Date.now()}`, {
           chatId: fsStr(chatId), senderId: fsStr(BOT_UID), type: fsStr('system'),
           text: fsStr('Zeroid Bot bergabung ke chat ini — sebut @zeroid untuk mengajaknya bicara.'),
-          clientTime: fsInt(Date.now()), createdAt: fsServerTime(),
+          clientTime: fsInt(Date.now()), createdAt: fsInt(Date.now()),
         });
         members.push(BOT_UID);
       }
@@ -638,7 +638,7 @@ export default async function handler(req: any, res: any) {
           chatId: fsStr(chatId), senderId: fsStr(BOT_UID), type: fsStr('text'),
           text: fsStr('Maaf, aku lagi nggak bisa jawab sekarang. Coba beberapa saat lagi ya.'),
           assistant: fsBool(false), bubble: fsStr('default'),
-          clientTime: fsInt(Date.now()), createdAt: fsServerTime(),
+          clientTime: fsInt(Date.now()), createdAt: fsInt(Date.now()),
           deletedFor: fsArr([]), reactions: fsMap({}), starredBy: fsArr([]),
           viewOnce: fsBool(false), viewedBy: fsArr([]), mentions: fsArr([]), mentionsAll: fsBool(false),
         });
@@ -649,7 +649,7 @@ export default async function handler(req: any, res: any) {
         chatId: fsStr(chatId), senderId: fsStr(BOT_UID), type: fsStr('text'),
         text: fsStr(answer),
         reasoning: fsNull(), assistant: fsBool(false), bubble: fsStr('default'),
-        clientTime: fsInt(Date.now()), createdAt: fsServerTime(),
+        clientTime: fsInt(Date.now()), createdAt: fsInt(Date.now()),
         deletedFor: fsArr([]), reactions: fsMap({}), starredBy: fsArr([]),
         viewOnce: fsBool(false), viewedBy: fsArr([]), mentions: fsArr([]), mentionsAll: fsBool(false),
       });
@@ -812,7 +812,7 @@ export default async function handler(req: any, res: any) {
         await fbCreateDoc(project, `chats/${chatId}/messages`, `guard_${now}_${Math.random().toString(36).slice(2, 6)}`, {
           chatId: fsStr(chatId), senderId: fsStr(BOT_UID), type: fsStr('system'),
           text: fsStr(`AI Guard: ${offenderName} di-sanksi (${action2}) — ${reason}. Banding bisa dikirim admin.`),
-          clientTime: fsInt(now), createdAt: fsServerTime(),
+          clientTime: fsInt(now), createdAt: fsInt(Date.now()),
         });
       }
 
@@ -862,7 +862,7 @@ export default async function handler(req: any, res: any) {
         await fbCreateDoc(project, 'chats', chatId, {
           id: fsStr(chatId), type: fsStr('ai'), name: fsStr('Zeroid AI'),
           members: fsArr([fsStr(uid), fsStr(BOT_UID)]), admins: fsArr([fsStr(uid)]), createdBy: fsStr(uid),
-          createdAt: fsServerTime(), postPolicy: fsStr('everyone'),
+          createdAt: fsInt(Date.now()), postPolicy: fsStr('everyone'),
           pinnedBy: fsArr([]), mutedBy: fsArr([]), archivedBy: fsArr([]),
         });
       }
@@ -880,7 +880,7 @@ export default async function handler(req: any, res: any) {
       ].join('\n');
       const okW = await fbCreateDoc(project, `chats/${chatId}/messages`, 'bot_welcome', {
         chatId: fsStr(chatId), senderId: fsStr(BOT_UID), type: fsStr('text'), text: fsStr(welcomeText),
-        assistant: fsBool(false), bubble: fsStr('default'), clientTime: fsInt(Date.now()), createdAt: fsServerTime(),
+        assistant: fsBool(false), bubble: fsStr('default'), clientTime: fsInt(Date.now()), createdAt: fsInt(Date.now()),
         deletedFor: fsArr([]), reactions: fsMap({}), starredBy: fsArr([]),
         viewOnce: fsBool(false), viewedBy: fsArr([]), mentions: fsArr([]), mentionsAll: fsBool(false),
       });

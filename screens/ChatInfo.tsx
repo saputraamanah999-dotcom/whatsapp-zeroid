@@ -30,6 +30,7 @@ import {
   chatBadge,
   isFullAdmin,
   BOT_UID,
+  followersCount,
 } from '../lib/store';
 import { rupiah } from '../lib/products';
 import { ago } from '../lib/format';
@@ -83,7 +84,7 @@ export default function ChatInfo() {
   if (chat.type === 'ai') sub = aiProf?.bio?.trim() || 'Asisten AI · selalu online';
   else if (chat.type === 'direct' && peer) sub = canSee(me, peer, peer.privacy.lastSeen) ? (isOnline(peer) ? 'online' : `terakhir dilihat ${ago(peer.lastSeen)}`) : peer.email;
   else if (chat.type === 'group') sub = `Grup · ${chat.members.length} anggota`;
-  else if (chat.type === 'channel') sub = `Channel · ${chat.members.length} pengikut`;
+  else if (chat.type === 'channel') sub = `Channel · ${followersCount(chat).toLocaleString('id-ID')} pengikut`;
   else sub = 'Chat publik untuk semua pengguna';
 
   const changePhoto = async () => {

@@ -26,7 +26,7 @@
 export const config = { runtime: 'nodejs' };
 export const maxDuration = 60;
 
-import { verifyIdToken, fbGetDoc, fbPatchDoc, apiKey } from './_fbrest';
+import { verifyIdToken, fbGetDoc, fbPatchDoc, fbQuery, apiKey } from './_fbrest';
 
 const VANZZ_BASE = 'https://apiz.vsunsee.qzz.io';
 const PROJECT = process.env.FIREBASE_PROJECT_ID || 'whatsapp-zeroid';
@@ -86,9 +86,11 @@ const FREE: Record<string, Ep> = {
   kisahnabi: { path: '/vsunseeV8/kisahnabi', params: ['nabi'] },
 };
 
-/** Produk berbayar — HANYA bisa lewat action 'deliver' dengan order 'paid'. */
+/** Produk berbayar — HANYA bisa lewat action 'deliver' dengan order 'paid'.
+ *  followers/reaction dipenuhi SERVER langsung (tanpa API luar). */
 const PAID: Record<string, Ep> = {
   checknomor: { path: '/vsunseeV8/nomor/check', params: ['nomor'] },
+  cekresi: { path: '/vsunseeV8/resi/check', params: ['noresi', 'ekspedisi'] },
   netflix: { path: '/vsunseeV8/netflix/token' },
   amp: { path: '/vsunseeV8/alightmotion/send-link', params: ['email'], timeout: 45000 },
   amunlock: { path: '/vsunseeV8/alightmotion/unlockVip', params: ['email', 'urlVerify'], timeout: 45000 },
@@ -208,16 +210,82 @@ export default async function handler(req: any, res: any) {
     if (String(o.userId ?? '') !== who.uid) return res.status(403).json({ error: 'Bukan pesanan kamu.' });
     if (String(o.status ?? '') !== 'paid') return res.status(409).json({ error: 'Pesanan belum dikonfirmasi admin.' });
     const product = String(o.product ?? '');
-    const ep = PAID[product];
-    if (!ep) return res.status(400).json({ error: 'Produk ini tidak butuh realisasi API.' });
     if (o.delivered) return res.status(200).json({ ok: true, delivered: true, result: o.result ?? null, deliveredAt: o.deliveredAt ?? 0 });
     const meta = (o.meta && typeof o.meta === 'object') ? o.meta : {};
+
+    // ---- PRODUK INTERNAL (tanpa API luar): followers & reaksi saluran ----
+    if (product === 'followers' || product === 'reaction') {
+      const amount = Math.max(1, Math.round(Number((meta as any).amount) || 0));
+      const chName = clean((meta as any).channel, 80);
+      if (!amount) return res.status(400).json({ error: 'Jumlah belum valid pada pesanan ini.' });
+      if (!chName) return res.status(400).json({ error: 'Nama saluran belum tercatat pada pesanan.' });
+      // cari saluran berdasarkan nama (persis dulu; salah kaprah huruf besar-kecil)
+      let chatDoc: { id: string; fields: any } | null = null;
+      try {
+        const exact = await fbQuery(PROJECT, 'chats', [{ field: 'name', op: 'EQUAL', value: chName }], 5);
+        chatDoc = (exact ?? []).find((c) => String(c.fields?.type ?? '') === 'channel') ?? (exact ?? [])[0] ?? null;
+      } catch { /* lanjut fallback */ }
+      if (!chatDoc) {
+        try {
+          const all = await fbQuery(PROJECT, 'chats', [{ field: 'type', op: 'EQUAL', value: 'channel' }], 100);
+          const low = chName.toLowerCase();
+          chatDoc = (all ?? []).find((c) => String(c.fields?.name ?? '').toLowerCase() === low) ?? null;
+        } catch { /* tetap null */ }
+      }
+      const chatId = chatDoc?.id ?? '';
+      if (!chatId) {
+        await fbPatchDoc(PROJECT, `orders/${orderId}`, {
+          deliveryError: { stringValue: `Saluran "${chName.slice(0, 60)}" tidak ditemukan — hubungi admin untuk penyesuaian.` },
+          deliveryTriedAt: { integerValue: String(Date.now()) },
+        } as any);
+        return res.status(404).json({ error: `Saluran "${chName}" tidak ditemukan.` });
+      }
+      if (product === 'followers') {
+        const cur = Number(chatDoc?.fields?.extraFollowers ?? 0);
+        const next = cur + amount;
+        const okp = await fbPatchDoc(PROJECT, `chats/${chatId}`, { extraFollowers: { integerValue: String(next) } } as any);
+        if (!okp) return res.status(502).json({ error: 'Gagal menambahkan followers — coba lagi.' });
+        const at2 = Date.now();
+        await fbPatchDoc(PROJECT, `orders/${orderId}`, {
+          delivered: { booleanValue: true },
+          deliveredAt: { integerValue: String(at2) },
+          result: { mapValue: { fields: { json: { stringValue: JSON.stringify({ kind: 'followers', channel: chName, added: amount, total: next }).slice(0, 4000) } } } },
+          deliveryError: { nullValue: null },
+        } as any);
+        return res.status(200).json({ ok: true, delivered: true, result: { kind: 'followers', channel: chName, added: amount, total: next }, deliveredAt: at2 });
+      }
+      // product === 'reaction' → tumpuk reaksi ke PESAN TERAKHIR saluran
+      let lastMsgId = '';
+      let lastExtra = 0;
+      try {
+        const msgs = await fbQuery(PROJECT, `chats/${chatId}/messages`, [], 1, { field: 'createdAt', desc: true });
+        lastMsgId = (msgs ?? [])[0]?.id ?? '';
+        lastExtra = Number((msgs ?? [])[0]?.fields?.extraReactions ?? 0);
+      } catch { /* tetap kosong */ }
+      if (!lastMsgId) return res.status(404).json({ error: 'Belum ada pesan di saluran itu untuk direaksi.' });
+      const okp = await fbPatchDoc(PROJECT, `chats/${chatId}/messages/${lastMsgId}`, { extraReactions: { integerValue: String(lastExtra + amount) } } as any);
+      if (!okp) return res.status(502).json({ error: 'Gagal menambahkan reaksi — coba lagi.' });
+      const at2 = Date.now();
+      await fbPatchDoc(PROJECT, `orders/${orderId}`, {
+        delivered: { booleanValue: true },
+        deliveredAt: { integerValue: String(at2) },
+        result: { mapValue: { fields: { json: { stringValue: JSON.stringify({ kind: 'reaction', channel: chName, added: amount }).slice(0, 4000) } } } },
+        deliveryError: { nullValue: null },
+      } as any);
+      return res.status(200).json({ ok: true, delivered: true, result: { kind: 'reaction', channel: chName, added: amount }, deliveredAt: at2 });
+    }
+
     const params: Record<string, string> = {
       nomor: clean((meta as any).nomor, 30),
       email: clean((meta as any).email, 120),
       urlVerify: clean((meta as any).urlVerify, 500),
+      noresi: clean((meta as any).resi, 60),
+      ekspedisi: clean((meta as any).ekspedisi, 40).toLowerCase().replace(/\s+/g, '-'),
     };
-    const r = await vanzzGet(ep, params, key);
+    // AM Premium: kalau pembeli sudah menempel URL verifikasi → pakai jalur unlock
+    const epAdj = (product === 'amp' && params.urlVerify) ? PAID.amunlock : PAID[product];
+    if (!epAdj) return res.status(400).json({ error: 'Produk ini tidak butuh realisasi API.' });
+    const r = await vanzzGet(epAdj, params, key);
     if (!r.ok) {
       const msg = pickMsg(r.data) || r.error || `Layanan ${product} sedang tidak bisa dihubungi (HTTP ${r.status}).`;
       await fbPatchDoc(PROJECT, `orders/${orderId}`, {
@@ -229,6 +297,62 @@ export default async function handler(req: any, res: any) {
     const result = r.data ?? { image: r.dataUrl };
     if (r.dataUrl) (result as any).image = r.dataUrl;
     const at = Date.now();
+    await fbPatchDoc(PROJECT, `orders/${orderId}`, {
+      delivered: { booleanValue: true },
+      deliveredAt: { integerValue: String(at) },
+      result: { mapValue: { fields: { json: { stringValue: JSON.stringify(result).slice(0, 12000) } } } },
+      deliveryError: { nullValue: null },
+    } as any);
+    return res.status(200).json({ ok: true, delivered: true, result, deliveredAt: at });
+  }
+
+  // ---------------- VERIFIKASI ALIGHTMOTION (langkah 2) ----------------
+  /**
+   * Pembeli tempel URL verifikasi dari email (termasuk folder SPAM) → server
+   * memanggil endpoint unlock AlightMotion (email + urlVerify) → hasil "Yeay!
+   * Akun kamu udah premium" tersimpan ke pesanan. Order tetap milik pembeli;
+   * untuk order 'amp' yang sudah delivered pun boleh diverifikasi (link sudah
+   * dikirim dulu lewat deliver).
+   */
+  if (action === 'amverify') {
+    const orderId = clean(body?.orderId, 80);
+    const urlVerify = clean(body?.urlVerify, 500);
+    if (!orderId) return res.status(400).json({ error: 'orderId wajib.' });
+    if (!/^https?:\/\//i.test(urlVerify)) return res.status(400).json({ error: 'Tempel URL verifikasi dari email kamu (diawali https://).' });
+    const doc = await fbGetDoc(PROJECT, `orders/${orderId}`);
+    if (!doc) return res.status(404).json({ error: 'Pesanan tidak ditemukan.' });
+    const o: any = doc;
+    if (String(o.userId ?? '') !== who.uid) return res.status(403).json({ error: 'Bukan pesanan kamu.' });
+    if (String(o.status ?? '') !== 'paid') return res.status(409).json({ error: 'Pesanan belum dikonfirmasi admin.' });
+    const product = String(o.product ?? '');
+    if (product !== 'amp' && product !== 'amunlock') return res.status(400).json({ error: 'Verifikasi hanya untuk produk AlightMotion.' });
+    const meta = (o.meta && typeof o.meta === 'object') ? o.meta : {};
+    const email = clean((meta as any).email, 120);
+    if (!email) return res.status(400).json({ error: 'Email belum tercatat pada pesanan.' });
+    // tandai urlVerify di order (jejak) lalu panggil endpoint unlock
+    const newMeta: Record<string, any> = {};
+    for (const [k, v] of Object.entries(meta)) {
+      if (v == null) continue;
+      if (typeof v === 'number') newMeta[k] = { integerValue: String(v) };
+      else if (typeof v === 'boolean') newMeta[k] = { booleanValue: v };
+      else newMeta[k] = { stringValue: String(v).slice(0, 500) };
+    }
+    newMeta.urlVerify = { stringValue: urlVerify.slice(0, 500) };
+    await fbPatchDoc(PROJECT, `orders/${orderId}`, {
+      meta: { mapValue: { fields: newMeta } },
+    } as any).catch(() => {});
+    const r = await vanzzGet(PAID.amunlock, { email, urlVerify }, key);
+    const at = Date.now();
+    if (!r.ok) {
+      const msg = pickMsg(r.data) || r.error || `Verifikasi gagal (HTTP ${r.status}) — pastikan URL-nya persis dari email.`;
+      await fbPatchDoc(PROJECT, `orders/${orderId}`, {
+        deliveryError: { stringValue: msg.slice(0, 300) },
+        deliveryTriedAt: { integerValue: String(at) },
+      } as any);
+      return res.status(502).json({ error: msg });
+    }
+    const result = r.data ?? {};
+    (result as any).verifyDone = true;
     await fbPatchDoc(PROJECT, `orders/${orderId}`, {
       delivered: { booleanValue: true },
       deliveredAt: { integerValue: String(at) },

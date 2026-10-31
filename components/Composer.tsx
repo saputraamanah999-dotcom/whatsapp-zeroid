@@ -108,7 +108,7 @@ export default function Composer({
     chat?.type === 'global' ? Object.keys(db.users) : chat?.members;
   const mentionOptions: MentionOption[] =
     mentionQ !== null && (chat?.type === 'group' || chat?.type === 'global' || chat?.type === 'channel')
-      ? mentionCandidates(mentionPool, db.users, mentionQ, mentionAllowAll)
+      ? mentionCandidates(mentionPool, db.users, mentionQ, mentionAllowAll, me.id)
       : [];
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);

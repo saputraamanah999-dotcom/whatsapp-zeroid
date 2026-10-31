@@ -17,6 +17,7 @@ import {
   adminBanChat, adminUnbanChat, adminDecideChatAppeal, adminVerifyChat, adminUnverifyChat,
   adminSetMuteOff, adminMessageAll, adminBotBroadcast, chatBannedNow, chatBanRemaining, chatVerified, chatBadge,
   updateAiProfile, adminDeleteChat, adminUpdateOrder, adminDeleteOrder, adminSetPayments, isOwnerDev,
+  adminGrowFollowers, adminGrowReactions, followersCount, subscribeMessages,
 } from '../lib/store';
 import { apiProductOf } from '../lib/products';
 import { useBackendHealth, healthLabel, supabaseStatus } from '../lib/health';
@@ -40,12 +41,26 @@ type GuardConfig = {
   profanity: { on: boolean; hours: number };
   porn: { on: boolean; days: number };
   spam: { on: boolean; hours: number };
+  virtex: { on: boolean; hours: number };
+  mediaBomb: { on: boolean; hours: number; threshold: number };
+  stickerSpam: { on: boolean; hours: number; threshold: number };
+  autoSuspend: { on: boolean; minutes: number };
+  ipBan: { on: boolean };
+  staffExempt: { on: boolean };
+  warnFirst: { on: boolean; maxWarns: number };
 };
 
 const GUARD_DEFAULTS: GuardConfig = {
   profanity: { on: true, hours: 2 },
   porn: { on: true, days: 7 },
   spam: { on: true, hours: 24 },
+  virtex: { on: true, hours: 6 },
+  mediaBomb: { on: true, hours: 12, threshold: 15 },
+  stickerSpam: { on: true, hours: 6, threshold: 8 },
+  autoSuspend: { on: true, minutes: 60 },
+  ipBan: { on: true },
+  staffExempt: { on: true },
+  warnFirst: { on: false, maxWarns: 2 },
 };
 
 const KIND_LABEL: Record<string, string> = {
@@ -77,6 +92,13 @@ function GuardPanel() {
         profanity: { on: d.profanity?.on !== false, hours: Number(d.profanity?.hours ?? 2) },
         porn: { on: d.porn?.on !== false, days: Number(d.porn?.days ?? 7) },
         spam: { on: d.spam?.on !== false, hours: Number(d.spam?.hours ?? 24) },
+        virtex: { on: d.virtex?.on !== false, hours: Number(d.virtex?.hours ?? 6) },
+        mediaBomb: { on: d.mediaBomb?.on !== false, hours: Number(d.mediaBomb?.hours ?? 12), threshold: Number(d.mediaBomb?.threshold ?? 15) },
+        stickerSpam: { on: d.stickerSpam?.on !== false, hours: Number(d.stickerSpam?.hours ?? 6), threshold: Number(d.stickerSpam?.threshold ?? 8) },
+        autoSuspend: { on: d.autoSuspend?.on !== false, minutes: Number(d.autoSuspend?.minutes ?? 60) },
+        ipBan: { on: d.ipBan?.on !== false },
+        staffExempt: { on: d.staffExempt?.on !== false },
+        warnFirst: { on: !!d.warnFirst?.on, maxWarns: Number(d.warnFirst?.maxWarns ?? 2) },
       });
       setLoaded(true);
     }, () => setLoaded(true));
@@ -94,44 +116,50 @@ function GuardPanel() {
       const fdb = getFirestore();
       await fsSetDoc(fsDoc(fdb, 'guardconfig', 'main'), {
         profanity: next.profanity, porn: next.porn, spam: next.spam,
+        virtex: next.virtex, mediaBomb: next.mediaBomb, stickerSpam: next.stickerSpam,
+        autoSuspend: next.autoSuspend, ipBan: next.ipBan, staffExempt: next.staffExempt,
+        warnFirst: next.warnFirst,
         updatedAt: Date.now(), updatedBy: me?.name ?? 'admin',
       }, { merge: true });
     } catch { /* rules admin-only — abaikan */ }
   };
 
   const num = (v: string, dflt: number) => Math.max(1, Math.min(720, parseInt(v, 10) || dflt));
+  const thr = (v: string, dflt: number) => Math.max(3, Math.min(100, parseInt(v, 10) || dflt));
+
+  // baris skill: ikon + nama + tombol Aktif/Mati (tanpa pengulangan markup)
+  const skillRow = (icon: keyof typeof Ionicons.glyphMap, color: string, label: string, on: boolean, toggle: () => void) => (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+      <Ionicons name={icon} size={18} color={color} />
+      <T v="body" style={{ flex: 1, fontWeight: '700' }}>{label}</T>
+      <Btn small variant={on ? 'primary' : 'neu'} icon={on ? 'checkmark' : 'close'} title={on ? 'Aktif' : 'Mati'} onPress={toggle} />
+    </View>
+  );
+  const numRow = (label: string, hint: string, value: number, onChange: (n: number) => void, suffix = 'jam') => (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <T v="caption" color={t.sub}>{label}:</T>
+      <View style={{ width: 84 }}>
+        <NeuInput value={String(value)} onChangeText={(v: string) => onChange(parseInt(v, 10) || 1)} keyboardType="number-pad" />
+      </View>
+      <T v="caption" color={t.faint}>{suffix} · {hint}</T>
+    </View>
+  );
 
   return (
     <View style={{ gap: 16 }}>
       <Card title="Skill AI Guard (moderator otomatis)">
         <View style={{ padding: 12, gap: 14 }}>
           <T v="caption" color={t.sub}>
-            AI Guard memeriksa SEMUA pesan grup/global/saluran. Yang aneh/berbahaya otomatis kena sanksi oleh SERVER, dicatat di log bawah, dan dilaporkan ke developer — termasuk percobaan bobol akun admin (ban keras IP + perangkat setelah 3x gagal).
+            AI Guard memeriksa SEMUA pesan grup/global/saluran. Yang aneh/berbahaya otomatis kena sanksi oleh SERVER, dicatat di log bawah, dan dilaporkan ke developer — termasuk percobaan bobol akun admin (ban keras IP + perangkat setelah 3x gagal). Semua skill di bawah bisa diatur bebas — berlaku REAL-TIME ke semua perangkat.
           </T>
           {/* KATA KASAR */}
           <View style={{ gap: 8 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Ionicons name="chatbox-ellipses" size={18} color={t.warning} />
-              <T v="body" style={{ flex: 1, fontWeight: '700' }}>Filter kata kasar</T>
-              <Btn small variant={cfg.profanity.on ? 'primary' : 'neu'} icon={cfg.profanity.on ? 'checkmark' : 'close'} title={cfg.profanity.on ? 'Aktif' : 'Mati'} onPress={() => save({ ...cfg, profanity: { ...cfg.profanity, on: !cfg.profanity.on } })} />
-            </View>
-            {cfg.profanity.on && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <T v="caption" color={t.sub}>Ban otomatis (jam):</T>
-                <View style={{ width: 90 }}>
-                  <NeuInput value={String(cfg.profanity.hours)} onChangeText={(v: string) => save({ ...cfg, profanity: { ...cfg.profanity, hours: num(v, 2) } })} keyboardType="number-pad" />
-                </View>
-                <T v="caption" color={t.faint}>aneh dikit langsung dibanned beberapa jam</T>
-              </View>
-            )}
+            {skillRow('chatbox-ellipses', t.warning, 'Filter kata kasar', cfg.profanity.on, () => save({ ...cfg, profanity: { ...cfg.profanity, on: !cfg.profanity.on } }))}
+            {cfg.profanity.on && numRow('Ban otomatis', 'aneh dikit langsung dibanned', cfg.profanity.hours, (n) => save({ ...cfg, profanity: { ...cfg.profanity, hours: num(String(n), 2) } }))}
           </View>
           {/* PORNO */}
           <View style={{ gap: 8 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Ionicons name="alert-circle" size={18} color={t.danger} />
-              <T v="body" style={{ flex: 1, fontWeight: '700' }}>Konten 18+ / porno</T>
-              <Btn small variant={cfg.porn.on ? 'primary' : 'neu'} icon={cfg.porn.on ? 'checkmark' : 'close'} title={cfg.porn.on ? 'Aktif' : 'Mati'} onPress={() => save({ ...cfg, porn: { ...cfg.porn, on: !cfg.porn.on } })} />
-            </View>
+            {skillRow('alert-circle', t.danger, 'Konten 18+ / porno', cfg.porn.on, () => save({ ...cfg, porn: { ...cfg.porn, on: !cfg.porn.on } }))}
             {cfg.porn.on && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <T v="caption" color={t.sub}>Ban otomatis (hari):</T>
@@ -144,22 +172,84 @@ function GuardPanel() {
           </View>
           {/* SPAM */}
           <View style={{ gap: 8 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Ionicons name="sparkles" size={18} color="#7B61FF" />
-              <T v="body" style={{ flex: 1, fontWeight: '700' }}>Spam (stiker/media beruntun)</T>
-              <Btn small variant={cfg.spam.on ? 'primary' : 'neu'} icon={cfg.spam.on ? 'checkmark' : 'close'} title={cfg.spam.on ? 'Aktif' : 'Mati'} onPress={() => save({ ...cfg, spam: { ...cfg.spam, on: !cfg.spam.on } })} />
-            </View>
-            {cfg.spam.on && (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <T v="caption" color={t.sub}>Ban otomatis (jam):</T>
-                <View style={{ width: 90 }}>
-                  <NeuInput value={String(cfg.spam.hours)} onChangeText={(v: string) => save({ ...cfg, spam: { ...cfg.spam, hours: num(v, 24) } })} keyboardType="number-pad" />
+            {skillRow('sparkles', '#7B61FF', 'Spam (stiker/media beruntun)', cfg.spam.on, () => save({ ...cfg, spam: { ...cfg.spam, on: !cfg.spam.on } }))}
+            {cfg.spam.on && numRow('Ban otomatis', 'deteksi macem-macem → eksekusi + IP ban', cfg.spam.hours, (n) => save({ ...cfg, spam: { ...cfg.spam, hours: num(String(n), 24) } }))}
+          </View>
+          {/* VIRTEX (bom karakter) */}
+          <View style={{ gap: 8 }}>
+            {skillRow('nuclear', t.danger, 'Virtext / bom karakter', cfg.virtex.on, () => save({ ...cfg, virtex: { ...cfg.virtex, on: !cfg.virtex.on } }))}
+            {cfg.virtex.on && numRow('Ban otomatis', 'teks raksasa pembuat crash diblokir', cfg.virtex.hours, (n) => save({ ...cfg, virtex: { ...cfg.virtex, hours: num(String(n), 6) } }))}
+          </View>
+          {/* BOM MEDIA */}
+          <View style={{ gap: 8 }}>
+            {skillRow('images', '#FF8A00', 'Bom media (gambar/video)', cfg.mediaBomb.on, () => save({ ...cfg, mediaBomb: { ...cfg.mediaBomb, on: !cfg.mediaBomb.on } }))}
+            {cfg.mediaBomb.on && (
+              <>
+                {numRow('Ban otomatis', 'bom media beruntun', cfg.mediaBomb.hours, (n) => save({ ...cfg, mediaBomb: { ...cfg.mediaBomb, hours: num(String(n), 12) } }))}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <T v="caption" color={t.sub}>Ambang:</T>
+                  <View style={{ width: 84 }}>
+                    <NeuInput value={String(cfg.mediaBomb.threshold)} onChangeText={(v: string) => save({ ...cfg, mediaBomb: { ...cfg.mediaBomb, threshold: thr(v, 15) } })} keyboardType="number-pad" />
+                  </View>
+                  <T v="caption" color={t.faint}>media dalam 60 detik dari orang sama</T>
                 </View>
-                <T v="caption" color={t.faint}>deteksi macem-macem → eksekusi + IP ban</T>
-              </View>
+              </>
+            )}
+          </View>
+          {/* SPAM STIKER */}
+          <View style={{ gap: 8 }}>
+            {skillRow('happy', '#FF7A9C', 'Spam stiker', cfg.stickerSpam.on, () => save({ ...cfg, stickerSpam: { ...cfg.stickerSpam, on: !cfg.stickerSpam.on } }))}
+            {cfg.stickerSpam.on && (
+              <>
+                {numRow('Ban otomatis', 'spam stiker beruntun', cfg.stickerSpam.hours, (n) => save({ ...cfg, stickerSpam: { ...cfg.stickerSpam, hours: num(String(n), 6) } }))}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <T v="caption" color={t.sub}>Ambang:</T>
+                  <View style={{ width: 84 }}>
+                    <NeuInput value={String(cfg.stickerSpam.threshold)} onChangeText={(v: string) => save({ ...cfg, stickerSpam: { ...cfg.stickerSpam, threshold: thr(v, 8) } })} keyboardType="number-pad" />
+                  </View>
+                  <T v="caption" color={t.faint}>stiker dalam 90 detik dari orang sama</T>
+                </View>
+              </>
             )}
           </View>
           {!loaded && <T v="caption" color={t.faint}>Memuat pengaturan…</T>}
+        </View>
+      </Card>
+
+      <Card title="Sanksi & perlindungan">
+        <View style={{ padding: 12, gap: 14 }}>
+          {/* TANGGUHKAN GRUP OTOMATIS */}
+          <View style={{ gap: 8 }}>
+            {skillRow('warning', '#FFB300', 'Tangguhkan grup otomatis', cfg.autoSuspend.on, () => save({ ...cfg, autoSuspend: { ...cfg.autoSuspend, on: !cfg.autoSuspend.on } }))}
+            {cfg.autoSuspend.on && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <T v="caption" color={t.sub}>Durasi kunci:</T>
+                <View style={{ width: 84 }}>
+                  <NeuInput value={String(cfg.autoSuspend.minutes)} onChangeText={(v: string) => save({ ...cfg, autoSuspend: { ...cfg.autoSuspend, minutes: Math.max(1, Math.min(1440, parseInt(v, 10) || 60)) } })} keyboardType="number-pad" />
+                </View>
+                <T v="caption" color={t.faint}>menit — bisa dibuka lebih cepat developer</T>
+              </View>
+            )}
+          </View>
+          {/* KUNCI IP */}
+          {skillRow('lock-closed', t.danger, 'Kunci IP & perangkat pelanggar', cfg.ipBan.on, () => save({ ...cfg, ipBan: { ...cfg.ipBan, on: !cfg.ipBan.on } }))}
+          {cfg.ipBan.on && <T v="caption" color={t.faint}>Akun baru di IP/perangkat yang sama otomatis ditolak — anti buat akun baru.</T>}
+          {/* STAF BEBAS */}
+          {skillRow('shield-checkmark', t.success, 'Admin & developer kebal Guard', cfg.staffExempt.on, () => save({ ...cfg, staffExempt: { ...cfg.staffExempt, on: !cfg.staffExempt.on } }))}
+          {cfg.staffExempt.on && <T v="caption" color={t.faint}>Tim tidak pernah kena sanksi otomatis (aman saat mengetes).</T>}
+          {/* PERINGATAN DULU */}
+          <View style={{ gap: 8 }}>
+            {skillRow('megaphone', t.accent, 'Peringatan dulu sebelum ban', cfg.warnFirst.on, () => save({ ...cfg, warnFirst: { ...cfg.warnFirst, on: !cfg.warnFirst.on } }))}
+            {cfg.warnFirst.on && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <T v="caption" color={t.sub}>Maks peringatan:</T>
+                <View style={{ width: 84 }}>
+                  <NeuInput value={String(cfg.warnFirst.maxWarns)} onChangeText={(v: string) => save({ ...cfg, warnFirst: { ...cfg.warnFirst, maxWarns: Math.max(1, Math.min(10, parseInt(v, 10) || 2)) } })} keyboardType="number-pad" />
+                </View>
+                <T v="caption" color={t.faint}>kali — setelah itu sanksi jalan</T>
+              </View>
+            )}
+          </View>
         </View>
       </Card>
 
@@ -187,6 +277,111 @@ function GuardPanel() {
             </Neu>
           );
         })}
+      </Card>
+    </View>
+  );
+}
+
+
+/** TUMBUHKAN SALURAN (v23 — permintaan pemilik):
+ *  - FOLLOWERS MASSAL: tumpuk jumlah pengikut saluran berapa pun (real-time +
+ *    angka tambahan yang tampil ke semua user) — dipakai admin & otomatis
+ *    setelah pesanan paket followers lunas.
+ *  - REAKSI MASSAL: tumpuk reaksi ke pesan terakhir saluran.
+ *  Semua angka tampil natural (anggota nyata + tambahan) di daftar chat,
+ *  header chat, info chat, dan Discover. */
+function GrowPanel() {
+  const t = useTheme();
+  const { db } = useStore();
+  const channels = Object.values(db.chats).filter((c) => c.type === 'channel').sort((a, b) => (b.lastMsg?.createdAt ?? 0) - (a.lastMsg?.createdAt ?? 0));
+  const [chatId, setChatId] = useState<string>('');
+  const [mode, setMode] = useState<'followers' | 'reaction'>('followers');
+  const [amount, setAmount] = useState('100');
+  const [emoji, setEmoji] = useState('\u2764\uFE0F');
+  const [msg, setMsg] = useState('');
+  const cur = channels.find((c) => c.id === chatId);
+  const n = parseInt(amount.replace(/[^0-9]/g, ''), 10) || 0;
+
+  React.useEffect(() => {
+    if (mode === 'reaction' && chatId) subscribeMessages(chatId); // butuh pesan utk target reaksi
+  }, [mode, chatId]);
+
+  const run = () => {
+    setMsg('');
+    if (!cur) { setMsg('Pilih salurannya dulu.'); return; }
+    if (!n || n < 1) { setMsg('Isi jumlahnya dulu (angka).'); return; }
+    if (mode === 'followers') {
+      const r = adminGrowFollowers(chatId, n);
+      setMsg(r.ok ? `Berhasil menambah ${n.toLocaleString('id-ID')} followers ke "${cur.name}".` : r.error ?? 'Gagal.');
+    } else {
+      const r = adminGrowReactions(chatId, n, emoji);
+      setMsg(r.ok ? `Berhasil menambah ${n.toLocaleString('id-ID')} reaksi ke pesan terakhir "${cur.name}".` : r.error ?? 'Gagal.');
+    }
+  };
+
+  const EMOJIS = ['\u2764\uFE0F', '\u{1F44D}', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}', '\u{1F525}'];
+
+  return (
+    <View style={{ gap: 16 }}>
+      <Card title="Tumbuhkan saluran (followers & reaksi massal)">
+        <View style={{ padding: 12, gap: 12 }}>
+          <T v="caption" color={t.sub}>
+            Pilih saluran, pilih jenisnya, tulis jumlahnya — langsung masuk & tampil ke semua pengguna. Angka asli anggota tetap utuh, tambahannya ditumpuk di atasnya.
+          </T>
+          <Segmented<'followers' | 'reaction'>
+            value={mode}
+            onChange={(m) => { setMode(m); setMsg(''); }}
+            options={[
+              { value: 'followers', label: 'Followers' },
+              { value: 'reaction', label: 'Reaksi' },
+            ]}
+          />
+          {channels.length === 0 ? (
+            <Empty icon="megaphone" title="Belum ada saluran" body="Buat saluran dulu lewat menu baru → saluran." />
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
+              {channels.map((c) => {
+                const on = chatId === c.id;
+                return (
+                  <Pressable
+                    key={c.id}
+                    onPress={() => setChatId(c.id)}
+                    style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: on ? t.accent : t.bg, boxShadow: on ? t.insetSm : t.raisedSm } as any}
+                  >
+                    <T v="caption" color={on ? '#fff' : t.sub} style={{ fontWeight: '800' }} numberOfLines={1}>{c.name || '(tanpa nama)'} · {followersCount(c).toLocaleString('id-ID')}</T>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
+          {!!cur && (
+            <Neu inset radius={R.md} style={{ padding: 12, gap: 4 }}>
+              <T v="caption" color={t.faint}>Saluran terpilih</T>
+              <T v="body" style={{ fontWeight: '800' }}>{cur.name}</T>
+              <T v="caption" color={t.sub}>{followersCount(cur).toLocaleString('id-ID')} pengikut saat ini ({cur.members.length} asli + {cur.extraFollowers ?? 0} tambahan)</T>
+            </Neu>
+          )}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ width: 140 }}>
+              <NeuInput icon="stats-chart" placeholder={mode === 'followers' ? 'Mis. 1000' : 'Mis. 500'} value={amount} onChangeText={setAmount} keyboardType="number-pad" />
+            </View>
+            <T v="caption" color={t.faint} style={{ flex: 1 }}>
+              {mode === 'followers' ? 'followers tambahan (bisa sampai 1.000.000)' : 'reaksi tambahan ke pesan TERAKHIR saluran (maks 500.000)'}
+            </T>
+          </View>
+          {mode === 'reaction' && (
+            <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <T v="caption" color={t.sub}>Emoji reaksi:</T>
+              {EMOJIS.map((e) => (
+                <Pressable key={e} onPress={() => setEmoji(e)} style={{ width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: emoji === e ? t.accentSoft : t.bg2 }}>
+                  <T style={{ fontSize: 18 }}>{e}</T>
+                </Pressable>
+              ))}
+            </View>
+          )}
+          <Btn variant="primary" icon={mode === 'followers' ? 'trending-up' : 'heart'} title={`Tambah ${mode === 'followers' ? 'followers' : 'reaksi'}${n ? ` (${n.toLocaleString('id-ID')})` : ''}`} onPress={run} />
+          {!!msg && <T v="caption" color={t.accent} style={{ fontWeight: '800' }}>{msg}</T>}
+        </View>
       </Card>
     </View>
   );
@@ -226,7 +421,7 @@ function PaymentsConfigPanel() {
   return (
     <Card title="Konfigurasi pembayaran (QRIS + DANA)">
       <View style={{ padding: 12, gap: 12 }}>
-        <T v="caption" color={t.sub}>Nomor DANA & QRIS ini yang dilihat pembeli di layar bayar. Foto QRIS statis otomatis dijadikan QRIS DINAMIS ber-nominal saat user membayar (via Vanzz API).</T>
+        <T v="caption" color={t.sub}>Nomor DANA & QRIS ini yang dilihat pembeli di layar bayar. Foto QRIS statis otomatis dijadikan QRIS DINAMIS ber-nominal saat user membayar (via API developer).</T>
         <NeuInput icon="wallet" placeholder="Nomor DANA (mis. 081234567890)" keyboardType="number-pad" value={dana} onChangeText={(v: string) => setDana(v.replace(/[^0-9+]/g, '').slice(0, 16))} />
         <NeuInput icon="person" placeholder="Nama pemilik DANA (a.n.)" value={danaName} onChangeText={(v: string) => setDanaName(v.slice(0, 60))} />
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -428,7 +623,7 @@ function FeedbackPanel() {
   );
 }
 
-type Tab = 'overview' | 'users' | 'chats' | 'orders' | 'reports' | 'appeals' | 'feedback' | 'content' | 'ai' | 'guard' | 'voucher' | 'system';
+type Tab = 'overview' | 'users' | 'chats' | 'orders' | 'reports' | 'appeals' | 'feedback' | 'content' | 'ai' | 'guard' | 'grow' | 'voucher' | 'system';
 
 /** pilihan durasi ban (jam/hari) — 0 = permanen */
 const BAN_DURATIONS: { label: string; ms: number }[] = [
@@ -623,6 +818,7 @@ export default function AdminScreen() {
             ['appeals', `Banding${openAppeals ? ` ${openAppeals}` : ''}`],
             ['feedback', `Masukan${openFeedback ? ` ${openFeedback}` : ''}`],
             ['guard', 'AI Guard'],
+            ['grow', 'Tumbuhkan'],
             ['voucher', 'Voucher'],
             ['content', 'Konten'],
             ['ai', 'Zeroid AI'],
@@ -644,6 +840,7 @@ export default function AdminScreen() {
       <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 40, maxWidth: 720, width: '100%', alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
         {tab === 'feedback' && <FeedbackPanel />}
         {tab === 'guard' && <GuardPanel />}
+        {tab === 'grow' && <GrowPanel />}
         {tab === 'voucher' && <VoucherPanel />}
         {tab === 'overview' && (
           <>

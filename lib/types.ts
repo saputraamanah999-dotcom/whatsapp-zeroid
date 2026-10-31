@@ -171,6 +171,10 @@ export type Chat = {
   streakDeadNotifiedAt?: number;
   /** disappearing messages timer — set by group admins */
   disappearing?: 'off' | '24h' | '7d' | '90d';
+  /** FOLLOWERS SALURAN TAMBAHAN (paket beli) — ditumpuk di atas anggota nyata.
+   *  Anggota nyata tetap dikelola Firestore; angka ini hanya PENAMPAKAN jumlah
+   *  pengikut yang dibeli (diatur admin panel / otomatis setelah pesanan lunas). */
+  extraFollowers?: number;
 };
 
 export type MsgType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'system' | 'call' | 'sticker' | 'order' | 'location' | 'contact' | 'poll' | 'brat' | 'livephoto';
@@ -215,7 +219,10 @@ export type YouTubeTrack = { id: string; kind: 'youtube'; title: string; thumb?:
 
 export type Sticker = { id: string; uri: string; ownerId: string; global: boolean; createdAt: number };
 
-export type ProductKey = 'vip' | 'member' | 'bluecheck' | 'security' | 'checknomor' | 'netflix' | 'amp' | 'amunlock';
+export type ProductKey =
+  | 'vip' | 'member' | 'bluecheck' | 'security'
+  | 'checknomor' | 'netflix' | 'amp' | 'amunlock'
+  | 'cekresi' | 'followers' | 'reaction';
 
 export type Order = {
   id: string;
@@ -235,8 +242,8 @@ export type Order = {
   /** bukti pembayaran (URL foto upload pembeli) — WAJIB sebelum konfirmasi */
   proofUrl?: string;
   proofAt?: number;
-  /** input produk API berbayar: { nomor?, email?, urlVerify? } */
-  meta?: { nomor?: string; email?: string; urlVerify?: string } | null;
+  /** input produk API berbayar: { nomor?, email?, urlVerify?, resi?, ekspedisi?, channel?, amount?, emoji? } */
+  meta?: { nomor?: string; email?: string; urlVerify?: string; resi?: string; ekspedisi?: string; channel?: string; amount?: number; emoji?: string } | null;
   /** hasil realisasi API (Check Nomor / Netflix / AM) — diisi server */
   delivered?: boolean;
   deliveredAt?: number;
@@ -290,6 +297,8 @@ export type Message = {
   locationLabel?: string;
   /** polling: data pilihan + suara per user (uid → index pilihan / array utk multi) */
   poll?: PollData;
+  /** REAKSI TAMBAHAN (paket beli) — ditumpuk di atas reaksi nyata pesan saluran */
+  extraReactions?: number;
   /** FOTO/VIDEO SEKALI LIHAT (ala WhatsApp): media hanya bisa dibuka 1x per penerima */
   viewOnce?: boolean;
   /** uid yang SUDAH membuka media sekali lihat (tidak bisa dibuka lagi) */

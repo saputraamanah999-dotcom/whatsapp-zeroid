@@ -4,17 +4,36 @@ export type Plan = { label: string; days: number; price: number };
 /** `icon` is an SVG badge key rendered by lib/icons.tsx (no emoji for UI). */
 export type Product = { key: ProductKey; title: string; icon: string; color: string; desc: string; perks: string[]; plans: Plan[] };
 
-/** Produk API berbayar — hasil nyata dari Vanzz API, dikirim otomatis setelah
- *  admin konfirmasi pembayaran (server-side via /api/vanzz action 'deliver').
- *  `fields` = input yang wajib diisi pembeli saat memesan. */
-export type ApiProduct = { key: ProductKey; title: string; icon: string; color: string; price: number; desc: string; fields: { key: 'nomor' | 'email'; label: string; placeholder: string }[]; note: string };
+/** Jenis input produk API: nomor HP / email / resi / ekspedisi / saluran / jumlah. */
+export type ApiFieldKey = 'nomor' | 'email' | 'resi' | 'ekspedisi' | 'channel' | 'amount';
+export type ApiField = { key: ApiFieldKey; label: string; placeholder: string };
+
+/** Produk API berbayar — hasil nyata, diproses otomatis SERVER setelah admin
+ *  konfirmasi pembayaran (via /api/vanzz action 'deliver').
+ *  Produk berharga SATUAN (followers/reaksi): `unit` = jumlah per step,
+ *  `price` = harga per step → total = ceil(amount/unit) * price. */
+export type ApiProduct = {
+  key: ProductKey; title: string; icon: string; color: string;
+  price: number; desc: string; fields: ApiField[]; note: string;
+  /** harga satuan: beli per kelipatan `unit` seharga `price` (Rp). */
+  unit?: number; unitLabel?: string; minAmount?: number; maxAmount?: number;
+};
 
 export const API_PRODUCTS: ApiProduct[] = [
   {
     key: 'checknomor', title: 'Cek Nomor', icon: 'call', color: '#14C47A', price: 5000,
-    desc: 'Lacak lokasi & provider nomor HP (Check Nomor Vanzz API).',
+    desc: 'Lacak lokasi & provider nomor HP.',
     fields: [{ key: 'nomor', label: 'Nomor HP', placeholder: '08xxxxxxxxxx' }],
     note: 'Hasil pelacakan muncul otomatis di pesanan setelah admin konfirmasi pembayaran.',
+  },
+  {
+    key: 'cekresi', title: 'Cek Resi', icon: 'cube', color: '#FF8A00', price: 5000,
+    desc: 'Lacak status pengiriman paket semua ekspedisi (Shopee, J&T, JNE, dll).',
+    fields: [
+      { key: 'resi', label: 'Nomor resi', placeholder: 'Contoh: SPXID054330680586' },
+      { key: 'ekspedisi', label: 'Ekspedisi', placeholder: 'Contoh: shopee-express, jnt, jne' },
+    ],
+    note: 'Hasil pelacakan paket muncul otomatis di pesanan setelah admin konfirmasi pembayaran.',
   },
   {
     key: 'netflix', title: 'Netflix Premium', icon: 'tv', color: '#E50914', price: 7000,
@@ -26,17 +45,47 @@ export const API_PRODUCTS: ApiProduct[] = [
     key: 'amp', title: 'AlightMotion Premium', icon: 'videocam', color: '#7B61FF', price: 10000,
     desc: 'Magic link premium AlightMotion dikirim ke email kamu.',
     fields: [{ key: 'email', label: 'Email', placeholder: 'email@kamu.com' }],
-    note: 'Magic link dikirim ke email + status tampil di pesanan setelah konfirmasi admin.',
+    note: 'Magic link dikirim ke email kamu — buka email (cek juga folder SPAM), lalu tempel URL verifikasinya di pesanan.',
   },
   {
     key: 'amunlock', title: 'AM Premium Unlock', icon: 'unlock', color: '#FF9F0A', price: 10000,
     desc: 'Unlock premium aplikasi AlightMotion (Premium Unlock).',
     fields: [{ key: 'email', label: 'Email', placeholder: 'email@kamu.com' }],
-    note: 'Instruksi unlock muncul di pesanan setelah admin konfirmasi pembayaran.',
+    note: 'Ikuti petunjuk unlock di pesanan — tempel URL verifikasi dari email kamu.',
+  },
+  {
+    key: 'followers', title: 'Followers Saluran', icon: 'people', color: '#1E9BFF', price: 3000,
+    unit: 5, unitLabel: 'followers', minAmount: 5, maxAmount: 1000000,
+    desc: 'Tambah pengikut saluran — pilih nama saluran & jumlahnya.',
+    fields: [
+      { key: 'channel', label: 'Nama saluran', placeholder: 'Tulis nama saluran tujuan' },
+      { key: 'amount', label: `Jumlah followers (kelipatan 5)`, placeholder: 'Contoh: 100' },
+    ],
+    note: 'Pengikut masuk otomatis beberapa menit setelah admin konfirmasi pembayaran.',
+  },
+  {
+    key: 'reaction', title: 'Reaksi Saluran', icon: 'heart', color: '#FF5A8A', price: 5000,
+    unit: 10, unitLabel: 'reaksi', minAmount: 10, maxAmount: 500000,
+    desc: 'Reaksi massal ke pesan terakhir saluran — pilih saluran & jumlahnya.',
+    fields: [
+      { key: 'channel', label: 'Nama saluran', placeholder: 'Tulis nama saluran tujuan' },
+      { key: 'amount', label: 'Jumlah reaksi (kelipatan 10)', placeholder: 'Contoh: 100' },
+    ],
+    note: 'Reaksi ditumpuk ke pesan terakhir saluran setelah admin konfirmasi pembayaran.',
   },
 ];
 
 export const apiProductOf = (k?: string) => API_PRODUCTS.find((p) => p.key === k);
+
+/** Produk dengan harga SATUAN (followers/reaksi) → total = ceil(amount/unit)*price. */
+export const isUnitProduct = (k?: string) => !!apiProductOf(k)?.unit;
+export function unitPriceOf(k: string, amount: number): number {
+  const ap = apiProductOf(k);
+  if (!ap?.unit) return ap?.price ?? 0;
+  const want = Number(amount) || (ap.minAmount ?? ap.unit);
+  const step = Math.max(1, Math.ceil(want / ap.unit));
+  return step * ap.price;
+}
 
 export const PRODUCTS: Product[] = [
   {

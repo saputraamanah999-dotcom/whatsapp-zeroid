@@ -47,6 +47,13 @@ import { placeCall } from './tabs/CallsTab';
 import { ProductKey } from '../lib/types';
 import { MusicSong, MusicPlaylist, MusicArtist, musicSearch, TRENDING } from '../lib/music';
 import { play as playSong, openFull, usePlayer } from '../lib/player';
+import FirePet from '../components/FirePet';
+import { fireState, reviveFire, FIRE_MIN_STREAK, REVIVES_PER_MONTH } from '../lib/streak';
+import { setTheme } from '../lib/store';
+import { useThemeMode, ThemeMode } from '../lib/theme';
+import { Segmented } from '../components/ui';
+import { vanzzAmVerify, vanzzDeliver } from '../lib/vanzz';
+import { unitPriceOf, isUnitProduct } from '../lib/products';
 
 // ---------------- Contact / user profile ----------------
 export function UserProfile() {
@@ -54,7 +61,9 @@ export function UserProfile() {
   const nav = useNavigation<any>();
   const { params } = useRoute<any>();
   const { db, me } = useStore();
+  const mode = useThemeMode();
   const [confirm, setConfirm] = useState<null | 'remove' | 'block'>(null);
+  const [petOpen, setPetOpen] = useState(false);
   const u = db.users[params?.userId];
   if (!me) return null;
   if (!u)
@@ -69,6 +78,9 @@ export function UserProfile() {
   const blocked = me.blocked.includes(u.id);
   const photo = canSee(me, u, u.privacy.profilePhoto) ? u.avatar : null;
   const now = Date.now();
+  // chat pribadi dengan user ini (untuk kartu kustomisasi: api & kucing, wallpaper, gaya balon)
+  const dm = Object.values(db.chats).find((c) => c.type === 'direct' && c.members.includes(me.id) && c.members.includes(u.id));
+  const fst = dm ? fireState(dm, me) : null;
   return (
     <Screen>
       <Header title={self ? 'Profil saya' : 'Info kontak'} />
@@ -185,6 +197,49 @@ export function UserProfile() {
           </View>
         </Card>
 
+        {/* KUSTOMISASI CHAT BERSAMA USER INI (v23) — pindahan dari bar atas ChatRoom:
+            api & kucing streak, wallpaper & tema chat, gaya balon obrolan.
+            Tema aplikasi (terang/gelap/sistem) ada di kartu berikutnya. */}
+        {dm && fst && (
+          <Card title="Kustomisasi chat">
+            <View style={{ padding: 12, gap: 12 }}>
+              {/* API & KUCING STREAK */}
+              <Pressable onPress={() => setPetOpen(true)} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: R.md, backgroundColor: t.bg, boxShadow: pressed ? t.insetSm : t.raisedSm } as any)}>
+                <FirePet count={fst.count} color={fst.color} lit={!fst.dead} dimmed={fst.dimmed} size={54} />
+                <View style={{ flex: 1, gap: 2 }}>
+                  <T v="body" style={{ fontWeight: '800' }}>
+                    {fst.dead ? 'Api padam' : fst.count >= FIRE_MIN_STREAK ? `Api ${fst.count} hari beruntun` : 'Api & kucing streak'}
+                  </T>
+                  <T v="caption" color={fst.dead ? t.danger : fst.dimmed ? t.warning : t.success}>
+                    {fst.dead ? 'Ketuk untuk hidupkan lagi' : fst.dimmed ? 'Api melemah — kirim pesan sekarang' : fst.count >= FIRE_MIN_STREAK ? 'Menyala penuh — rawat tiap hari' : 'Kirim pesan tiap hari supaya menyala'}
+                  </T>
+                </View>
+                <Ionicons name="chevron-forward" size={16} color={t.faint} />
+              </Pressable>
+              <Row icon="color-palette" iconColor="#FF7A9C" title="Wallpaper & tema chat" subtitle="Latar & warna khusus chat ini" onPress={() => nav.navigate('Wallpaper', { chatId: dm.id })} />
+              <Row icon="chatbox" iconColor="#7B61FF" title="Gaya balon obrolan" subtitle={me.bubble && me.bubble !== 'default' ? 'Kustom — terlihat orang lain real-time' : 'Pilih gaya balon kesukaanmu'} onPress={() => nav.navigate('ChatBubbles')} />
+            </View>
+          </Card>
+        )}
+
+        {/* TEMA APLIKASI — pindahan dari tab Saya (bar atas rapi, tema di profil) */}
+        {self && (
+          <Card title="Tampilan aplikasi">
+            <View style={{ padding: 12, gap: 10 }}>
+              <Segmented<ThemeMode>
+                value={mode}
+                onChange={setTheme}
+                options={[
+                  { value: 'light', label: 'Terang' },
+                  { value: 'dark', label: 'Gelap' },
+                  { value: 'system', label: 'Sistem' },
+                ]}
+              />
+              <T v="caption" color={t.faint}>Tema terpasang di seluruh aplikasi — chat, panggilan, dan profil.</T>
+            </View>
+          </Card>
+        )}
+
         {u.spotify && (
           <Card title="Lagu profil">
             <View style={{ padding: 6 }}>
@@ -203,25 +258,238 @@ export function UserProfile() {
       </ScrollView>
       <Confirm visible={confirm === 'remove'} title={`Hapus ${u.name} dari kontak?`} body="Riwayat chat tetap tersimpan. Kamu bisa menambahkannya lagi lewat @username." confirm="Hapus" danger onConfirm={() => removeContact(u.id)} onClose={() => setConfirm(null)} />
       <Confirm visible={confirm === 'block'} title={`Blokir ${u.name}?`} body="Kontak yang diblokir tidak dapat menelepon atau mengirim pesan kepadamu." confirm="Blokir" danger onConfirm={() => toggleBlock(u.id)} onClose={() => setConfirm(null)} />
+      {/* API & KUCING — detail streak chat pribadi (pindahan dari bar atas ChatRoom) */}
+      {dm && fst && (
+        <Sheet visible={petOpen} onClose={() => setPetOpen(false)} title="Api & kucing streak">
+          <View style={{ alignItems: 'center', gap: 10, paddingVertical: 8 }}>
+            <FirePet count={fst.count} color={fst.color} lit={!fst.dead} dimmed={fst.dimmed} size={120} />
+            <T v="h2" style={{ fontWeight: '900' }}>
+              {fst.dead ? 'Api padam' : fst.count >= FIRE_MIN_STREAK ? `${fst.count} hari beruntun!` : 'Rawat terus apinya'}
+            </T>
+            <T v="caption" color={t.sub} style={{ textAlign: 'center', lineHeight: 19 }}>
+              Kucing ini dirawat bareng {u.id === me.id ? 'chatmu' : u.name.split(' ')[0]}. Kirim pesan tiap hari supaya api terus menyala —
+              1 jam kosong apinya melemah, 1 hari penuh kosong apinya padam. Tiap 10 hari beruntun warna api
+              berganti dan makin menyala — angkanya tampil di daftar chat, contoh 100 {'\u{1F525}'} = 100 hari.
+            </T>
+            {fst.dead && (
+              <T v="caption" color={t.danger} style={{ textAlign: 'center' }}>
+                Kesempatan hidupkan lagi: {fst.revivesLeft} dari {REVIVES_PER_MONTH}x bulan ini.
+              </T>
+            )}
+            {fst.dead && (
+              <Btn
+                title={fst.reviveable ? 'Hidupkan api lagi (1 kesempatan)' : 'Lewat 7 hari — mulai dari awal'}
+                icon="flame"
+                disabled={!fst.reviveable || fst.revivesLeft <= 0}
+                onPress={async () => {
+                  const r = await reviveFire(dm, me);
+                  if (r.ok) {
+                    pushBanner({ title: 'Api menyala kembali!', body: 'Kirim pesan hari ini untuk melanjutkan streak.', icon: 'flame' });
+                    setPetOpen(false);
+                  } else pushBanner({ title: 'Gagal', body: r.error ?? 'Coba lagi.', icon: 'alert' });
+                }}
+              />
+            )}
+            {!fst.dead && fst.count >= FIRE_MIN_STREAK && (
+              <T v="caption" color={fst.dimmed ? t.danger : t.success}>
+                {fst.dimmed ? 'Api melemah — 1 jam tanpa pesan. Kirim pesan sekarang!' : 'Api menyala penuh — pertahankan!'}
+              </T>
+            )}
+          </View>
+        </Sheet>
+      )}
     </Screen>
   );
 }
 
 // ---------------- Premium store ----------------
+
+/** Ambil objek hasil dari order.result (bisa {json:'…'} / objek / string). */
+function resultObj(o: any): any {
+  const r = o?.result;
+  if (!r) return null;
+  if (typeof r === 'string') { try { return JSON.parse(r); } catch { return { raw: r }; } }
+  if (typeof r === 'object' && typeof r.json === 'string') { try { return JSON.parse(r.json); } catch { return { raw: String(r.json).slice(0, 500) }; } }
+  return r;
+}
+
+/** Cari nilai pertama yang ada dari daftar kunci (beda bentuk respons API). */
+function pickAny(o: any, keys: string[]): string {
+  for (const k of keys) {
+    const v = o?.[k];
+    if (v != null && typeof v !== 'object' && String(v).trim()) return String(v).trim();
+    if (v && typeof v === 'object' && !Array.isArray(v)) {
+      const inner = pickAny(v, keys);
+      if (inner) return inner;
+    }
+  }
+  return '';
+}
+
+/** Satu baris label-nilai pada kartu hasil. */
+function ResRow({ label, value, color }: { label: string; value: string; color?: string }) {
+  const t = useTheme();
+  if (!value) return null;
+  return (
+    <View style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+      <T v="caption" color={t.faint} style={{ width: 118, paddingTop: 1 }}>{label}</T>
+      <T v="caption" color={color} style={{ flex: 1, fontWeight: '700', flexWrap: 'wrap' }}>{value}</T>
+    </View>
+  );
+}
+
+/**
+ * KARTU HASIL CANTIK (bukan JSON!) — semua produk API tampil sebagai kartu
+ * berwarna dengan ikon + baris label-nilai sesuai jenis produknya.
+ */
+function ResultCard({ order, title, color, icon }: { order: any; title: string; color: string; icon: string }) {
+  const t = useTheme();
+  const r = resultObj(order) ?? {};
+  const kind = String(r.kind ?? order.product ?? '');
+  const isFollowers = kind === 'followers';
+  const isReaction = kind === 'reaction';
+  const isVerifyDone = r.verifyDone === true || String(r.status ?? '') === 'success' || !!r.premium;
+  const isAmp = order.product === 'amp' || order.product === 'amunlock';
+  // pasangan [label, nilai] per produk
+  let rows: [string, string][] = [];
+  let headline = '';
+  let sub = '';
+  if (isFollowers) {
+    headline = `${Number(r.added ?? 0).toLocaleString('id-ID')} followers terkirim`;
+    sub = `Saluran "${r.channel ?? '-'}"`;
+    rows = [['Total pengikut', `${Number(r.total ?? 0).toLocaleString('id-ID')}`], ['Diproses', order.deliveredAt ? chatTime(order.deliveredAt) : '']];
+  } else if (isReaction) {
+    headline = `${Number(r.added ?? 0).toLocaleString('id-ID')} reaksi terkirim`;
+    sub = `Saluran "${r.channel ?? '-'}" · pesan terakhir`;
+    rows = [['Diproses', order.deliveredAt ? chatTime(order.deliveredAt) : '']];
+  } else if (order.product === 'checknomor') {
+    const d = r.data && typeof r.data === 'object' ? r.data : r;
+    headline = pickAny(d, ['nomor', 'number', 'phone']) || 'Nomor terlacak';
+    rows = [
+      ['Operator', pickAny(d, ['operator', 'provider', 'provider_name', 'card'])],
+      ['Prefix', pickAny(d, ['prefix', 'awalan'])],
+      ['Wilayah', pickAny(d, ['region', 'wilayah', 'area', 'location', 'lokasi'])],
+      ['Jaringan', pickAny(d, ['network', 'jaringan', 'tipe'])],
+      ['Status', pickAny(d, ['status', 'state'])],
+      ['Terdaftar', pickAny(d, ['registered', 'registered_at', 'terdaftar', 'created'])],
+      ['Berlaku s/d', pickAny(d, ['expired', 'expired_at', 'berlaku', 'valid_until'])],
+    ];
+  } else if (order.product === 'cekresi') {
+    const d = r.data && typeof r.data === 'object' ? r.data : r;
+    // riwayat perjalanan paket (bila API memberi array)
+    const hist = Array.isArray(d?.history) ? d.history : Array.isArray(d?.riwayat) ? d.riwayat : Array.isArray(d?.data) ? d.data : [];
+    headline = pickAny(d, ['status', 'status_pengiriman', 'latest_status']) || 'Paket ditemukan';
+    rows = [
+      ['Resi', pickAny(d, ['noresi', 'resi', 'waybill', 'awb']) || order?.meta?.resi],
+      ['Ekspedisi', pickAny(d, ['ekspedisi', 'courier', 'kurir', 'carrier']) || order?.meta?.ekspedisi],
+      ['Penerima', pickAny(d, ['receiver', 'penerima', 'received_by'])],
+      ['Posisi', pickAny(d, ['position', 'posisi', 'last_location', 'lokasi_terakhir'])],
+      ['Waktu', pickAny(d, ['delivertime', 'delivered_time', 'waktu', 'timestamp', 'updated_at'])],
+    ];
+  } else if (order.product === 'netflix') {
+    const d = r.data && typeof r.data === 'object' ? r.data : r;
+    headline = 'Akun Netflix siap dipakai';
+    rows = [
+      ['Token', pickAny(d, ['token', 'access_token', 'key'])],
+      ['Berlaku s/d', pickAny(d, ['expired', 'expired_at', 'valid', 'valid_until', 'masa_aktif'])],
+      ['Negara', pickAny(d, ['country', 'negara'])],
+      ['Paket', pickAny(d, ['plan', 'paket', 'profile'])],
+      ['Catatan', pickAny(d, ['note', 'catatan', 'info', 'pesan'])],
+    ];
+  } else if (isAmp) {
+    headline = isVerifyDone ? 'Yeay! Akun kamu udah premium' : 'Magic link terkirim ke email';
+    rows = [
+      ['Email', pickAny(r, ['email']) || order?.meta?.email],
+      ['Status', isVerifyDone ? 'Premium aktif' : 'Menunggu verifikasi'],
+      ['Pesan', pickAny(d0(r), ['message', 'msg', 'info'])],
+      ['Berlaku s/d', pickAny(r, ['expired', 'expired_at', 'valid_until'])],
+    ];
+  } else {
+    // fallback generik — tampil rapi per baris, BUKAN JSON mentah
+    headline = title;
+    const flat = flatPairs(r);
+    rows = flat.slice(0, 8);
+  }
+  return (
+    <Neu inset radius={R.lg} style={{ padding: 14, marginTop: 6, gap: 8, borderWidth: 1, borderColor: color + '44' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+        <View style={{ width: 40, height: 40, borderRadius: 13, backgroundColor: color + '22', alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name={(isVerifyDone && isAmp ? 'checkmark-circle' : isFollowers ? 'people' : isReaction ? 'heart' : icon) as any} size={21} color={color} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <T v="h3" style={{ fontSize: 15 }}>{headline}</T>
+          {!!sub && <T v="caption" color={t.sub}>{sub}</T>}
+        </View>
+      </View>
+      <View style={{ gap: 6 }}>
+        {rows.filter(([, v]) => !!v).map(([k, v], i) => (
+          <ResRow key={`${k}${i}`} label={k} value={v.length > 160 ? v.slice(0, 160) + '…' : v} />
+        ))}
+      </View>
+      {/* token panjang (Netflix dkk) — blok monospace dengan tombol salin */}
+      {(() => {
+        const tok = pickAny(resultObj(order), ['token', 'access_token', 'key']);
+        return /^[\w-]{20,}$/.test(tok) ? (
+          <Pressable
+            onPress={async () => { try { await (await import('expo-clipboard')).setStringAsync(tok); pushBanner({ title: 'Token disalin', body: 'Tempel saat login.', icon: 'copy' }); } catch {} }}
+            style={{ padding: 10, borderRadius: R.md, backgroundColor: t.bg2, flexDirection: 'row', alignItems: 'center', gap: 8 } as any}
+          >
+            <T v="caption" style={{ flex: 1, fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }} numberOfLines={1}>{tok}</T>
+            <Ionicons name="copy" size={16} color={t.accent} />
+            <T v="caption" color={t.accent} style={{ fontWeight: '800' }}>Salin</T>
+          </Pressable>
+        ) : null;
+      })()}
+      {/* URL verifikasi AlightMotion — tombol buka */}
+      {(() => {
+        const url = pickAny(resultObj(order), ['url', 'link', 'verify_url', 'urlVerify']);
+        return /^https?:\/\//.test(url) ? (
+          <Pressable
+            onPress={() => (Platform.OS === 'web' ? window.open(url, '_blank') : Linking.openURL(url).catch(() => {}))}
+            style={{ padding: 10, borderRadius: R.md, backgroundColor: color + '18', flexDirection: 'row', alignItems: 'center', gap: 8 } as any}
+          >
+            <Ionicons name="open-outline" size={16} color={color} />
+            <T v="caption" color={color} style={{ flex: 1, fontWeight: '800' }} numberOfLines={1}>{url}</T>
+          </Pressable>
+        ) : null;
+      })()}
+    </Neu>
+  );
+}
+
+/** Objek nested → daftar pasangan [label, nilai] untuk fallback generik. */
+function flatPairs(o: any, prefix = '', depth = 0): [string, string][] {
+  if (!o || typeof o !== 'object' || depth > 2) return [];
+  const out: [string, string][] = [];
+  for (const [k, v] of Object.entries(o)) {
+    if (v == null) continue;
+    const label = k.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+    if (typeof v !== 'object') out.push([label, String(v)]);
+    else if (Array.isArray(v) && v.length && typeof v[0] !== 'object') out.push([label, v.join(', ')]);
+    else if (typeof v === 'object' && depth < 2) out.push(...flatPairs(v, prefix + label + ' · ', depth + 1));
+  }
+  return out;
+}
+/** helper kecil untuk akses r.data aman */
+function d0(r: any): any { return r?.data && typeof r.data === 'object' ? r.data : r; }
+
 export function PremiumScreen() {
   const t = useTheme();
   const nav = useNavigation<any>();
   const { db, me } = useStore();
   // BUY SHEET — alur: pilih metode (QRIS/DANA/Koin) → detail bayar + unggah BUKTI.
-  const [buy, setBuy] = useState<{ product: ProductKey; plan: number; meta?: { nomor?: string; email?: string } | null } | null>(null);
+  const [buy, setBuy] = useState<{ product: ProductKey; plan: number; meta?: Record<string, string> | null } | null>(null);
   const [payStep, setPayStep] = useState<'method' | 'pay'>('method');
   const [payMethod, setPayMethod] = useState<'qris' | 'dana' | 'koin'>('qris');
   const [activeOrder, setActiveOrder] = useState<{ orderId: string; chatId: string } | null>(null);
   const [qrisImg, setQrisImg] = useState<string | null>(null);
   const [qrisBusy, setQrisBusy] = useState(false);
   const [proofBusy, setProofBusy] = useState(false);
-  // form produk API berbayar (Cek Nomor / Netflix / AM)
+  // form produk API berbayar (Cek Nomor / Netflix / AM / Resi / Followers / Reaksi)
   const [apiMeta, setApiMeta] = useState<Record<string, string>>({});
+  // verifikasi AlightMotion: { orderId → URL verifikasi yang diketik }
+  const [amVerify, setAmVerify] = useState<Record<string, string>>({});
+  const [amBusy, setAmBusy] = useState<string | null>(null);
   // VOUCHER DISKON — kode ditukar di sini, harga semua paket langsung berkurang
   const [vCode, setVCode] = useState('');
   const [vBusy, setVBusy] = useState(false);
@@ -231,10 +499,19 @@ export function PremiumScreen() {
   const myOrders = db.orders.filter((o) => o.userId === me.id);
   const active = (k: ProductKey) => planActive(k, me);
   const limit = orderLimitRemaining(me);
-  // AMAN untuk produk API (Cek Nomor/Netflix/AM) yang tidak punya plans —
-  // dulu productOf(k).plans[plan].price langsung crash untuk kunci baru.
-  const basePrice = (k: ProductKey, plan: number) => apiProductOf(k)?.price ?? productSafe(k).plans[plan]?.price ?? 0;
-  const priceOf = (k: ProductKey, plan: number) => (voucher ? priceWithDiscount(basePrice(k, plan), voucher.percent) : basePrice(k, plan));
+  // AMAN untuk produk API yang tidak punya plans — dulu productOf(k).plans[plan].price
+  // langsung crash untuk kunci baru. Produk SATUAN (followers/reaksi) mengikuti
+  // jumlah yang diketik: total = ceil(amount/unit) * harga per unit.
+  const metaAmount = (k: ProductKey) => Number((apiMeta[`${k}.amount`] ?? '').replace(/[^0-9]/g, '') || 0);
+  const basePrice = (k: ProductKey, plan: number, meta?: Record<string, string> | null) => {
+    const ap = apiProductOf(k);
+    if (ap?.unit) {
+      const raw = String(meta?.amount ?? apiMeta[`${k}.amount`] ?? '').replace(/[^0-9]/g, '');
+      return unitPriceOf(k, Number(raw || ap.minAmount || ap.unit));
+    }
+    return ap?.price ?? productSafe(k).plans[plan]?.price ?? 0;
+  };
+  const priceOf = (k: ProductKey, plan: number, meta?: Record<string, string> | null) => (voucher ? priceWithDiscount(basePrice(k, plan, meta), voucher.percent) : basePrice(k, plan, meta));
   const pay = db.payments;
   const activeProof = activeOrder ? myOrders.find((o) => o.id === activeOrder.orderId) : null;
 
@@ -278,16 +555,17 @@ export function PremiumScreen() {
   };
 
   // ================= ALUR PEMBAYARAN BARU (QRIS + DANA + BUKTI) =================
-  const openBuy = (product: ProductKey, plan: number, meta?: { nomor?: string; email?: string } | null) => {
-    // DEVELOPER/ADMIN: fitur API berbayar (Cek Nomor dkk) GRATIS — order langsung
-    // ditandai lunas oleh admin sendiri → hasil API otomatis diproses server.
+  const openBuy = (product: ProductKey, plan: number, meta?: Record<string, string> | null) => {
+    // DEVELOPER/ADMIN: fitur API berbayar diproses tanpa pembayaran — TANPA teks
+    // publik (v23: teks "gratis untuk admin" dihapus dari layar, tak layak dilihat
+    // pengguna biasa; perilakunya tetap jalan).
     const staffFree = !!apiProductOf(product) && (me.role === 'admin' || !!me.developer);
     if (staffFree) {
-      const r = createOrder(product, plan, 'qris', undefined, 0, undefined, meta ?? undefined);
+      const r = createOrder(product, plan, 'qris', undefined, 0, undefined, meta as any ?? undefined);
       if (r && 'error' in r) { pushBanner({ title: 'Gagal', body: r.error, icon: 'alert' }); return; }
       if (r && 'orderId' in r) {
-        adminUpdateOrder(r.orderId, { status: 'paid', price: 0, adminNote: 'GRATIS — staff/admin (tanpa pembayaran)' });
-        pushBanner({ title: 'Diproses (gratis — akun staff)', body: 'Hasil muncul otomatis di riwayat pesanan.', icon: 'flash' });
+        adminUpdateOrder(r.orderId, { status: 'paid', price: 0, adminNote: 'Diproses staf tanpa pembayaran' });
+        pushBanner({ title: 'Diproses', body: 'Hasil muncul otomatis di riwayat pesanan.', icon: 'flash' });
       }
       return;
     }
@@ -304,7 +582,7 @@ export function PremiumScreen() {
     const planIdx = buy.plan;
     if (m === 'koin') {
       // BAYAR DENGAN KOIN — alur lama (saldo koin = Rp)
-      const original = basePrice(buy.product, planIdx);
+      const original = basePrice(buy.product, planIdx, buy.meta ?? undefined);
       let need = Math.ceil(original);
       if (voucher) {
         const rd = await redeemVoucher(voucher.code, me);
@@ -313,7 +591,7 @@ export function PremiumScreen() {
       }
       const spent = await spendKoin(me, need, `beli ${buy.product}`);
       if (!spent.ok) { pushBanner({ title: 'Koin belum cukup', body: spent.error ?? `Butuh ${need.toLocaleString('id-ID')} koin.`, icon: 'alert' }); return; }
-      const r = createOrder(buy.product, planIdx, 'koin', undefined, voucher ? need : undefined, voucher?.code, buy.meta ?? undefined);
+      const r = createOrder(buy.product, planIdx, 'koin', undefined, voucher ? need : undefined, voucher?.code, buy.meta as any ?? undefined);
       if (r && 'error' in r) {
         await spendKoin(me, -need, `refund gagal order ${buy.product}`).catch(() => {});
         pushBanner({ title: 'Pembelian dibatasi — koin dikembalikan', body: r.error, icon: 'alert' });
@@ -326,9 +604,9 @@ export function PremiumScreen() {
       return;
     }
     // QRIS / DANA → order dibuat dulu (pending), lalu unggah bukti
-    const original = basePrice(buy.product, planIdx);
+    const original = basePrice(buy.product, planIdx, buy.meta ?? undefined);
     const paid = voucher ? priceWithDiscount(original, voucher.percent) : original;
-    const r = createOrder(buy.product, planIdx, m, undefined, voucher ? paid : undefined, voucher?.code, buy.meta ?? undefined);
+    const r = createOrder(buy.product, planIdx, m, undefined, voucher ? paid : undefined, voucher?.code, buy.meta as any ?? undefined);
     if (r && 'error' in r) { pushBanner({ title: 'Pembelian dibatasi', body: r.error, icon: 'alert' }); return; }
     if (r && 'orderId' in r) {
       setActiveOrder({ orderId: r.orderId, chatId: r.chatId });
@@ -340,6 +618,29 @@ export function PremiumScreen() {
         setQrisImg(qr.image ?? pay?.qrisImage ?? null);
       }
     }
+  };
+
+  /** LANGKAH 2 ALIGHTMOTION — tempel URL verifikasi dari email (SPAM) → unlock. */
+  const submitAmVerify = async (orderId: string) => {
+    const url = (amVerify[orderId] ?? '').trim();
+    if (!url) { pushBanner({ title: 'URL belum diisi', body: 'Buka email kamu (cek folder SPAM), salin URL verifikasinya, lalu tempel di sini.', icon: 'mail' }); return; }
+    if (amBusy) return;
+    setAmBusy(orderId);
+    const r = await vanzzAmVerify(orderId, url);
+    setAmBusy(null);
+    if (!r.ok) { pushBanner({ title: 'Verifikasi gagal', body: r.error ?? 'Coba lagi.', icon: 'alert' }); return; }
+    pushBanner({ title: 'Yeay! Akun kamu udah premium', body: 'AlightMotion Premium aktif — cek detail di pesanan.', icon: 'checkmark-circle' });
+    setAmVerify((x) => ({ ...x, [orderId]: '' }));
+  };
+
+  /** Realisasi ulang pesanan (tombol manual kalau otomatis gagal). */
+  const retryDeliver = async (orderId: string) => {
+    if (amBusy) return;
+    setAmBusy(orderId);
+    const r = await vanzzDeliver(orderId);
+    setAmBusy(null);
+    if (!r.ok) pushBanner({ title: 'Belum bisa diproses', body: r.error ?? 'Coba lagi nanti.', icon: 'alert' });
+    else pushBanner({ title: 'Berhasil diproses', body: 'Hasil tampil di pesanan.', icon: 'checkmark-circle' });
   };
 
   /** Unggah foto bukti transfer ke pesanan aktif. */
@@ -481,9 +782,12 @@ export function PremiumScreen() {
             </View>
           </Neu>
         ))}
-        {/* ===== FITUR API BERBAYAR — Cek Nomor / Netflix / AlightMotion ===== */}
+        {/* ===== FITUR API BERBAYAR — Cek Nomor / Resi / Netflix / AM / Followers / Reaksi ===== */}
         <Card title="Fitur berbayar (hasil otomatis)">
-          {API_PRODUCTS.map((ap) => (
+          {API_PRODUCTS.map((ap) => {
+            const amountStr = apiMeta[`${ap.key}.amount`] ?? '';
+            const shownPrice = ap.unit ? unitPriceOf(ap.key, Number((amountStr.replace(/[^0-9]/g, '')) || ap.minAmount || ap.unit)) : ap.price;
+            return (
             <Neu key={ap.key} inset radius={R.lg} style={{ padding: 14, marginTop: 10, gap: 10 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                 <View style={{ width: 44, height: 44, borderRadius: 14, backgroundColor: ap.color + '22', alignItems: 'center', justifyContent: 'center' }}>
@@ -493,39 +797,47 @@ export function PremiumScreen() {
                   <T v="h3" style={{ fontSize: 15 }}>{ap.title}</T>
                   <T v="caption" color={t.sub}>{ap.desc}</T>
                 </View>
-                <T v="h3" color={ap.color}>{rupiah(ap.price)}</T>
+                <T v="h3" color={ap.color}>{ap.unit ? `${rupiah(ap.price)} / ${ap.unit} ${ap.unitLabel}` : rupiah(ap.price)}</T>
               </View>
               {ap.fields.map((f) => (
                 <NeuInput
                   key={f.key}
-                  icon={f.key === 'nomor' ? 'call' : 'mail'}
+                  icon={f.key === 'nomor' ? 'call' : f.key === 'email' ? 'mail' : f.key === 'resi' ? 'cube' : f.key === 'ekspedisi' ? 'car' : f.key === 'channel' ? 'megaphone' : 'heart'}
                   placeholder={f.placeholder}
                   value={apiMeta[`${ap.key}.${f.key}`] ?? ''}
-                  onChangeText={(v: string) => setApiMeta((x) => ({ ...x, [`${ap.key}.${f.key}`]: f.key === 'nomor' ? v.replace(/[^0-9+]/g, '').slice(0, 16) : v.slice(0, 120) }))}
-                  keyboardType={f.key === 'nomor' ? 'phone-pad' : 'email-address'}
+                  onChangeText={(v: string) => setApiMeta((x) => ({ ...x, [`${ap.key}.${f.key}`]: f.key === 'nomor' ? v.replace(/[^0-9+]/g, '').slice(0, 16) : f.key === 'amount' ? v.replace(/[^0-9]/g, '').slice(0, 8) : f.key === 'resi' ? v.trim().slice(0, 60) : f.key === 'ekspedisi' ? v.slice(0, 40) : v.slice(0, 120) }))}
+                  keyboardType={f.key === 'nomor' || f.key === 'amount' ? 'number-pad' : 'default'}
                   autoCapitalize="none"
                 />
               ))}
+              {!!ap.unit && !!amountStr && (
+                <T v="caption" color={ap.color} style={{ fontWeight: '800' }}>
+                  Total: {Number(amountStr || 0).toLocaleString('id-ID')} {ap.unitLabel} = {rupiah(shownPrice)}
+                </T>
+              )}
               <T v="caption" color={t.faint}>{ap.note}</T>
-              {(me.role === 'admin' || !!me.developer) && <T v="caption" color={t.success} style={{ fontWeight: '800' }}>GRATIS untuk admin/developer — langsung diproses tanpa bayar.</T>}
               <Btn
                 small
                 variant="primary"
                 icon="flash"
-                title={`Beli ${ap.title} · ${rupiah(ap.price)}`}
+                title={`Beli ${ap.title} · ${rupiah(shownPrice)}`}
                 onPress={() => {
-                  const meta: { nomor?: string; email?: string } = {};
-                  for (const f of ap.fields) (meta as any)[f.key] = (apiMeta[`${ap.key}.${f.key}`] ?? '').trim();
+                  const meta: Record<string, string> = {};
+                  for (const f of ap.fields) meta[f.key] = (apiMeta[`${ap.key}.${f.key}`] ?? '').trim();
+                  if (ap.unit) meta.amount = String(Number((meta.amount || '').replace(/[^0-9]/g, '') || 0));
                   openBuy(ap.key, 0, meta);
                 }}
               />
             </Neu>
-          ))}
+            );
+          })}
         </Card>
         {myOrders.length > 0 && (
           <Card title="Riwayat pesanan">
             {myOrders.filter((o) => o.id !== '_schema').map((o) => {
-            const po = apiProductOf(o.product) ? ({ ...apiProductOf(o.product)!, icon: 'receipt' } as any) : productSafe(o.product);
+            const po = apiProductOf(o.product) ? ({ ...apiProductOf(o.product)!, icon: o.product === 'cekresi' ? 'cube' : o.product === 'followers' ? 'people' : o.product === 'reaction' ? 'heart' : 'receipt' } as any) : productSafe(o.product);
+            const ro = resultObj(o);
+            const ampWaitVerify = (o.product === 'amp' || o.product === 'amunlock') && o.status === 'paid' && o.delivered && !(ro?.verifyDone === true || String(ro?.status ?? '') === 'success' || !!ro?.premium);
             return (
               <View key={o.id} style={{ marginTop: 10 }}>
                 <Row
@@ -535,15 +847,40 @@ export function PremiumScreen() {
                   subtitle={`${rupiah(o.price)} · ${o.method} · ${chatTime(o.createdAt)} · ${o.status === 'pending' ? 'menunggu konfirmasi' : o.status === 'paid' ? 'lunas' : 'ditolak'}${o.proofUrl ? ' · bukti ✓' : ''}`}
                   onPress={() => o.chatId && o.chatId !== '_schema' ? nav.navigate('ChatRoom', { chatId: o.chatId }) : undefined}
                 />
-                {/* hasil produk API (Cek Nomor / Netflix / AM) */}
-                {o.status === 'paid' && !!o.result && (
-                  <Neu inset radius={R.md} style={{ padding: 10, marginTop: 4 }}>
-                    <T v="caption" style={{ fontWeight: '800' }}>Hasil {po.title}:</T>
-                    <T v="caption" color={t.sub} style={{ fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }}>{(() => { try { const rr = typeof o.result === 'string' ? JSON.parse(o.result) : (o.result?.json ? JSON.parse(o.result.json) : o.result); return typeof rr === 'string' ? rr.slice(0, 600) : JSON.stringify(rr, null, 1).slice(0, 600); } catch { return String(o.result?.json ?? '').slice(0, 600); } })()}</T>
+                {/* HASIL CANTIK (bukan JSON) — kartu khusus per jenis produk */}
+                {o.status === 'paid' && !!o.result && <ResultCard order={o} title={po.title} color={po.color} icon={po.icon} />}
+                {/* LANGKAH 2 ALIGHTMOTION — bar loading + input URL verifikasi */}
+                {ampWaitVerify && (
+                  <Neu inset radius={R.lg} style={{ padding: 14, marginTop: 6, gap: 10, borderWidth: 1, borderColor: '#7B61FF55' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <View style={{ width: 40, height: 40, borderRadius: 13, backgroundColor: '#7B61FF22', alignItems: 'center', justifyContent: 'center' }}>
+                        <Ionicons name="mail-open" size={20} color="#7B61FF" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <T v="h3" style={{ fontSize: 14, fontWeight: '900' }}>Langkah terakhir — verifikasi email</T>
+                        <T v="caption" color={t.sub}>Buka Gmail dari {o.meta?.email ?? 'emailmu'} — cek juga folder <T v="caption" style={{ fontWeight: '900' }}>SPAM</T> — salin URL verifikasinya.</T>
+                      </View>
+                    </View>
+                    {/* BAR LOADING animasi (indikator menyambung ke proses unlock) */}
+                    <View style={{ height: 8, borderRadius: 4, backgroundColor: t.bg2, overflow: 'hidden' } as any}>
+                      <View style={{ width: amBusy === o.id ? '100%' : '42%', height: 8, borderRadius: 4, backgroundColor: '#7B61FF', opacity: amBusy === o.id ? 1 : 0.55 } as any} />
+                    </View>
+                    <NeuInput
+                      icon="link"
+                      placeholder="Tempel URL verifikasi dari email (https://…)"
+                      value={amVerify[o.id] ?? ''}
+                      onChangeText={(v: string) => setAmVerify((x) => ({ ...x, [o.id]: v.slice(0, 500) }))}
+                      autoCapitalize="none"
+                    />
+                    <Btn small variant="primary" icon="checkmark-circle" title={amBusy === o.id ? 'Memproses verifikasi…' : 'Konfirmasi — jadikan premium'} loading={amBusy === o.id} onPress={() => void submitAmVerify(o.id)} />
+                    {!!o.meta?.urlVerify && <T v="caption" color={t.faint} numberOfLines={1}>URL terakhir: {o.meta.urlVerify}</T>}
                   </Neu>
                 )}
                 {!!o.deliveryError && o.status === 'paid' && (
-                  <T v="caption" color={t.warning} style={{ marginTop: 2 }}>Pemrosesan otomatis gagal ({o.deliveryError}) — admin akan mengirim hasil manual.</T>
+                  <View style={{ marginTop: 4, gap: 6 }}>
+                    <T v="caption" color={t.warning}>Pemrosesan otomatis gagal ({o.deliveryError}) — coba proses ulang atau hubungi admin.</T>
+                    <Btn small icon="refresh" title="Proses ulang" loading={amBusy === o.id} onPress={() => void retryDeliver(o.id)} />
+                  </View>
                 )}
                 {o.status === 'pending' && !o.proofUrl && (
                   <Btn small icon="cloud-upload" title="Kirim bukti pembayaran" loading={proofBusy} onPress={() => uploadProof(o.id)} style={{ marginTop: 4 }} />
@@ -558,12 +895,12 @@ export function PremiumScreen() {
       <Sheet visible={!!buy} onClose={() => setBuy(null)}>
         {buy && payStep === 'method' && (
           <View style={{ gap: 12, paddingBottom: 16 }}>
-            <T v="h3">Bayar {apiProductOf(buy.product)?.title ?? productOf(buy.product).title} · {rupiah(priceOf(buy.product, buy.plan))}</T>
+            <T v="h3">Bayar {apiProductOf(buy.product)?.title ?? productOf(buy.product).title} · {rupiah(priceOf(buy.product, buy.plan, buy.meta ?? undefined))}</T>
             <T v="caption" color={t.sub}>Pilih metode pembayaran. Pembayaran hanya lewat QRIS atau DANA — WAJIB kirim bukti transfer.</T>
             {PAYMENT_METHODS.map((m) => (
               <Btn key={m.key} icon="wallet" title={m.key === 'qris' ? 'QRIS (semua e-wallet / m-banking)' : 'DANA'} onPress={() => void chooseMethod(m.key as 'qris' | 'dana')} />
             ))}
-            <Btn variant="neu" icon="sparkles" title={`Bayar dengan koin (butuh ${Math.ceil(priceOf(buy.product, buy.plan)).toLocaleString('id-ID')})`} onPress={() => void chooseMethod('koin')} />
+            <Btn variant="neu" icon="sparkles" title={`Bayar dengan koin (butuh ${Math.ceil(priceOf(buy.product, buy.plan, buy.meta ?? undefined)).toLocaleString('id-ID')})`} onPress={() => void chooseMethod('koin')} />
           </View>
         )}
         {buy && payStep === 'pay' && (
@@ -572,7 +909,7 @@ export function PremiumScreen() {
               <Ionicons name={payMethod === 'qris' ? 'qr-code' : 'wallet'} size={20} color={t.accent} />
               <T v="h3">{payMethod === 'qris' ? 'Scan QRIS' : 'Transfer DANA'}</T>
               <View style={{ flex: 1 }} />
-              <T v="h3" color={t.accent}>{rupiah(priceOf(buy.product, buy.plan))}</T>
+              <T v="h3" color={t.accent}>{rupiah(priceOf(buy.product, buy.plan, buy.meta ?? undefined))}</T>
             </View>
             {payMethod === 'qris' ? (
               <View style={{ alignItems: 'center', gap: 8 }}>
@@ -962,7 +1299,7 @@ export function StickersScreen() {
     createSticker(uri, global);
     pushBanner({ title: 'Stiker dibuat', body: global ? 'Dibagikan untuk semua pengguna' : 'Tersimpan di koleksimu', icon: 'happy' });
   };
-  /** Buat stiker via Vanzz API (proxy server) → otomatis tersimpan ke koleksi user. */
+  /** Buat stiker via API developer (proxy server) → otomatis tersimpan ke koleksi user. */
   const generate = async () => {
     if (genBusy) return;
     setGenBusy(true);
@@ -972,7 +1309,7 @@ export function StickersScreen() {
       const uri = r.image ?? (r.ok && typeof r.data === 'string' ? r.data : null);
       if (!r.ok || !uri) throw new Error(r.error ?? 'Stiker tidak berhasil dibuat.');
       createSticker(uri, global);
-      pushBanner({ title: 'Stiker Vanzz jadi ✓', body: 'Otomatis tersimpan di koleksimu.', icon: 'happy' });
+      pushBanner({ title: 'Stiker jadi ✓', body: 'Otomatis tersimpan di koleksimu.', icon: 'happy' });
     } catch (e: any) {
       pushBanner({ title: 'Gagal membuat stiker', body: String(e?.message ?? '').slice(0, 140), icon: 'alert' });
     } finally {
@@ -983,7 +1320,7 @@ export function StickersScreen() {
     <Screen>
       <Header title="Stiker" subtitle={`${mine.length} stiker kustom`} />
       <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 40, maxWidth: 720, width: '100%', alignSelf: 'center', gap: 16 }}>
-        <Card title="Buat stiker Vanzz (otomatis tersimpan)">
+        <Card title="Buat stiker (otomatis tersimpan)">
           <View style={{ padding: 8, gap: 10 }}>
             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
               {([

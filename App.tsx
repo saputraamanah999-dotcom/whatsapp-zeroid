@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, View, ActivityIndicator, Pressable } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import { useFonts } from 'expo-font';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as SplashScreen from 'expo-splash-screen';
 import * as Notifications from 'expo-notifications';
@@ -384,7 +383,20 @@ function BootError({ onRetry }: { onRetry: () => void }) {
 }
 
 export default function App() {
-  const [fontsLoaded] = useFonts({ ...Ionicons.font });
+  // FONTS + ANTI-MACET: kalau font bawaan gagal dimuat (storage lambat/asset
+  // korup), jangan gantung splash selamanya — lanjutkan dengan font sistem
+  // setelah 10 detik. Dulu: useFonts tanpa timeout → APK diam di logo.
+  // Pakai loadAsync (bukan hook) di dalam effect agar bebas aturan hooks.
+  const [fontsLoaded, setFontsLoaded] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const t = setTimeout(() => { if (alive) setFontsLoaded(true); }, 10000);
+    import('expo-font')
+      .then(({ loadAsync }) => loadAsync({ ...Ionicons.font }))
+      .catch(() => {})
+      .finally(() => { if (alive) { clearTimeout(t); setFontsLoaded(true); } });
+    return () => { alive = false; clearTimeout(t); };
+  }, []);
   const { ready, me, locked, config } = useStore();
   const t = useTheme();
   const tokenFor = useRef<string | null>(null);
@@ -476,9 +488,12 @@ export default function App() {
         />
       );
     }
+    // BOOT SCREEN — logo + indikator, bukan layar mati (dulu terkesan "nyangkut")
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E9EDF3' }}>
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E9EDF3', gap: 18 }}>
+        <ZeroidLogo size={92} />
         <ActivityIndicator color="#1E6BFF" />
+        <T v="caption" color="#7A8699">Menyiapkan Zeroid…</T>
       </View>
     );
   }

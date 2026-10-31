@@ -102,14 +102,17 @@ export function splitMentionParts(text: string, mentions?: MentionRef[] | null):
   return parts.length ? parts : [{ text }];
 }
 
-/** kandidat mention di Composer: anggota grup/global, selalu ada "@semua" di atas */
-export function mentionCandidates(chatMembers: string[] | undefined, users: Record<string, User>, query: string, allowAll: boolean): { label: string; sub: string; uid?: string; insert: string; all?: boolean }[] {
+/** kandidat mention di Composer: anggota grup/global, SELALU TANPA DIRI SENDIRI
+ *  (v23: dulu nama sendiri ikut muncul & bisa dipilih — aneh, tag diri sendiri
+ *  juga tidak berguna karena resolveMentions memang mengabaikannya). */
+export function mentionCandidates(chatMembers: string[] | undefined, users: Record<string, User>, query: string, allowAll: boolean, meId?: string): { label: string; sub: string; uid?: string; insert: string; all?: boolean }[] {
   const out: { label: string; sub: string; uid?: string; insert: string; all?: boolean }[] = [];
   if (allowAll) {
     out.push({ label: 'Semua', sub: 'Tag semua anggota (@semua)', insert: 'semua', all: true });
   }
   const q = query.toLowerCase();
   for (const uid of chatMembers ?? []) {
+    if (meId && uid === meId) continue; // jangan tawarkan tag diri sendiri
     const u = users[uid];
     if (!u) continue;
     const handle = u.username ?? '';

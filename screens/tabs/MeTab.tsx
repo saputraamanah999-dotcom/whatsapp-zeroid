@@ -3,12 +3,12 @@ import { View, ScrollView, Pressable, Platform } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { T, Avatar, Neu, Row, Card, Segmented, UserBadges } from '../../components/ui';
+import { T, Avatar, Neu, Row, Card, UserBadges } from '../../components/ui';
 import { ProductIcon } from '../../lib/icons';
 import MediaPlayer from '../../components/MediaPlayer';
 import { Confirm } from '../../components/Sheet';
-import { useTheme, useThemeMode, R, ThemeMode } from '../../lib/theme';
-import { useStore, logout, setTheme, backendMode, updateMe } from '../../lib/store';
+import { useTheme, useThemeMode, R } from '../../lib/theme';
+import { useStore, logout, backendMode, updateMe } from '../../lib/store';
 
 // Versi aplikasi ikut app.json (satu sumber untuk web & APK — tidak lagi ketertinggalan).
 const appVersion: string = (() => {
@@ -112,8 +112,6 @@ export default function MeTab() {
         <Row icon="musical-notes" iconColor="#1DB954" title="Musik" subtitle={me.spotify ? me.spotify.title : 'Spotify & YouTube — pasang di profil'} onPress={() => nav.navigate('Music')} />
         <Row icon="gift" iconColor="#FF7A9C" title="Menu Gratis" subtitle="Anime · Berita · Cuaca · Gempa · Quotes · AM Finder" onPress={() => nav.navigate('FreeMenu')} />
         <Row icon="happy" title="Stiker" subtitle="Buat & kelola stiker" onPress={() => nav.navigate('Stickers')} />
-        <Row icon="chatbox" iconColor="#7B61FF" title="Gaya balon obrolan" subtitle={me.bubble && me.bubble !== 'default' ? 'Kustom — terlihat orang lain real-time' : 'Pilih gaya balon kesukaanmu'} onPress={() => nav.navigate('ChatBubbles')} />
-        <Row icon="color-palette" iconColor="#FF7A9C" title="Wallpaper & tema chat" subtitle={me.wallpapers?.default ? 'Wallpaper aktif · tema ' + (me.chatTheme ?? 'default') : 'Ubah latar & warna semua chat'} onPress={() => nav.navigate('Wallpaper')} />
         <Row icon="chatbubble-ellipses" iconColor="#14C47A" title="Masukan & bantuan" subtitle="Kirim ide/lapor bug langsung ke developer" onPress={() => nav.navigate('Feedback')} />
         <Row icon="trophy" iconColor="#FFB300" title="Leaderboard" subtitle="Peringkat api streak & koin" onPress={() => nav.navigate('Leaderboard')} />
       </Card>
@@ -121,6 +119,7 @@ export default function MeTab() {
       <Card title="Aplikasi">
         <Row icon="notifications" title="Notifikasi" subtitle="Pesan, grup, Story, panggilan" onPress={() => nav.navigate('NotifSettings')} />
         <Row icon="key" title="Izin aplikasi" subtitle="Kamera, mikrofon, notifikasi, media" onPress={() => nav.navigate('Permissions')} />
+        <Row icon="color-palette" title="Tema aplikasi" subtitle={mode === 'light' ? 'Terang' : mode === 'dark' ? 'Gelap' : 'Ikut sistem'} onPress={() => nav.navigate('UserProfile', { userId: me.id })} />
         {/* APK ANDROID — di web tampilkan pintasan unduh (APK native = notifikasi FCM penuh) */}
         {Platform.OS === 'web' && (
           <Row
@@ -131,23 +130,6 @@ export default function MeTab() {
             onPress={() => { try { window.location.assign('/apk.html'); } catch { } }}
           />
         )}
-        <View style={{ padding: 12, gap: 10 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginLeft: 4 }}>
-            <Ionicons name="color-palette" size={18} color={t.accent} />
-            <T v="body" style={{ fontWeight: '500' }}>
-              Tema
-            </T>
-          </View>
-          <Segmented<ThemeMode>
-            value={mode}
-            onChange={setTheme}
-            options={[
-              { value: 'light', label: 'Terang' },
-              { value: 'dark', label: 'Gelap' },
-              { value: 'system', label: 'Sistem' },
-            ]}
-          />
-        </View>
       </Card>
 
       {isStaff && (

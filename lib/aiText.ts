@@ -96,6 +96,28 @@ export function cleanAiText(input: string): string {
   // 3) Penutup ::: yang yatim (baris tersendiri) — buang
   if (/^\s*:::\s*$/m.test(t)) { t = t.replace(/^\s*:::\s*$/gm, ''); changed = true; }
 
+  // 3b) JSON wrapper internal tanpa " ::: " — model kadang mengirim objek utuh
+  //     {"variant":"chat_message","content":"jawaban"} ATAU
+  //     {"variant":"chat_message","text":"jawaban"} langsung di teks.
+  const jsonVarRe = /\{\s*"(?:variant|format|kind)"\s*:\s*"[^"]*"\s*,[\s\S]{0,400}?\}/g;
+  while (true) {
+    const jm = jsonVarRe.exec(t);
+    if (!jm) break;
+    const inner = extractInner(jm[0].slice(1, -1));
+    if (inner) {
+      t = t.slice(0, jm.index) + inner + t.slice(jm.index + jm[0].length);
+      changed = true;
+      jsonVarRe.lastIndex = 0;
+      if (t.length > 200000) break;
+    } else {
+      jsonVarRe.lastIndex = jm.index + jm[0].length;
+    }
+  }
+
+  // 3c) sisa token metadata nyasar: variant="chat_message" / variant: 'chat_message'
+  const varTok = /(^|\s)[a-z_]*variant\s*[:=]\s*["'][a-z_]*["']/gi;
+  if (varTok.test(t)) { t = t.replace(varTok, '$1'); changed = true; }
+
   // 4) Penanda tool-call internal umum di awal jawaban (penutup ] opsional)
   if (/^\s*\[(?:TOOL_CALL|FUNCTION_CALL|INST|SYSTEM)\b/i.test(t)) {
     t = t.replace(/^\s*\[(?:TOOL_CALL|FUNCTION_CALL|INST|SYSTEM)\b[^\n]*(?:\n|$)/i, '');

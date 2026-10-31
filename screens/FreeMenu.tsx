@@ -1,8 +1,11 @@
 /**
- * MENU GRATIS (Menu List) — satu tempat untuk semua fitur GRATIS via Vanzz API:
+ * MENU GRATIS (Menu List) — satu tempat untuk semua fitur GRATIS via API developer:
  *   Anime (hub lengkap), Berita (6 sumber), Quotes (motivasi/galau/gombal),
  *   Cek Cuaca, Cek Gempa (BMKG), AlightMotion Finder.
  * Semua dipanggil lewat proxy server /api/vanzz — apikey TIDAK pernah di client.
+ *
+ * v23: SIDEBAR — menu vertikal kiri (dulu chips horizontal yang susah ditekan
+ * dan tidak kelihatan semua bagian sekaligus).
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, ScrollView, Pressable, ActivityIndicator, Linking, FlatList, useWindowDimensions } from 'react-native';
@@ -104,156 +107,168 @@ export function FreeMenuScreen() {
   }, [sec, srcKey, load]);
 
   const { width } = useWindowDimensions();
+  const wide = width >= 700; // tablet/desktop: sidebar lebih lebar
+  const railW = wide ? 190 : 104;
+
+  const sectionBtn = (s: (typeof SECTIONS)[number]) => {
+    const on = sec === s.key;
+    return (
+      <Pressable
+        key={s.key}
+        onPress={() => { setSec(s.key); setItems(null); setErr(''); setQuery(''); if (s.key === 'berita') { setSrcKey('berita_kompas'); } if (s.key === 'quotes') { setSrcKey('quotes_motivasi'); } }}
+        style={({ pressed }) => ({ flexDirection: 'column', alignItems: 'center', gap: 3, paddingVertical: 12, paddingHorizontal: 4, borderRadius: R.md, backgroundColor: on ? s.color : pressed ? t.bg2 : 'transparent', marginHorizontal: 6, marginTop: 4 } as any)}
+      >
+        <Ionicons name={s.icon} size={19} color={on ? '#fff' : s.color} />
+        <T v="caption" color={on ? '#fff' : t.sub} style={{ fontWeight: '800', textAlign: 'center' }} numberOfLines={1}>{s.label}</T>
+      </Pressable>
+    );
+  };
 
   return (
     <Screen>
       <Header title="Menu Gratis" subtitle="Anime · Berita · Cuaca · Gempa · Quotes · AM Finder" back />
-      {/* pilih bagian */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingHorizontal: 14, paddingVertical: 10 }}>
-        {SECTIONS.map((s) => {
-          const on = sec === s.key;
-          return (
-            <Pressable
-              key={s.key}
-              onPress={() => { setSec(s.key); setItems(null); setErr(''); setQuery(''); if (s.key === 'berita') { setSrcKey('berita_kompas'); } if (s.key === 'quotes') { setSrcKey('quotes_motivasi'); } }}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 13, paddingVertical: 8, borderRadius: 999, backgroundColor: on ? s.color : t.surface, borderWidth: 1, borderColor: on ? s.color : t.border }}
-            >
-              <Ionicons name={s.icon} size={14} color={on ? '#fff' : s.color} />
-              <T v="caption" color={on ? '#fff' : t.sub} style={{ fontWeight: '800' }}>{s.label}</T>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
-      {/* sub-sumber berita / quotes */}
-      {(sec === 'berita' || sec === 'quotes') && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 7, paddingHorizontal: 14, paddingBottom: 8 }}>
-          {(sec === 'berita' ? BERITA_SRC : QUOTES_SRC).map((x) => {
-            const on = srcKey === x.key;
-            return (
-              <Pressable
-                key={x.key}
-                onPress={() => setSrcKey(x.key)}
-                style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: on ? t.accent2 : t.surface, borderWidth: 1, borderColor: on ? t.accent2 : t.border }}
-              >
-                <T v="caption" color={on ? '#fff' : t.sub} style={{ fontWeight: '800' }}>{x.label}</T>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      )}
-
-      {/* input kota (cuaca) / URL tiktok (AM finder) */}
-      {(sec === 'cuaca' || sec === 'amfinder') && (
-        <View style={{ paddingHorizontal: 14, gap: 10, paddingBottom: 8 }}>
-          <NeuInput
-            icon={sec === 'cuaca' ? 'partly-sunny' : 'link'}
-            placeholder={sec === 'cuaca' ? 'Nama kota (mis. Jakarta, Bandung)…' : 'Tempel URL TikTok preset AlightMotion…'}
-            value={query}
-            onChangeText={setQuery}
-            autoCapitalize="none"
-          />
-          <Btn
-            small
-            variant="primary"
-            icon={sec === 'cuaca' ? 'search' : 'flash'}
-            title={sec === 'cuaca' ? 'Cek cuaca sekarang' : 'Cari preset'}
-            disabled={!query.trim()}
-            loading={loading}
-            onPress={() => load(sec === 'cuaca' ? 'cuaca' : 'amfinder', sec === 'cuaca' ? { kota: query.trim() } : { url: query.trim() })}
-          />
+      <View style={{ flex: 1, flexDirection: 'row' }}>
+        {/* SIDEBAR — semua bagian terlihat sekaligus, gampang ditekan */}
+        <View style={{ width: railW, borderRightWidth: 1, borderRightColor: t.border, paddingTop: 8, backgroundColor: t.bg }}>
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 12 + insets.bottom }}>
+            {SECTIONS.map(sectionBtn)}
+          </ScrollView>
         </View>
-      )}
+        {/* KONTEN */}
+        <View style={{ flex: 1, minWidth: 0 }}>
+          {/* sub-sumber berita / quotes */}
+          {(sec === 'berita' || sec === 'quotes') && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 7, paddingHorizontal: 14, paddingVertical: 10 }}>
+              {(sec === 'berita' ? BERITA_SRC : QUOTES_SRC).map((x) => {
+                const on = srcKey === x.key;
+                return (
+                  <Pressable
+                    key={x.key}
+                    onPress={() => setSrcKey(x.key)}
+                    style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: on ? t.accent2 : t.surface, borderWidth: 1, borderColor: on ? t.accent2 : t.border }}
+                  >
+                    <T v="caption" color={on ? '#fff' : t.sub} style={{ fontWeight: '800' }}>{x.label}</T>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
 
-      {/* ANIME → buka hub lengkap */}
-      {sec === 'anime' && (
-        <ScrollView contentContainerStyle={{ padding: 14, gap: 12, paddingBottom: 40 + insets.bottom }}>
-          <Neu radius={R.xl} style={{ padding: 18, gap: 12, alignItems: 'center' }}>
-            <View style={{ width: 56, height: 56, borderRadius: 18, backgroundColor: '#FF7A9C22', alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="tv" size={28} color="#FF7A9C" />
-            </View>
-            <T v="h3">Anime Hub</T>
-            <T v="caption" color={t.sub} style={{ textAlign: 'center' }}>Terbaru, populer, jadwal, cari, favorit & tonton — sumber OtakuDesu + anime sub Indo lengkap.</T>
-            <Btn icon="tv" variant="primary" title="Buka Anime Hub" onPress={() => nav.navigate('Anime')} />
-          </Neu>
-          <Neu radius={R.xl} style={{ padding: 18, gap: 12, alignItems: 'center' }}>
-            <View style={{ width: 56, height: 56, borderRadius: 18, backgroundColor: '#7B61FF22', alignItems: 'center', justifyContent: 'center' }}>
-              <Ionicons name="rocket" size={28} color="#7B61FF" />
-            </View>
-            <T v="h3">FYP Anime Sub Indo</T>
-            <T v="caption" color={t.sub} style={{ textAlign: 'center' }}>Anime yang lagi naik dari Animein (sub Indo) — langsung tonton.</T>
-            <Btn icon="flame" variant="neu" title="Lihat FYP Anime" onPress={() => load('anime_fyp')} />
-          </Neu>
-          {sec === 'anime' && !!items && (
-            <View style={{ gap: 10 }}>
-              {items.slice(0, 40).map((it, i) => (
-                <NewsCard key={`fy${i}`} item={it} onOpen={() => it.url && Linking.openURL(it.url).catch(() => {})} />
-              ))}
+          {/* input kota (cuaca) / URL tiktok (AM finder) */}
+          {(sec === 'cuaca' || sec === 'amfinder') && (
+            <View style={{ paddingHorizontal: 14, paddingTop: 10, gap: 10, paddingBottom: 8 }}>
+              <NeuInput
+                icon={sec === 'cuaca' ? 'partly-sunny' : 'link'}
+                placeholder={sec === 'cuaca' ? 'Nama kota (mis. Jakarta, Bandung)…' : 'Tempel URL TikTok preset AlightMotion…'}
+                value={query}
+                onChangeText={setQuery}
+                autoCapitalize="none"
+              />
+              <Btn
+                small
+                variant="primary"
+                icon={sec === 'cuaca' ? 'search' : 'flash'}
+                title={sec === 'cuaca' ? 'Cek cuaca sekarang' : 'Cari preset'}
+                disabled={!query.trim()}
+                loading={loading}
+                onPress={() => load(sec === 'cuaca' ? 'cuaca' : 'amfinder', sec === 'cuaca' ? { kota: query.trim() } : { url: query.trim() })}
+              />
             </View>
           )}
-        </ScrollView>
-      )}
 
-      {loading && sec !== 'anime' && (
-        <View style={{ padding: 26, alignItems: 'center' }}>
-          <ActivityIndicator color={t.accent} />
-        </View>
-      )}
-      {!loading && !!err && sec !== 'anime' && (
-        <Empty
-          icon="cloud-offline"
-          title="Gagal memuat"
-          body={err}
-          action={<Btn title="Coba lagi" onPress={() => (sec === 'berita' || sec === 'quotes' ? load(srcKey) : sec === 'gempa' ? load('gempa') : query.trim() ? load(sec === 'cuaca' ? 'cuaca' : 'amfinder', sec === 'cuaca' ? { kota: query.trim() } : { url: query.trim() }) : undefined)} />}
-        />
-      )}
+          {/* ANIME → buka hub lengkap */}
+          {sec === 'anime' && (
+            <ScrollView contentContainerStyle={{ padding: 14, gap: 12, paddingBottom: 40 + insets.bottom }}>
+              <Neu radius={R.xl} style={{ padding: 18, gap: 12, alignItems: 'center' }}>
+                <View style={{ width: 56, height: 56, borderRadius: 18, backgroundColor: '#FF7A9C22', alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="tv" size={28} color="#FF7A9C" />
+                </View>
+                <T v="h3">Anime Hub</T>
+                <T v="caption" color={t.sub} style={{ textAlign: 'center' }}>Terbaru, populer, jadwal, cari, favorit & tonton — sumber OtakuDesu + anime sub Indo lengkap.</T>
+                <Btn icon="tv" variant="primary" title="Buka Anime Hub" onPress={() => nav.navigate('Anime')} />
+              </Neu>
+              <Neu radius={R.xl} style={{ padding: 18, gap: 12, alignItems: 'center' }}>
+                <View style={{ width: 56, height: 56, borderRadius: 18, backgroundColor: '#7B61FF22', alignItems: 'center', justifyContent: 'center' }}>
+                  <Ionicons name="rocket" size={28} color="#7B61FF" />
+                </View>
+                <T v="h3">FYP Anime Sub Indo</T>
+                <T v="caption" color={t.sub} style={{ textAlign: 'center' }}>Anime yang lagi naik dari Animein (sub Indo) — langsung tonton.</T>
+                <Btn icon="flame" variant="neu" title="Lihat FYP Anime" onPress={() => load('anime_fyp')} />
+              </Neu>
+              {!!items && (
+                <View style={{ gap: 10 }}>
+                  {items.slice(0, 40).map((it, i) => (
+                    <NewsCard key={`fy${i}`} item={it} onOpen={() => it.url && Linking.openURL(it.url).catch(() => {})} />
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+          )}
 
-      {/* CUACA — kartu besar */}
-      {!loading && !err && sec === 'cuaca' && !!items?.length && (
-        <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 40 + insets.bottom, gap: 12 }}>
-          {items.map((it, i) => (
-            <Neu key={`c${i}`} radius={R.xl} style={{ padding: 18, alignItems: 'center', gap: 8 }}>
-              <Ionicons name="partly-sunny" size={44} color="#FFB300" />
-              <T style={{ fontWeight: '900', fontSize: 22 }}>{it.extra ?? it.title}</T>
-              <T v="sub" color={t.sub}>{it.title}</T>
-              <View style={{ flexDirection: width > 480 ? 'row' : 'column', gap: 10, marginTop: 6 }}>
-                {[it.subtitle, it.snippet].filter(Boolean).map((s, j) => (
-                  <View key={j} style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: R.md, backgroundColor: t.bg2 }}>
-                    <T v="caption" style={{ fontWeight: '700' }}>{s}</T>
+          {loading && sec !== 'anime' && (
+            <View style={{ padding: 26, alignItems: 'center' }}>
+              <ActivityIndicator color={t.accent} />
+            </View>
+          )}
+          {!loading && !!err && sec !== 'anime' && (
+            <ScrollView contentContainerStyle={{ padding: 14 }}>
+              <Empty
+                icon="cloud-offline"
+                title="Gagal memuat"
+                body={err}
+                action={<Btn title="Coba lagi" onPress={() => (sec === 'berita' || sec === 'quotes' ? load(srcKey) : sec === 'gempa' ? load('gempa') : query.trim() ? load(sec === 'cuaca' ? 'cuaca' : 'amfinder', sec === 'cuaca' ? { kota: query.trim() } : { url: query.trim() }) : undefined)} />}
+              />
+            </ScrollView>
+          )}
+
+          {/* CUACA — kartu besar */}
+          {!loading && !err && sec === 'cuaca' && !!items?.length && (
+            <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 40 + insets.bottom, gap: 12 }}>
+              {items.map((it, i) => (
+                <Neu key={`c${i}`} radius={R.xl} style={{ padding: 18, alignItems: 'center', gap: 8 }}>
+                  <Ionicons name="partly-sunny" size={44} color="#FFB300" />
+                  <T style={{ fontWeight: '900', fontSize: 22 }}>{it.extra ?? it.title}</T>
+                  <T v="sub" color={t.sub}>{it.title}</T>
+                  <View style={{ flexDirection: width > 480 ? 'row' : 'column', gap: 10, marginTop: 6 }}>
+                    {[it.subtitle, it.snippet].filter(Boolean).map((s, j) => (
+                      <View key={j} style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: R.md, backgroundColor: t.bg2 }}>
+                        <T v="caption" style={{ fontWeight: '700' }}>{s}</T>
+                      </View>
+                    ))}
                   </View>
-                ))}
-              </View>
-            </Neu>
-          ))}
-        </ScrollView>
-      )}
-
-      {/* BERITA / GEMPA / QUOTES / AM FINDER — daftar */}
-      {!loading && !err && (sec === 'berita' || sec === 'gempa' || sec === 'amfinder') && !!items?.length && (
-        <FlatList
-          data={items}
-          keyExtractor={(_, i) => `l${i}`}
-          contentContainerStyle={{ padding: 14, paddingBottom: 40 + insets.bottom }}
-          renderItem={({ item }) => (
-            <NewsCard item={item} onOpen={() => (item.url || item.extra) && Linking.openURL(item.url || item.extra!).catch(() => {})} />
+                </Neu>
+              ))}
+            </ScrollView>
           )}
-        />
-      )}
 
-      {/* QUOTES — kartu kutipan */}
-      {!loading && !err && sec === 'quotes' && !!items?.length && (
-        <FlatList
-          data={items}
-          keyExtractor={(_, i) => `q${i}`}
-          contentContainerStyle={{ padding: 14, paddingBottom: 40 + insets.bottom, gap: 10 }}
-          renderItem={({ item }) => (
-            <Neu style={{ padding: 14, gap: 8 }}>
-              <T style={{ fontStyle: 'italic' }}>"{item.title}"</T>
-              {!!item.subtitle && <T v="caption" color={t.sub} style={{ fontWeight: '700' }}>— {item.subtitle}</T>}
-            </Neu>
+          {/* BERITA / GEMPA / AM FINDER — daftar */}
+          {!loading && !err && (sec === 'berita' || sec === 'gempa' || sec === 'amfinder') && !!items?.length && (
+            <FlatList
+              data={items}
+              keyExtractor={(_, i) => `l${i}`}
+              contentContainerStyle={{ padding: 14, paddingBottom: 40 + insets.bottom }}
+              renderItem={({ item }) => (
+                <NewsCard item={item} onOpen={() => (item.url || item.extra) && Linking.openURL(item.url || item.extra!).catch(() => {})} />
+              )}
+            />
           )}
-        />
-      )}
+
+          {/* QUOTES — kartu kutipan */}
+          {!loading && !err && sec === 'quotes' && !!items?.length && (
+            <FlatList
+              data={items}
+              keyExtractor={(_, i) => `q${i}`}
+              contentContainerStyle={{ padding: 14, paddingBottom: 40 + insets.bottom, gap: 10 }}
+              renderItem={({ item }) => (
+                <Neu style={{ padding: 14, gap: 8 }}>
+                  <T style={{ fontStyle: 'italic' }}>"{item.title}"</T>
+                  {!!item.subtitle && <T v="caption" color={t.sub} style={{ fontWeight: '700' }}>— {item.subtitle}</T>}
+                </Neu>
+              )}
+            />
+          )}
+        </View>
+      </View>
     </Screen>
   );
 }
