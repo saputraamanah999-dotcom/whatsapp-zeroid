@@ -46,6 +46,7 @@ async function accessToken(SA) {
 
 const PROJ = loadSA().project_id;
 const FS = `https://firestore.googleapis.com/v1/projects/${PROJ}/databases/(default)`;
+const REL = `projects/${PROJ}/databases/(default)/documents`; // nama dokumen utk commit-writes
 let TOKEN = '';
 const authHdr = () => ({ Authorization: `Bearer ${TOKEN}`, 'Content-Type': 'application/json' });
 
@@ -70,7 +71,7 @@ async function commit(writes) {
 
 function updateWrite(path, fields, { mask = null, currentDoc = null } = {}) {
   const w = {
-    update: { name: `${FS}/documents/${path}`, fields },
+    update: { name: `${REL}/${path}`, fields },
   };
   if (mask) w.updateMask = { fieldPaths: mask };
   if (currentDoc) w.currentDoc = { exists: currentDoc };
@@ -78,17 +79,43 @@ function updateWrite(path, fields, { mask = null, currentDoc = null } = {}) {
 }
 
 function deleteWrite(path) {
-  return { delete: `${FS}/documents/${path}` };
+  return { delete: `${REL}/${path}` };
 }
 
 async function patchDoc(path, fields, mask) {
   const fs = {};
   for (const [k, v] of Object.entries(fields)) fs[k] = typedValue(v);
-  const maskQ = mask ? `?updateMask.fieldPaths=${mask.map(encodeURIComponent).join('&updateMask.fieldPaths=')}` : '';
-  const r = await fetch(`${FS}/documents/${path}${maskQ}`, { method: 'PATCH', headers: authHdr(), body: JSON.stringify({ fields: fs }) });
+  const q = [];
+  if (mask) for (const m of mask) q.push(`updateMask.fieldPaths=${encodeURIComponent(m)}`);
+  const r = await fetch(`${FS}/documents/${path}${q.length ? '?' + q.join('&') : ''}`, { method: 'PATCH', headers: authHdr(), body: JSON.stringify({ fields: fs }) });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw Object.assign(new Error(j?.error?.message || `patch HTTP ${r.status}`), { status: r.status });
   return j;
+}
+
+/** create-via-PATCH dengan precondition exists=false (query param, bukan body) */
+async function createDocAs(idToken, path, fields) {
+  const r = await fetch(`${FS}/documents/${path}?currentDocument.exists=false`, {
+    method: 'PATCH', headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields }),
+  });
+  let j = {};
+  try { j = await r.json(); } catch { }
+  return { status: r.status, j };
+}
+
+/** update-field via PATCH dengan updateMask (query param) — ATURAN dievaluasi nyata */
+async function updateFieldAs(idToken, path, fields) {
+  const q = Object.keys(fields).map((k) => `updateMask.fieldPaths=${encodeURIComponent(k)}`);
+  const fs = {};
+  for (const [k, v] of Object.entries(fields)) fs[k] = typedValue(v);
+  const r = await fetch(`${FS}/documents/${path}?${q.join('&')}`, {
+    method: 'PATCH', headers: { Authorization: `Bearer ${idToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: fs }),
+  });
+  let j = {};
+  try { j = await r.json(); } catch { }
+  return { status: r.status, j };
 }
 
 async function getDoc(path) {
@@ -278,67 +305,57 @@ async function cmdVerifyrules(args) {
   let A = null, B = null, createdDocs = [];
   const track = (p) => createdDocs.push(p);
   try {
-    // akun uji sementara
+    // akun uji sementara (identitytoolkit signUp) — lalu dihapus di cleanup
     A = await idTokenFor(mkEmail('a'), pass, apiKey, { signUp: true });
     B = await idTokenFor(mkEmail('b'), pass, apiKey, { signUp: true });
     const uidA = A.localId, uidB = B.localId;
     console.log(`akun uji: uidA=${uidA} uidB=${uidB}`);
 
     // 1. buat profil sendiri (role user) — jalur create users
-    let r = await userFetch(A.idToken, 'documents/users/' + uidA, 'PATCH', {
-      fields: {
-        name: { stringValue: 'RulesTest A' }, email: { stringValue: mkEmail('a') }, role: { stringValue: 'user' },
-        banned: { booleanValue: false }, points: { integerValue: '0' }, bestStreak: { integerValue: '0' },
-        checkinStreak: { integerValue: '0' }, refCount: { integerValue: '0' }, referralCode: { stringValue: 'zrtest' + tag },
-        blocked: { arrayValue: {} }, contacts: { arrayValue: {} },
-      },
-      currentDocument: { exists: false },
+    let r = await createDocAs(A.idToken, `users/${uidA}`, {
+      name: { stringValue: 'RulesTest A' }, email: { stringValue: mkEmail('a') }, role: { stringValue: 'user' },
+      banned: { booleanValue: false }, points: { integerValue: '0' }, bestStreak: { integerValue: '0' },
+      checkinStreak: { integerValue: '0' }, refCount: { integerValue: '0' }, referralCode: { stringValue: 'zrtest' + tag },
+      blocked: { arrayValue: {} }, contacts: { arrayValue: {} },
     });
     record(res, 'create users/{uid} sendiri (role user)', r.status === 200, r.status === 200 ? '' : String(r.j?.error?.message ?? r.status).slice(0, 120));
     track(`users/${uidA}`);
-    r = await userFetch(B.idToken, 'documents/users/' + uidB, 'PATCH', {
-      fields: {
-        name: { stringValue: 'RulesTest B' }, email: { stringValue: mkEmail('b') }, role: { stringValue: 'user' },
-        banned: { booleanValue: false }, points: { integerValue: '0' }, blocked: { arrayValue: {} }, contacts: { arrayValue: {} },
-      },
-      currentDocument: { exists: false },
+    r = await createDocAs(B.idToken, `users/${uidB}`, {
+      name: { stringValue: 'RulesTest B' }, email: { stringValue: mkEmail('b') }, role: { stringValue: 'user' },
+      banned: { booleanValue: false }, points: { integerValue: '0' }, blocked: { arrayValue: {} }, contacts: { arrayValue: {} },
     });
-    record(res, 'create users/{uid} akun kedua', r.status === 200);
+    record(res, 'create users/{uid} akun kedua', r.status === 200, r.status === 200 ? '' : String(r.j?.error?.message ?? r.status).slice(0, 120));
     track(`users/${uidB}`);
 
     // 2. GAYA BALON — update sendiri field bubble (selfProfileUpdate)
-    r = await userFetch(A.idToken, `documents/users/${uidA}`, 'PATCH', {
-      fields: { bubble: { stringValue: 'sketsa' } }, updateMask: { fieldPaths: ['bubble'] },
-    });
+    r = await updateFieldAs(A.idToken, `users/${uidA}`, { bubble: { stringValue: 'sketsa' } });
     record(res, 'GAYA BALON: update users/{uid}.bubble oleh pemilik', r.status === 200, r.status === 200 ? '' : String(r.j?.error?.message ?? r.status).slice(0, 120));
 
     // 3. DILARANG: self-assign banned=true (selfProfileUpdate menolak)
-    r = await userFetch(A.idToken, `documents/users/${uidA}`, 'PATCH', {
-      fields: { banned: { booleanValue: true } }, updateMask: { fieldPaths: ['banned'] },
-    });
+    r = await updateFieldAs(A.idToken, `users/${uidA}`, { banned: { booleanValue: true } });
     record(res, 'ANTI-ESKALASI: user biasa TIDAK bisa set banned=true', r.status === 403, r.status === 403 ? '' : `HTTP ${r.status} (harusnya 403)`);
 
     // 4. usermeta sendiri
-    r = await userFetch(A.idToken, 'documents/usermeta/' + uidA, 'PATCH', {
-      fields: { lastIpHash: { stringValue: 'hash-ip-tes' }, lastDeviceHash: { stringValue: 'hash-dev-tes' }, at: { integerValue: String(Date.now()) } },
-      currentDocument: { exists: false },
+    r = await createDocAs(A.idToken, `usermeta/${uidA}`, {
+      lastIpHash: { stringValue: 'hash-ip-tes' }, lastDeviceHash: { stringValue: 'hash-dev-tes' }, at: { integerValue: String(Date.now()) },
     });
-    record(res, 'usermeta: catat perangkat sendiri', r.status === 200);
+    record(res, 'usermeta: catat perangkat sendiri', r.status === 200, r.status === 200 ? '' : String(r.j?.error?.message ?? r.status).slice(0, 120));
     track(`usermeta/${uidA}`);
 
-    // 5. CHECK-IN — satu commit: ledger bukti + users points+1000, lastCheckinAt
+    // 5. CHECK-IN — satu commit (rules dievaluasi atas transaksi nyata):
+    //    users points+1000 + bukti ledger c_{uid}_{stamp}
     const stamp = Date.now();
     r = await userFetch(A.idToken, 'documents:commit', 'POST', {
       writes: [
         {
-          update: { name: `${FS}/documents/users/${uidA}`, fields: {
+          update: { name: `${REL}/users/${uidA}`, fields: {
             points: { integerValue: '1000' }, checkinStreak: { integerValue: '1' },
             bestStreak: { integerValue: '1' }, lastCheckinAt: { integerValue: String(stamp) },
           } },
           updateMask: { fieldPaths: ['points', 'checkinStreak', 'bestStreak', 'lastCheckinAt'] },
         },
         {
-          update: { name: `${FS}/documents/ledger/c_${uidA}_${stamp}`, fields: {
+          update: { name: `${REL}/ledger/c_${uidA}_${stamp}`, fields: {
             uid: { stringValue: uidA }, kind: { stringValue: 'checkin' }, delta: { integerValue: '1000' },
             streak: { integerValue: '1' }, at: { integerValue: String(stamp) },
           } },
@@ -348,16 +365,16 @@ async function cmdVerifyrules(args) {
     });
     record(res, 'CHECK-IN: koin +1000 dengan bukti ledger (1 transaksi)', r.status === 200, r.status === 200 ? '' : String(r.j?.error?.message ?? r.status).slice(0, 160));
     track(`ledger/c_${uidA}_${stamp}`);
-    // 5b. spam tap → ditolak server (lastCheckinAt harus maju ≥19 jam)
+    // 5b. spam tap 1 menit kemudian → DITOLAK server (gap 19 jam)
     const stamp2 = stamp + 60_000;
     r = await userFetch(A.idToken, 'documents:commit', 'POST', {
       writes: [
         {
-          update: { name: `${FS}/documents/users/${uidA}`, fields: { points: { integerValue: '2000' }, lastCheckinAt: { integerValue: String(stamp2) } } },
+          update: { name: `${REL}/users/${uidA}`, fields: { points: { integerValue: '2000' }, lastCheckinAt: { integerValue: String(stamp2) } } },
           updateMask: { fieldPaths: ['points', 'lastCheckinAt'] },
         },
         {
-          update: { name: `${FS}/documents/ledger/c_${uidA}_${stamp2}`, fields: {
+          update: { name: `${REL}/ledger/c_${uidA}_${stamp2}`, fields: {
             uid: { stringValue: uidA }, kind: { stringValue: 'checkin' }, delta: { integerValue: '1000' }, at: { integerValue: String(stamp2) },
           } },
           currentDocument: { exists: false },
@@ -367,96 +384,78 @@ async function cmdVerifyrules(args) {
     record(res, 'ANTI-SPAM CHECK-IN: tap kedua 1 menit kemudian DITOLAK', r.status === 403, r.status === 403 ? '' : `HTTP ${r.status} (harusnya 403)`);
 
     // 6. ANTI CETAK KOIN: naikkan points tanpa bukti ledger → ditolak
-    r = await userFetch(A.idToken, `documents/users/${uidA}`, 'PATCH', {
-      fields: { points: { integerValue: '999999' } }, updateMask: { fieldPaths: ['points'] },
-    });
+    r = await updateFieldAs(A.idToken, `users/${uidA}`, { points: { integerValue: '999999' } });
     record(res, 'ANTI-CETAK-KOIN: points +999.999 tanpa bukti DITOLAK', r.status === 403, r.status === 403 ? '' : `HTTP ${r.status} (harusnya 403)`);
 
     // 7. CHAT + PESAN
     const chatId = 'rules_test_' + tag;
-    r = await userFetch(A.idToken, `documents/chats/${chatId}`, 'PATCH', {
-      fields: {
-        type: { stringValue: 'direct' }, members: { arrayValue: { values: [{ stringValue: uidA }, { stringValue: uidB }] } },
-        admins: { arrayValue: { values: [{ stringValue: uidA }] } }, createdBy: { stringValue: uidA },
-        createdAt: { integerValue: String(Date.now()) },
-      },
-      currentDocument: { exists: false },
+    r = await createDocAs(A.idToken, `chats/${chatId}`, {
+      type: { stringValue: 'direct' }, members: { arrayValue: { values: [{ stringValue: uidA }, { stringValue: uidB }] } },
+      admins: { arrayValue: { values: [{ stringValue: uidA }] } }, createdBy: { stringValue: uidA },
+      createdAt: { integerValue: String(Date.now()) },
     });
-    record(res, 'buat chat langsung (members memuat saya)', r.status === 200);
+    record(res, 'buat chat langsung (members memuat saya)', r.status === 200, r.status === 200 ? '' : String(r.j?.error?.message ?? r.status).slice(0, 140));
     track(`chats/${chatId}`);
-    // 7b. kirim pesan normal
     const msgId = crypto.randomBytes(8).toString('hex');
-    r = await userFetch(A.idToken, `documents/chats/${chatId}/messages/${msgId}`, 'PATCH', {
-      fields: {
-        chatId: { stringValue: chatId }, senderId: { stringValue: uidA }, type: { stringValue: 'text' },
-        text: { stringValue: 'halo dari uji rules' }, clientTime: { integerValue: String(Date.now()) },
-        deletedFor: { arrayValue: {} },
-      },
-      currentDocument: { exists: false },
+    r = await createDocAs(A.idToken, `chats/${chatId}/messages/${msgId}`, {
+      chatId: { stringValue: chatId }, senderId: { stringValue: uidA }, type: { stringValue: 'text' },
+      text: { stringValue: 'halo dari uji rules' }, clientTime: { integerValue: String(Date.now()) },
+      deletedFor: { arrayValue: {} },
     });
     record(res, 'KIRIM PESAN: teks normal tersimpan', r.status === 200, r.status === 200 ? '' : String(r.j?.error?.message ?? r.status).slice(0, 160));
     track(`chats/${chatId}/messages/${msgId}`);
-    // 7c. VIRTEX: teks 8001 karakter → ditolak (cap 8000)
+    // 7b. VIRTEX: teks 8001 karakter → ditolak (cap 8000)
     const vx = 'a'.repeat(8001);
-    r = await userFetch(A.idToken, `documents/chats/${chatId}/messages/${msgId}v`, 'PATCH', {
-      fields: {
-        chatId: { stringValue: chatId }, senderId: { stringValue: uidA }, type: { stringValue: 'text' },
-        text: { stringValue: vx }, deletedFor: { arrayValue: {} },
-      },
-      currentDocument: { exists: false },
+    r = await createDocAs(A.idToken, `chats/${chatId}/messages/${msgId}v`, {
+      chatId: { stringValue: chatId }, senderId: { stringValue: uidA }, type: { stringValue: 'text' },
+      text: { stringValue: vx }, deletedFor: { arrayValue: {} },
     });
     record(res, 'ANTI-VIRTEX: teks 8001 karakter DITOLAK', r.status === 403, r.status === 403 ? '' : `HTTP ${r.status} (harusnya 403)`);
-    // 7d. B tidak bisa membaca chat orang lain
+    // 7c. penerima B menandai deliveredAt (memberMsgUpdate)
+    r = await updateFieldAs(B.idToken, `chats/${chatId}/messages/${msgId}`, { deliveredAt: { integerValue: String(Date.now()) } });
+    record(res, 'PESAN DITERIMA: penerima boleh set deliveredAt', r.status === 200, r.status === 200 ? '' : String(r.j?.error?.message ?? r.status).slice(0, 120));
+    // 7d. B TIDAK bisa membaca chat pribadi lain
     const chatIdX = 'rules_test_private_' + tag;
-    await userFetch(A.idToken, `documents/chats/${chatIdX}`, 'PATCH', {
-      fields: { type: { stringValue: 'direct' }, members: { arrayValue: { values: [{ stringValue: uidA }] } }, createdAt: { integerValue: String(Date.now()) } },
-      currentDocument: { exists: false },
+    await createDocAs(A.idToken, `chats/${chatIdX}`, {
+      type: { stringValue: 'direct' }, members: { arrayValue: { values: [{ stringValue: uidA }] } }, createdAt: { integerValue: String(Date.now()) },
     });
     track(`chats/${chatIdX}`);
     r = await userFetch(B.idToken, `documents/chats/${chatIdX}`, 'GET');
     record(res, 'PRIVASI: chat pribadi TIDAK terbaca non-anggota', r.status === 403, r.status === 403 ? '' : `HTTP ${r.status} (harusnya 403)`);
-    track(`chats/${chatIdX}`);
 
     // 8. FEEDBACK (masukan)
     const fid = 'rules_fb_' + tag;
-    r = await userFetch(A.idToken, `documents/feedback/${fid}`, 'PATCH', {
-      fields: {
-        uid: { stringValue: uidA }, name: { stringValue: 'RulesTest A' }, text: { stringValue: 'uji rules masukan' },
-        kind: { stringValue: 'bug' }, status: { stringValue: 'open' }, reply: { stringValue: '' }, reward: { integerValue: '0' },
-        readByUser: { booleanValue: true }, at: { integerValue: String(Date.now()) },
-      },
-      currentDocument: { exists: false },
+    r = await createDocAs(A.idToken, `feedback/${fid}`, {
+      uid: { stringValue: uidA }, name: { stringValue: 'RulesTest A' }, text: { stringValue: 'uji rules masukan' },
+      kind: { stringValue: 'bug' }, status: { stringValue: 'open' }, reply: { stringValue: '' }, reward: { integerValue: '0' },
+      readByUser: { booleanValue: true }, at: { integerValue: String(Date.now()) },
     });
     record(res, 'MASUKAN: user kirim feedback', r.status === 200, r.status === 200 ? '' : String(r.j?.error?.message ?? r.status).slice(0, 140));
     track(`feedback/${fid}`);
 
     // 9. notifications (pusat notifikasi)
-    r = await userFetch(A.idToken, 'documents:commit', 'POST', { writes: [{ update: { name: `${FS}/documents/notifications/ntest_${tag}`, fields: {
+    r = await createDocAs(A.idToken, `notifications/ntest_${tag}`, {
       userId: { stringValue: uidB }, kind: { stringValue: 'group' }, title: { stringValue: 'uji' }, body: { stringValue: 'uji rules' }, read: { booleanValue: false }, createdAt: { integerValue: String(Date.now()) },
-    } }, currentDocument: { exists: false } }] });
-    record(res, 'NOTIFIKASI: dokumen notifikasi dibuat anggota', r.status === 200);
+    });
+    record(res, 'NOTIFIKASI: dokumen notifikasi dibuat anggota', r.status === 200, r.status === 200 ? '' : String(r.j?.error?.message ?? r.status).slice(0, 140));
     track(`notifications/ntest_${tag}`);
 
-    // 10. STORY
-    r = await userFetch(A.idToken, `documents/stories/stest_${tag}`, 'PATCH', {
-      fields: { userId: { stringValue: uidA }, text: { stringValue: 'uji rules story' }, createdAt: { integerValue: String(Date.now()) }, expiresAt: { integerValue: String(Date.now() + 86400000) } },
-      currentDocument: { exists: false },
+    // 10. STORY (expiresAt 24 jam — toleransi jam 48 jam)
+    r = await createDocAs(A.idToken, `stories/stest_${tag}`, {
+      userId: { stringValue: uidA }, text: { stringValue: 'uji rules story' }, createdAt: { integerValue: String(Date.now()) }, expiresAt: { integerValue: String(Date.now() + 86400000) },
     });
-    record(res, 'STORY: kirim story 24 jam', r.status === 200);
+    record(res, 'STORY: kirim story 24 jam', r.status === 200, r.status === 200 ? '' : String(r.j?.error?.message ?? r.status).slice(0, 140));
     track(`stories/stest_${tag}`);
 
-    // 11. ledger append + anti-timpa
-    r = await userFetch(A.idToken, `documents/ledger/s_${uidA}_${tag}`, 'PATCH', {
-      fields: { uid: { stringValue: uidA }, kind: { stringValue: 'spend' }, delta: { integerValue: '-100' }, at: { integerValue: String(Date.now()) } },
-      currentDocument: { exists: false },
+    // 11. ledger append
+    r = await createDocAs(A.idToken, `ledger/s_${uidA}_${tag}`, {
+      uid: { stringValue: uidA }, kind: { stringValue: 'spend' }, delta: { integerValue: '-100' }, at: { integerValue: String(Date.now()) },
     });
-    record(res, 'LEDGER: catat belanja koin', r.status === 200);
+    record(res, 'LEDGER: catat belanja koin', r.status === 200, r.status === 200 ? '' : String(r.j?.error?.message ?? r.status).slice(0, 140));
     track(`ledger/s_${uidA}_${tag}`);
 
     // 12. B tidak bisa menulis profil A (bukan referral pattern)
-    r = await userFetch(B.idToken, `documents/users/${uidA}`, 'PATCH', {
-      fields: { name: { stringValue: 'dirampok' } }, updateMask: { fieldPaths: ['name'] },
-    });
+    r = await updateFieldAs(B.idToken, `users/${uidA}`, { name: { stringValue: 'dirampok' } });
     record(res, 'KEAMANAN: akun lain TIDAK bisa mengubah profil saya', r.status === 403, r.status === 403 ? '' : `HTTP ${r.status} (harusnya 403)`);
   } catch (e) {
     record(res, 'verifikasi berjalan', false, String(e?.message ?? e).slice(0, 200));
