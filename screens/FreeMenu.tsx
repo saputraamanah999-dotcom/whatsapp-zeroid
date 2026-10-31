@@ -124,10 +124,10 @@ function CuacaView({ data }: { data: CuacaData }) {
     <View style={{ padding: 14, gap: 12, paddingBottom: 60 }}>
       {/* HERO sekarang */}
       <Neu radius={R.xl} style={{ padding: 18, gap: 14 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-          <Ionicons name={ICON_OF[c.icon] ?? 'partly-sunny'} size={56} color="#FFB300" />
-          <View style={{ flex: 1 }}>
-            <T style={{ fontWeight: '900', fontSize: 34, lineHeight: 38 }}>{c.temp}°C</T>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <Ionicons name={ICON_OF[c.icon] ?? 'partly-sunny'} size={52} color="#FFB300" />
+          <View style={{ flex: 1, minWidth: 130 }}>
+            <T style={{ fontWeight: '900', fontSize: 30, lineHeight: 34 }}>{c.temp}°C</T>
             <T v="sub" color={t.sub} style={{ fontWeight: '700' }}>{c.desc}</T>
             <T v="caption" color={t.faint} numberOfLines={1}>{data.place}{data.region ? ` · ${data.region}` : ''}</T>
           </View>
@@ -358,6 +358,10 @@ export function FreeMenuScreen() {
   const [query, setQuery] = useState('');
   const [railOpen, setRailOpen] = useState(false);
   const seq = useRef(0);
+  const { width: winW } = useWindowDimensions();
+  // tablet/desktop: sidebar terbuka; ponsel: ciut setelah memilih seksi supaya
+  // konten tidak sesak (keluhan "sampingnya kegedean")
+  useEffect(() => { if (winW >= 700) setRailOpen(true); }, [winW]);
 
   const load = useCallback(async (key: string, params: Record<string, string> = {}) => {
     const my = ++seq.current;
@@ -445,6 +449,7 @@ export function FreeMenuScreen() {
     setSec(s); setItems(null); setObj(null); setErr(''); setQuery('');
     if (s === 'berita') setSrcKey('berita_kompas');
     if (s === 'quotes') setSrcKey('quotes_motivasi');
+    if (winW < 700) setRailOpen(false); // ponsel: beri ruang konten maksimal
   };
 
   // ---------------- SIDEBAR (referensi: brand → nav → sub → CTA → footer) ----------------
