@@ -112,10 +112,10 @@ function CuacaView({ data }: { data: CuacaData }) {
   const rainToday = data.daily[0]?.rainProb ?? 0;
   const rainDay = data.daily.find((d) => d.rainProb >= 60); // hari hujan pertama minggu ini
   const DetailChip = ({ icon, label, value, color }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; color: string }) => (
-    <View style={{ flexBasis: '31%', flexGrow: 1, padding: 10, borderRadius: R.md, backgroundColor: t.bg, gap: 4 } as any}>
+    <View style={{ flexBasis: '47%', flexGrow: 1, padding: 10, borderRadius: R.md, backgroundColor: t.bg, gap: 4 } as any}>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
         <Ionicons name={icon} size={13} color={color} />
-        <T v="caption" color={t.faint} numberOfLines={1}>{label}</T>
+        <T v="caption" color={t.faint}>{label}</T>
       </View>
       <T v="caption" style={{ fontWeight: '900' }}>{value}</T>
     </View>
@@ -141,8 +141,8 @@ function CuacaView({ data }: { data: CuacaData }) {
           <DetailChip icon="leaf" label="Angin" value={`${c.wind} km/j`} color="#14C47A" />
           <DetailChip icon="speedometer" label="Tekanan" value={`${c.pressure} hPa`} color="#7B61FF" />
           <DetailChip icon="rainy" label="Presipitasi" value={`${c.precip} mm`} color="#1E6BFF" />
-          <DetailChip icon="sunny-outline" label="UV maks (hari ini)" value={`${data.daily[0]?.uv ?? '-'} / 11`} color="#FFB300" />
-          <DetailChip icon="time" label="Terbit / Terbenam" value={`${data.daily[0]?.sunrise ?? '-'} · ${data.daily[0]?.sunset ?? '-'}`} color="#FF8A00" />
+          <DetailChip icon="sunny-outline" label="UV maks" value={`${data.daily[0]?.uv ?? '-'} / 11`} color="#FFB300" />
+          <DetailChip icon="time" label="Terbit·Terbenam" value={`${data.daily[0]?.sunrise ?? '-'} · ${data.daily[0]?.sunset ?? '-'}`} color="#FF8A00" />
         </View>
       </Neu>
 

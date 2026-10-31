@@ -216,6 +216,40 @@ async function openMeteo(kota: string): Promise<any> {
   } finally { clearTimeout(ft); }
 }
 
+// ---------------------------------------------------------------------------
+// GEMPA FALLBACK LANGSUNG BMKG — endpoint Vanzz gempa/bmkg kadang 404/503
+// (terbukti live). Sumber resmi BMKG publik & tanpa kunci; bentuk respons
+// dibuat sama seperti Vanzz agar parser klien tidak berubah.
+// ---------------------------------------------------------------------------
+async function bmkgDirect(): Promise<{ data?: any; error?: string }> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 12000);
+  try {
+    const get = (u: string) => fetch(u, { signal: ctl.signal, headers: { accept: 'application/json' } }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const [auto, terkini, dirasakan] = await Promise.all([
+      get('https://data.bmkg.go.id/DataMKG/TEWS/autogempa.json'),
+      get('https://data.bmkg.go.id/DataMKG/TEWS/gempaterkini.json'),
+      get('https://data.bmkg.go.id/DataMKG/TEWS/gempadirasakan.json'),
+    ]);
+    const g = auto?.Infogempa?.gempa;
+    if (!g) return { error: 'Data gempa BMKG tidak terbaca — coba lagi sebentar.' };
+    return {
+      data: {
+        status: true,
+        result: {
+          auto: { Infogempa: { gempa: g } },
+          terkini: terkini?.Infogempa?.gempa ? terkini : null,
+          dirasakan: dirasakan?.Infogempa?.gempa ? dirasakan : null,
+        },
+      },
+    };
+  } catch {
+    return { error: 'Gagal menghubungi BMKG — coba lagi sebentar.' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Panggil endpoint Vanzz; gambar → data URL (maks ~6 MB). */
 async function vanzzGet(ep: Ep, params: Record<string, string>, key: string): Promise<{ ok: boolean; status: number; data?: any; dataUrl?: string; mime?: string; error?: string }> {
   const url = new URL(VANZZ_BASE + ep.path);
@@ -496,6 +530,12 @@ export default async function handler(req: any, res: any) {
   const params: Record<string, string> = {};
   for (const p of ep.params ?? []) params[p] = clean((rawParams as any)[p], p === 'link' || p === 'url' ? 2000 : 400);
   const r = await vanzzGet(ep, params, key);
+  // GEMPA/BMKG: Vanzz flaky (404/503 terbukti live) → fallback LANGSUNG BMKG
+  if (!r.ok && (key2 === 'gempa' || key2 === 'bmkg')) {
+    const b = await bmkgDirect();
+    if (b.data) return res.status(200).json({ ok: true, data: b.data });
+    return res.status(502).json({ error: b.error ?? 'Gempa sedang tidak tersedia.' });
+  }
   if (!r.ok) return res.status(502).json({ error: pickMsg(r.data) || r.error || `Layanan sedang tidak tersedia (HTTP ${r.status}).` });
   if (ep.img || r.dataUrl) {
     const img = r.dataUrl ?? pickImage(r.data);
