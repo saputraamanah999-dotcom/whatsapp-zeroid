@@ -217,6 +217,82 @@ async function openMeteo(kota: string): Promise<any> {
 }
 
 // ---------------------------------------------------------------------------
+// QUOTES FALLBACK — endpoint Vanzz quotes kadang 404 (terbukti live). Cadangan
+// kutipan Indonesia bawaan server agar fitur Quotes TETAP hidup (acak tiap minta).
+// ---------------------------------------------------------------------------
+const QUOTES_POOL: Record<string, string[]> = {
+  motivasi: [
+    'Hidup bukan soal menunggu badai berlalu, tapi belajar menari di tengah hujan.',
+    'Gagal itu bukan akhir; berhenti mencoba barulah akhir sejati.',
+    'Kejar apa yang benar-benar kamu mau, sisanya akan mengikuti.',
+    'Perubahan tidak pernah datang dari kenyamanan.',
+    'Kerja keras mengalahkan bakat ketika bakat tidak mau bekerja keras.',
+    'Sedikit demi sedikit, lama-lama menjadi bukit.',
+    'Kecewa itu wajar, tapi jangan menyerah sebelum mencoba lagi.',
+    'Bermimpilah setinggi langit; jika gagal, kamu jatuh di antara bintang-bintang.',
+    'Disiplin adalah jembatan antara tujuan dan pencapaian.',
+    'Jangan bandingkan awalmu dengan milik orang lain yang sudah jauh berjalan.',
+    'Setiap ahli dulunya pemula yang tidak menyerah.',
+    'Hari yang berat hari ini adalah latihan untuk besok yang lebih kuat.',
+    'Fokus pada langkah kecil yang berulang setiap hari.',
+    'Waktu terbaik untuk mulai adalah sekarang.',
+    'Sukses bukan milik yang pintar, tapi milik yang konsisten.',
+    'Kegagalan adalah data, bukan identitas.',
+    'Belajar hari ini, kuat esok hari.',
+    'Resapi prosesnya, nikmati hasilnya nanti.',
+    'Pikiran yang tenang menyelesaikan masalah lebih cepat.',
+    'Jadikan rasa takut sebagai bahan bakar, bukan tembok.',
+    'Kamu tidak butuh sempurna untuk memulai, kamu butuh mulai untuk jadi sempurna.',
+    'Istirahat boleh, berhenti jangan.',
+    'Kebaikan kecil hari ini adalah cerita besar di masa depan.',
+    'Yang membuatmu lelah bukan beban, tapi cara kamu membawanya.',
+  ],
+  galau: [
+    'Kadang yang paling menyakitkan bukan perpisahan, tapi harapan yang tak pernah sampai.',
+    'Aku baik-baik saja, cuma sedikit kelelahan berpura-pura kuat.',
+    'Chat yang tak pernah dibalas itu seperti menunggu hujan di musim kemarau.',
+    'Rindu boleh jalan sendiri, ternyata hati belum ikut pulang.',
+    'Bukan tak sayang, cuma lelah jadi satu-satunya yang berjuang.',
+    'Kenangan paling manis kadang jadi racun paling pahit.',
+    'Cukup satu nama untuk bikin semalaman tak bisa tidur.',
+    'Pernah jadi segalanya, sekarang cuma jadi bagian dari masa lalu.',
+    'Lelah itu bukan karena jarak, tapi karena bertanya dalam hati tanpa jawaban.',
+    'Tersenyumlah, walau hati sedang tidak sejalan dengan bibir.',
+    'Kadang dipendamkan lebih tenang daripada diceritakan.',
+    'Hujan turun membawa cerita yang tak sempat terucap.',
+    'Yang hilang tidak kembali, tapi kenangannya suka mampir.',
+    'Punya banyak teman tapi tak punya tempat bercerita.',
+    'Statusnya update, hatinya diam-diam sedang hancur.',
+    'Tunggu itu nggak capek, yang capek itu harapan yang selalu tertunda.',
+    'Maaf ya, aku mundur bukan karena tak cinta, tapi karena tak dipilih.',
+    'Beda cerita, beda pula ending-nya.',
+  ],
+  gombal: [
+    'Kamu tahu gak bedanya kamu sama bintang? Kalau bintang di langit, kamu di hati.',
+    'Pulsa habis karena telepon, baterai habis karena chat, kalau hati habis karena kamu.',
+    'Papa kamu tukang sulap ya? Kok papamu bisa bikin muncul malaikat kayak kamu?',
+    'Kalau kamu bertanya sejauh mana sayangku, coba hitung air di lautan.',
+    'Jangan deket-deket asap rokok, nanti kebawa. Jangan juga deket-deket aku, nanti cinta.',
+    'Kamu itu seperti garam, kalau tidak ada kamu semua terasa hambar.',
+    'Kamu dari planet mana? Karena manisnya kayaknya bukan dari bumi.',
+    'Kamu pernah dikejar zombie belum? Kok aku pernah, dikejar pikirannya kamu terus.',
+    'Apakah kamu tired? Karena kamu telah berjalan sepanjang hari di pikiranku.',
+    'Roti bantu deng? Sama kaya hatiku yang terbantukan sejak lihat kamu.',
+    'Aku pengen jadi vitamin kamu, biar kamu cari aku tiap hari.',
+    'Kalau cinta itu pelanggaran, bersediakah kamu jadi korban bersama?',
+    'Matahari terbit dari timur, tapi hari terbit sejak kamu membalas chat.',
+    'Aku bukan peminum kopi, tapi kok tiap lihat kamu jadi meleleh.',
+    'Nomor darurat 112 ya? Karena setiap dekat kamu, jantungku darurat.',
+    'Kamu benturan terus ya? Karena hatiku setiap ketemu kamu benturan.',
+  ],
+};
+function quotesFallback(kind: string): string[] {
+  const pool = QUOTES_POOL[kind] ?? QUOTES_POOL.motivasi;
+  const shuffled = [...pool].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, 3);
+}
+
+// ---------------------------------------------------------------------------
 // GEMPA FALLBACK LANGSUNG BMKG — endpoint Vanzz gempa/bmkg kadang 404/503
 // (terbukti live). Sumber resmi BMKG publik & tanpa kunci; bentuk respons
 // dibuat sama seperti Vanzz agar parser klien tidak berubah.
@@ -535,6 +611,11 @@ export default async function handler(req: any, res: any) {
     const b = await bmkgDirect();
     if (b.data) return res.status(200).json({ ok: true, data: b.data });
     return res.status(502).json({ error: b.error ?? 'Gempa sedang tidak tersedia.' });
+  }
+  // QUOTES: Vanzz flaky (404 terbukti live) → cadangan kutipan bawaan server
+  if (!r.ok && key2.startsWith('quotes_')) {
+    const kind = key2.replace('quotes_', '');
+    return res.status(200).json({ ok: true, data: { status: true, quotes: quotesFallback(kind) } });
   }
   if (!r.ok) return res.status(502).json({ error: pickMsg(r.data) || r.error || `Layanan sedang tidak tersedia (HTTP ${r.status}).` });
   if (ep.img || r.dataUrl) {
