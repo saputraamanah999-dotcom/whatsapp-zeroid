@@ -188,15 +188,17 @@ const INVIDIOUS_INSTANCES = [
 
 /** light liveness probe — a stream URL that does not answer is not a success */
 // ---------------- MESIN MP3 MILIK PEMILIK (v26) ----------------
-/** jerexd ytmp3 — FILE MP3 ASLI (diuji live 2026-11-01: result.downloadUrl).
- *  Ini yang bikin musik beneran jalan di latar belakang & tahan lama. */
+/** jerexd ytmp3 — FILE MP3 ASLI (diuji live: result.downloadUrl).
+ *  CATATAN PENTING: URL TIDAK dites pakai playable() dari server — filehost
+ *  sering memblokir IP datacenter (AWS) padahal yang memutar adalah HP pengguna
+ *  (IP rumahan). Kalau ternyata mati, klien otomatis retryResolve → fallback. */
 async function jerexdYt3(videoId: string): Promise<string | null> {
   const key = await apiKey('JEREXD_APIKEY');
   if (!key) return null;
   try {
     const d = await j(`${JEREXD_BASE}/api/downloader/ytmp3?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&apikey=${encodeURIComponent(key)}`, {}, 45000);
     const u = String(d?.result?.downloadUrl ?? d?.result?.url ?? '');
-    return u && /^https:\/\//.test(u) && (await playable(u)) ? u : null;
+    return u && /^https:\/\//.test(u) ? u : null;
   } catch { return null; }
 }
 /** vexo ytmp3 — cadangan kedua (route ada; kadang 502 — diuji otomatis). */
@@ -206,7 +208,7 @@ async function vexoYt3(videoId: string): Promise<string | null> {
   try {
     const d = await j(`${VEXO_BASE}/api/download/ytmp3?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&key=${encodeURIComponent(key)}`, {}, 45000);
     const u = String(d?.result?.downloadUrl ?? d?.result?.url ?? d?.url ?? d?.download?.url ?? '');
-    return u && /^https:\/\//.test(u) && (await playable(u)) ? u : null;
+    return u && /^https:\/\//.test(u) ? u : null;
   } catch { return null; }
 }
 
