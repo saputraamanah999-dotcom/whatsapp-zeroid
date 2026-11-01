@@ -927,3 +927,50 @@ probe endpoint produksi sebelum & sesudah perubahan — bukan asumsi).
   `release/` — TANPA node_modules/.git/.env/kredensial (terverifikasi skrip).
 - Deploy Vercel hijau di setiap push; `/api/version` = commit terbaru; endpoint
   upload/music/guard/fcm sehat; scan rahasia 0 temuan.
+
+## v25.1 (1 Nov 2026) — AKAR "SALURAN GAK REAL-TIME" DITEMUKAN & SEMUA BATCH-3 TUNTAS
+
+- **AKAR MASALAH TERVERIFIKASI (tsc)**: `applyFollowPending` dipanggil di DUA
+  listener snapshot chat (members + public) tapi TIDAK PERNAH DIDEFINISIKAN —
+  sisa editan sesi v25 yang terputus. Akibatnya build gagal & (bila jalan)
+  setiap snapshot chat melempar ReferenceError → state saluran tidak pernah
+  diperbarui dari server → "udah diikuti, buka lagi malah Ikuti", "Firebase gak
+  jalan". FIX: helper didefinisikan + peta `followPending` (status ikuti yang
+  belum dikonfirmasi server ditempel ulang ke tiap snapshot, lalu dihapus saat
+  server sudah mencerminkannya).
+- **ERROR PAS PENCET "IKUTI"** dijelaskan AKAR-NYA: lokal basi (tampil "Ikuti"
+  padahal server sudah mengikuti) → arrayUnion no-op (anggota tidak bertambah)
+  → rules menolak (self-join wajib +1) → banner "Gagal mengikuti". Kini: gagal
+  tulis → rollback + getDoc penyegaran; PEMILIK saluran tidak lagi diperlihatkan
+  tombol Ikuti sama sekali (ChatRoom, DiscoverTab, ChatInfo) — lencana
+  "Pemilik saluran"/"Pemilik".
+- **UJI LIVE RULES** (akun sementara via identitytoolkit + Firestore REST):
+  self-join saluran HTTP 200, unfollow HTTP 200, members kembali semula —
+  aturan Firebase TERBUKTI jalan; masalah murni di klien.
+- **CENTANG BIRU DOBEL (ChatRoom)**: header chat pribadi merender
+  VerifiedBadge TERPISAH + UserBadges (yang juga berisi VerifiedBadge) → 2
+  centang berdampingan. Kini chat pribadi cukup UserBadges; grup/saluran tetap
+  satu chatBadge. Tidak ada double di seluruh layar.
+- **KARTU FOLLOWERS/REAKSI KEMBALI SATU**: sesi terputus merender DUA kartu
+  (satu per produk) — keluhan "kok malah 2". Kini SATU kartu dengan toggle di
+  dalamnya, label rapi sesuai kata user: atas "Followers Saluran", bawah
+  "Saluran Reaksi"; harga pendek (Rp3rb/5) ikut harga admin.
+- **CEK NOMOR HTTP 404** — bukti: v24 (yang terdeploy) TIDAK punya fallback →
+  upstream Vanzz flaky 404 langsung jadi deliveryError. Kode kini punya
+  `nomorFallback` (prefiks resmi operator Indonesia) + retry 2x, jadi order
+  SELALU terisi data; kartu hasil menampilkan operator/jangkauan/status kartu/
+  berlaku/estimasi paket/kondisi (bukan "true").
+- **IP TRACKER** (produk berbayar Rp5.000, harga bisa diubah admin): sudah
+  terdaftar di API_PRODUCTS + fallback server ipwho.is bila upstream mati;
+  kartu hasil lengkap (negara/wilayah/kota/ISP/ASN/zona waktu/proxy).
+- **ADMIN PANEL — HARGA & MONITORING** (lengkap dari sesi terputus, kini
+  terkompilasi & terbangun): PricingPanel mengedit SEMUA harga (VIP, Member,
+  Centang Biru, Keamanan per paket + semua produk API + % komisi) — tersimpan
+  di config/pricing, berlaku real-time ke semua pengguna; SalesMonitoringPanel:
+  total duit masuk, komisi, total terjual, masuk hari ini, netto, menunggu
+  konfirmasi + bar PRODUK TERPOPULER.
+- **TOMBOL SALIN TOKEN** besar di bawah blok token (dulu teks kecil di ujung
+  kanan yang gampang kelewat); **CUACA** responsif (kolom menyusut di layar
+  sempit, chip wrap, jam-jaman geser); berita/anime `stripHtml` + pencari
+  gambar tersembunyi (anti bocor `href="https…`, gambar ikut tampil).
+- tsc 0 error; expo export web sukses; ikut CI build APK & deploy Vercel.

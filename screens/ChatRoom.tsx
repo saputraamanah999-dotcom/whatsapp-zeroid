@@ -248,12 +248,14 @@ export default function ChatRoom() {
         subtitle={subtitle}
         subtitleNode={anyoneTyping ? <TypingSubtitle name={chat.type === 'direct' || chat.type === 'ai' ? undefined : db.users[typing[0]]?.name.split(' ')[0]} /> : undefined}
         titleNode={
-          // CENTANG BIRU DI SAMPING NAMA — semua akun terverifikasi (termasuk
-          // developer & admin) menunjukkan lencananya langsung di kepala chat.
+          // CENTANG BIRU DI SAMPING NAMA — v25 ANTI-DOUBLE: chat pribadi CUKUP
+          // UserBadges (centang biru + VIP + member + developer sudah termasuk).
+          // Dulu VerifiedBadge terpisah + UserBadges = CENTANG DOBEL berdampingan.
+          // Grup/saluran tetap pakai chatBadge (satu centang untuk chat-nya).
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
             <T v="h3" numberOfLines={1} style={{ fontSize: 18, flexShrink: 1 }}>{title}</T>
             {chat.type === 'direct'
-              ? (peer && (peer.blueCheck || peer.developer || peer.role === 'admin' || peer.role === 'developer')) && <VerifiedBadge size={15} animate={false} />
+              ? null
               : chatBadge(chat, db) ? <VerifiedBadge size={15} animate={false} /> : null}
             {chat.type === 'direct' && peer && <UserBadges user={peer} size={14} />}
           </View>
@@ -448,7 +450,17 @@ export default function ChatRoom() {
               <T v="sub" style={{ flex: 1 }}>
                 Hanya admin yang dapat mengirim pesan. Tekan lama untuk bereaksi.
               </T>
-              <Btn small variant={chat.members.includes(me.id) ? 'neu' : 'primary'} title={chat.members.includes(me.id) ? 'Berhenti ikuti' : 'Ikuti'} onPress={() => toggleFollow(chatId)} />
+              {/* v25: PEMILIK saluran → lencana "Pemilik" (bukan tombol Ikuti/Berhenti).
+                  Dulu pemilik melihat tombol "Ikuti" lagi karena members basi →
+                  pencet → tulisan no-op ditolak rules → "error pas pencet ikuti". */}
+              {chat.createdBy === me.id ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: t.accentSoft }}>
+                  <Ionicons name="megaphone" size={13} color={t.accent} />
+                  <T v="caption" color={t.accent} style={{ fontWeight: '800' }}>Pemilik saluran</T>
+                </View>
+              ) : (
+                <Btn small variant={chat.members.includes(me.id) ? 'neu' : 'primary'} title={chat.members.includes(me.id) ? 'Berhenti ikuti' : 'Ikuti'} onPress={() => toggleFollow(chatId)} />
+              )}
             </View>
           )}
         </View>

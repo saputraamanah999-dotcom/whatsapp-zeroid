@@ -1804,13 +1804,38 @@ export function toggleChatFlag(chatId: string, flag: 'pinnedBy' | 'mutedBy' | 'a
 }
 
 /**
+ * v25 FOLLOW PENDING — jembatan antara tulisan optimistik dan snapshot server.
+ * Masalah lama (terbukti): saat tulis "ikuti" masih dalam penerbangan, snapshot
+ * server bisa datang TANPA uid kita → tampilan balik ke "Ikuti" (tidak real-time,
+ * "udah diikuti malah pas buka lagi ikuti"). Fungsi ini MENEMPEL ulang status
+ * mengikuti yang belum dikonfirmasi server ke setiap snapshot chat masuk, lalu
+ * menghapus dirinya sendiri begitu server benar-benar mencerminkan status itu.
+ */
+const followPending = new Map<string, { uid: string; adding: boolean }>();
+
+function applyFollowPending(chatId: string, data: any) {
+  const p = followPending.get(chatId);
+  if (!p) return data;
+  const members: string[] = Array.isArray(data?.members) ? data.members : [];
+  const has = members.includes(p.uid);
+  // server sudah mencerminkan operasi → selesai, berhenti menimpa snapshot
+  if (p.adding === has) { followPending.delete(chatId); return data; }
+  return { ...data, members: p.adding ? [...members, p.uid] : members.filter((x: string) => x !== p.uid) };
+}
+
+/**
  * IKUTI / BERHENTI IKUTI SALURAN — v25:
  *  · OPTIMISTIK: tombol berubah SEKETIKA (dulu nunggu snapshot → terasa
  *    "gak real-time", kadang balik ke "Ikuti" padahal sudah mengikuti).
+ *  · applyFollowPending menjaga tampilan tetap konsisten selama tulisan
+ *    di penerbangan (lihat atas).
  *  · GAGAL SERVER → state dikembalikan + banner alasan (dulu .catch(() => {})
  *    diam-diam → user bingung kenapa tetap "Ikuti").
  *  · PEMILIK saluran tidak boleh berhenti ikut salurannya sendiri (posisi
  *    pemilik/admin hilang kalau keluar dari members).
+ *  · SUDAH MENGIKUTI di server (lokal basi) → dianggap sukses, TIDAK mengirim
+ *    tulisan no-op yang pasti ditolak rules (anggota tidak bertambah) — dulu
+ *    inilah "error pas pencet tombol ikuti".
  */
 export function toggleFollow(chatId: string) {
   const me = getMe();
@@ -1827,13 +1852,21 @@ export function toggleFollow(chatId: string) {
   const next = isMember ? c.members.filter((x) => x !== me.id) : [...c.members, me.id];
   // 1) tampilkan dulu di layar (real-time terasa instan)
   db.chats = { ...db.chats, [chatId]: { ...c, members: next } };
+  followPending.set(chatId, { uid: me.id, adding: !isMember });
   bump();
   // 2) tulis ke server; gagal → kembalikan + beri tahu alasannya
-  updateDoc(doc(fb.db, C.chats, chatId), { members: isMember ? arrayRemove(me.id) : arrayUnion(me.id) }).catch((e) => {
-    db.chats = { ...db.chats, [chatId]: c };
-    bump();
-    pushBanner({ title: isMember ? 'Gagal berhenti ikuti' : 'Gagal mengikuti', body: fbError(e), icon: 'alert' });
-  });
+  updateDoc(doc(fb.db, C.chats, chatId), { members: isMember ? arrayRemove(me.id) : arrayUnion(me.id) })
+    .then(() => { followPending.delete(chatId); })
+    .catch((e) => {
+      followPending.delete(chatId);
+      db.chats = { ...db.chats, [chatId]: c };
+      bump();
+      pushBanner({ title: isMember ? 'Gagal berhenti ikuti' : 'Gagal mengikuti', body: fbError(e), icon: 'alert' });
+      // segarkan ulang dari server supaya lokal tidak tetap basi
+      getDoc(doc(fb.db, C.chats, chatId)).then((s) => {
+        if (s.exists()) { db.chats = { ...db.chats, [chatId]: mapChat(chatId, s.data()) }; bump(); }
+      }).catch(() => {});
+    });
 }
 
 export function setPostPolicy(chatId: string, policy: 'everyone' | 'admins') {

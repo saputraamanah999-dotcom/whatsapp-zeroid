@@ -43,8 +43,17 @@ export default function DiscoverTab() {
             {isFollowing ? `${compactId(followersCount(c))} pengikut · ${c.description ?? ''}` : messagePreview(last) || c.description}
           </T>
         </View>
+        {/* v25: PEMILIK saluran → lencana "Pemilik" (bukan tombol Ikuti/Berhenti).
+            Dulu pemilik melihat "Ikuti" lagi (members basi) → pencet → error rules. */}
         {isFollowing ? (
-          <Btn small title="Berhenti ikuti" variant="neu" onPress={() => toggleFollow(c.id)} style={{ height: 36 }} />
+          c.createdBy === me.id ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999, backgroundColor: t.accentSoft }}>
+              <Ionicons name="megaphone" size={12} color={t.accent} />
+              <T v="caption" color={t.accent} style={{ fontWeight: '800' }}>Pemilik</T>
+            </View>
+          ) : (
+            <Btn small title="Berhenti ikuti" variant="neu" onPress={() => toggleFollow(c.id)} style={{ height: 36 }} />
+          )
         ) : (
           <Btn small title="Ikuti" onPress={() => toggleFollow(c.id)} style={{ height: 36 }} />
         )}

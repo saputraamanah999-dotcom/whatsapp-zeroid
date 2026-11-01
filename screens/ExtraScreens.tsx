@@ -532,17 +532,19 @@ function d0(r: any): any { return r?.data && typeof r.data === 'object' ? r.data
 
 // ---------------- KARTU TUMBUH SALURAN (followers & reaksi) ----------------
 /**
- * v25 — DUA KARTU TERPISAH sesuai klarifikasi user: yang ATAS "Followers Saluran",
- * yang BAWAH "Reaksi Saluran" (dulu satu kartu dengan toggle → salah paham).
- * Isi kartu: pilih saluran beneran (nama + foto profil + jumlah pengikut ringkas),
- * kalau reaksi → RADIO pilih pesan yang mana (default pesan terakhir), harga
- * PENDEK (Rp3rb/5) yang ikut harga terbaru dari admin (config/pricing).
+ * v25.1 — KEMBALI SATU KARTU (keluhan user: "kok malah 2 ada followers saluran
+ * apalah"). Toggle DI DALAM kartu, labelnya RAPI persis kata user:
+ *   · pilihan ATAS  → "Followers Saluran"
+ *   · pilihan BAWAH → "Saluran Reaksi"
+ * Isi kartu: pilih saluran beneran (nama + foto profil + jumlah pengikut
+ * ringkas), kalau reaksi → RADIO pilih pesan yang mana (default pesan
+ * terakhir), harga PENDEK (Rp3rb/5) ikut harga terbaru admin (config/pricing).
  */
-function BoostCard({ lockedMode, onBuy }: { lockedMode: 'followers' | 'reaction'; onBuy: (product: ProductKey, meta: Record<string, string>) => void }) {
+function BoostCard({ onBuy }: { onBuy: (product: ProductKey, meta: Record<string, string>) => void }) {
   const t = useTheme();
   const { db } = useStore();
   const channels = useMemo(() => Object.values(db.chats).filter((c) => c.type === 'channel' && c.id !== '_schema'), [db.chats]);
-  const mode = lockedMode;
+  const [mode, setMode] = useState<'followers' | 'reaction'>('followers');
   const [chatId, setChatId] = useState<string>('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [amount, setAmount] = useState('100');
@@ -593,6 +595,14 @@ function BoostCard({ lockedMode, onBuy }: { lockedMode: 'followers' | 'reaction'
           {`${rupiahShort(perUnit)}/${unit}`}
         </T>
       </View>
+
+      {/* toggle pilihan — label RAPI sesuai kata user: atas "Followers Saluran",
+          bawah "Saluran Reaksi" (dulu "Pengikut | Reaksi" yang membingungkan) */}
+      <Segmented
+        value={mode}
+        onChange={(v: 'followers' | 'reaction') => setMode(v)}
+        options={[{ value: 'followers', label: 'Followers Saluran' }, { value: 'reaction', label: 'Saluran Reaksi' }] as any}
+      />
 
       {/* PEMILIH SALURAN: nama + foto profil + pengikut */}
       <Pressable onPress={() => setPickerOpen(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: R.md, backgroundColor: t.bg }}>
@@ -1017,26 +1027,18 @@ export function PremiumScreen() {
           {API_PRODUCTS.map((ap) => {
             const amountStr = apiMeta[`${ap.key}.amount`] ?? '';
             const shownPrice = ap.unit ? unitPriceOf(ap.key, Number((amountStr.replace(/[^0-9]/g, '')) || ap.minAmount || ap.unit)) : apiPriceOf(ap.key);
-            // FOLLOWERS & REAKSI → satu kartu khusus (pilih saluran asli + foto profil +
-            // jumlah pengikut + pesan reaksi). Harga pendek, tanpa form jelek.
-            // Toggle Pengikut/Reaksi ada di dalam kartu — cukup dirender SEKALI.
+            // FOLLOWERS & REAKSI → SATU kartu dengan toggle di dalamnya — dulu
+            // di-render 2x (satu per produk) sehingga user lihat "2 kartu sama".
             if (ap.key === 'followers') {
               return (
                 <BoostCard
-                  key="boost-followers"
-                  lockedMode="followers"
+                  key="boost-saluran"
                   onBuy={(product, meta) => openBuy(product, 0, meta)}
                 />
               );
             }
             if (ap.key === 'reaction') {
-              return (
-                <BoostCard
-                  key="boost-reaction"
-                  lockedMode="reaction"
-                  onBuy={(product, meta) => openBuy(product, 0, meta)}
-                />
-              );
+              return null; // sudah dirender oleh kartu tunggal di atas
             }
             return (
             <Neu key={ap.key} inset radius={R.lg} style={{ padding: 14, marginTop: 10, gap: 10 }}>
