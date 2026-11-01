@@ -974,3 +974,28 @@ probe endpoint produksi sebelum & sesudah perubahan — bukan asumsi).
   sempit, chip wrap, jam-jaman geser); berita/anime `stripHtml` + pencari
   gambar tersembunyi (anti bocor `href="https…`, gambar ikut tampil).
 - tsc 0 error; expo export web sukses; ikut CI build APK & deploy Vercel.
+
+### v25.1 — BUKTI UJI LIVE (semua dijalankan nyata, bukan asumsi)
+- **UJI ATURAN IKUTI SALURAN (live REST)**: akun sementara → self-join
+  `ch_zeroid_ai` HTTP 200 → unfollow HTTP 200 → members kembali semula.
+  Firebase rules TERBUKTI jalan; masalah user murni klien (helper hilang).
+- **E2E CEK NOMOR (live)**: order dibuat → paid → deliver `/api/vanzz` →
+  hasil NYATA "081234567890 · Telkomsel 0812" tersimpan di order → order uji
+  dihapus. Tidak ada lagi HTTP 404.
+- **BUG BARU TERTANGKAP di E2E IP TRACKER**: upstream membalas HTTP 200
+  berisi halaman HTML "404 Not Found | Vanzz API" → dulu HTML disimpan sbg
+  "hasil" pesanan! FIX `vanzzGet`: respons text/html / `<!DOCTYPE` dianggap
+  GAGAL → retry → fallback ipwho.is jalan.
+- **E2E IP TRACKER (live, setelah fix)**: deliver ok + fallback:True → hasil
+  nyata "114.10.40.10 → Indonesia · Sumatra · Medan · PT. INDOSAT Tbk ·
+  AS4761 · Asia/Jakarta +07:00" → order uji dihapus.
+- **config/pricing (live)**: admin tulis HTTP 200 — komisi 10%, iptracker 5000,
+  VIP 25rb/65rb/199rb tersimpan; panel harga admin pakai mekanisme yang sama.
+- **Deploy**: Vercel hijau a6875d82; bundle web terverifikasi memuat semua
+  perbaikan ("Pemilik saluran", "Followers Saluran"/"Saluran Reaksi", "Salin
+  token", "IP Tracker", "Harga produk", "PRODUK TERPOPULER").
+- **APK 1.6.9 (versionCode 15)** dibangun CI dari a925d41 (semua fitur v24 +
+  v25.1; fix server vanzz otomatis ikut karena berjalan di /api).
+- **ZIP final** `ZEROID-WHATSAPP-FIXED-COMPLETE.zip` (81 MB, 577 file): source
+  + rules + indexes + functions + docs + .env.example + APK 1.6.9 di release/
+  — tanpa node_modules/.git/.env/kredensial.
