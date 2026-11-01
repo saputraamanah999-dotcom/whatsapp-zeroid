@@ -1,5 +1,113 @@
 # WORKLOG — ZEROID WHATSAPP
 
+## Ronde: v26 — LAPORAN PENUH (2026-11-01) — semua diuji LIVE di produksi (commit 70e5979)
+
+### 1. IP TRACKER → ADMIN PANEL (khusus Developer, GRATIS)
+- DIPINDAH dari produk berbayar: `lib/products.ts` (API_PRODUCTS tanpa iptracker;
+  LEGACY_API_PRODUCTS menjaga riwayat pesanan lama tetap berjudul benar).
+- `api/vanzz.ts` action `iptrack`: verifikasi role developer (users/{uid}) →
+  ipwho.is → kartu data bersih (negara/kota/ISP/ASN/proxy). Tanpa kunci Vanzz.
+- UI: Admin panel › Sistem › "IP Tracker · khusus Developer" (input IP +
+  "Lacak IP saya"). VERIFIKASI LIVE: 114.10.40.10 → Medan · PT. INDOSAT Tbk (AS4761) ✓
+- ANTI-MUNTAH-KODE: order lama yang hasilnya payload HTML (`bodyType:"html"`)
+  kini dideteksi (`looksLikeCodeStr`) → diganti catatan rapi; pratinjau admin
+  pakai `orderResultPreview` (tanpa JSON/HTML mentah lagi).
+
+### 2. ANIME — poster & nonton episode
+- BUKTI LIVE: CDN animein (poster & mp4 storages) 403 utk SEMUA akses langsung
+  → dulu Populer kotak hitam & episode gagal diputar.
+- Populer kini dari MyAnimeList TOP (poster resmi + skor); Terbaru otakudesu
+  (thumb i0.wp.com — 200 OK terbukti); fallback animein FYP tetap ada.
+- NONTON: layar Watch selalu menampilkan "Nonton episode ini di YouTube" —
+  pencarian otomatis per episode (3 varian kueri), diputar IN-APP
+  (iframe web / WebView APK). Detail anime (animein info) tetap hidup
+  (uji live: One Piece = 30 episode) ✓
+
+### 3. REAKSI RAPI
+- Angka reaksi pakai `compactId` (1.000 → 1rb, 2.500 → 2,5rb, dst);
+  emoji dengan 1 reaksi tampil TANPA angka (langsung gabung rapi).
+- Chip reaksi kini wrap + align sisi pengirim.
+
+### 4. HARGA DINAMIS PESANAN (RIWAYAT)
+- AKAR BUG: order produk satuan tanpa voucher TERSIMPAN Rp0 (plan.price=0).
+- FIX `createOrder`: unit product → total = unitPriceOf(jumlah terpilih);
+  label pesanan menampilkan jumlah ("5rb followers"). Uji: 5000 × Rp600 =
+  Rp3.000.000 tersimpan benar; pembeli lihat total yang sama di BoostCard →
+  sheet bayar → riwayat.
+
+### 5. AM SEND/VERIFY (AlightMotion)
+- Jalur utama Vanzz send-link/unlockVip (uji live: magic link TERKIRIM ✓).
+- CADANGAN BARU dapjisync (`am.dapjisync.my.id`, bypass key) — otomatis bila
+  utama gagal (service sedang maintenance — diuji, balik sendiri tanpa deploy).
+- Tahap 2 di riwayat pesanan + tombol "Masih gagal? Hubungi admin".
+
+### 6. AI GUARD — LAPORAN LANGSUNG KE DEVELOPER (tidak diem lagi)
+- AKAR: push FCM guard-enforce dulu via TOPIC — API IID sudah di-retire →
+  laporan TIDAK PERNAH sampai. Kini: push LANGSUNG KE TOKEN (fcmtokens) ✓
+- Laporan memuat DATA IP PELAKU: perangkat pelaku menulis IP publiknya ke
+  usermeta (field `lastIp`, rules diperbarui) → server resolve geo (ipwho.is)
+  → guardlog + notifikasi in-app admin/developer + push FCM.
+- Log guard di admin panel menampilkan baris "IP pelaku: x.x.x.x — kota, ISP".
+
+### 7. AI IMAGE GENERATION (4 provider milik pemilik)
+- Diuji LIVE satu per satu: SYLVATICA /api/ai/flux = JALAN ✓ (url webp);
+  VEXO duckaiimage & JEREXD txt2img = route ada (kadang maintenance → ikut
+  rantai otomatis); VSUNSEE = tidak punya endpoint gambar (404 terbukti) — skip jujur.
+- `api/ai` action `img` (rantai + pilihan provider user) + klien
+  `generateAIImage` + UI toggle "Buat gambar (AI Zeroid)" di chat AI dengan
+  chip pilih mesin (Auto/Sylvatica/Vexo/Jerexd). VERIFIKASI LIVE ✓
+  (hasil: https://danzy.web.id/sylva-*.webp)
+
+### 8. AGENT EKSEKUSI NYATA (terminal AI)
+- AI kini WAJIB menghasilkan blok ```html lengkap saat diminta buat
+  website/game → kartu ARTIFAK di chat: pratinjau jalan penuh (iframe/
+  WebView), Unduh .html (web), Salin — bukan lagi "cuman menganalisis".
+- Prompt persona diperbarui (KERJAKAN langsung, responsif mobile).
+
+### 9. MUSIK — MP3 ASLI + BACKGROUND + SPOTIFY KITA
+- AKAR "sumber audio langsung tidak tersedia": rantai lama hanya scraper
+  publik yang sering mati → jatuh ke embed mp4 (tidak bisa background).
+- KINI: mesin MP3 milik pemilik DI DEPAN rantai (jerexd ytmp3 → vexo ytmp3),
+  diuji live: stream = file MP3 asli gamma.123tokyo.xyz ✓ (embed:false).
+  Semua sumber dijalankan PARALEL (hemat budget 60 dtk function).
+- URL ytmp3 TIDAK dites playable() dari server — filehost memblokir IP
+  AWS; yang memutar adalah HP user (IP rumahan).
+- LAYAR: referensi trending LANGSUNG muncul saat dibuka (tanpa ngetik);
+  chip "Masuk sebagai <nama>" (tanpa login terpisah — pakai sesi WhatsApp);
+  FAVORIT tersimpan di STORAGE HP (AsyncStorage, lib/musicfav) + tombol hati
+  di setiap lagu.
+
+### 10. MIX AI — GABUNGAN LAGU (mashup)
+- Pilih 2-5 lagu favorit → diputar sebagai SATU mix: crossfade 6 detik
+  (web: dua <audio> + ramp volume; APK: antrean gapless). Tampilan
+  "A x B x C" ala referensi TikTok.
+
+### 11. KUNCI SIDIK JARI + PELANGGARAN
+- 2 pilihan kunci: PIN ATAU sidik jari (expo-local-authentication, baru di APK).
+- PalmScan: SVG telapak tangan beranimasi (sorot pemindai + cincin berputar +
+  status TERVERIFIKASI) — dipakai di layar kunci & daftar di Keamanan.
+- Pendaftaran TERSIMPAN KE FIREBASE (biometrics/{uid}: deviceHash+at; rules baru).
+- PELANGGARAN: HP/sidik BERBEDA mencoba buka → DITOLAK (layar merah serius),
+  login_violations tercatat (IP + perangkat), pemilik asli dapat notifikasi WA
+  (pusat notif + push FCM).
+
+### 12. PEMBAYARAN + UI REFERENSI + SUARA
+- QRIS + DANA + unggah bukti + pending → admin konfirmasi → eksekusi otomatis
+  (alur lengkap sudah ada; kini dibungkus UI baru).
+- FancyModal 3 varian sesuai gambar referensi: SUCCESS (konfeti + centang,
+  "Pesanan dibuat!"), CONFIRM, DELETE WARNING (merah + catatan permanen).
+- lib/sfx: CEKLING pembayaran sukses + pop/error/notify/orderIn — WebAudio
+  (web) & WAV runtime + expo-audio (APK) + getar halus.
+- Admin: konfirmasi/tolak order bersuara; hapus order pakai modal delete.
+
+### 13. VERIFIKASI LIVE PRODUKSI (login admin via REST)
+- login admin ✓ · iptrack ✓ · anime info (30 episode) ✓ · musik stream MP3 ✓
+- musik search (30 lagu) ✓ · AI image gen ✓ · yt_search ✓ · cuaca7 ✓
+- tsc 0 error · expo export web sukses · rules CI otomatis (lastIp, biometrics,
+  login_violations ditambahkan).
+- APK 1.7.0 (versionCode 16) — build otomatis via GitHub Actions (workflow
+  Build APK Zeroid) memuat SEMUA perbaikan v26 + modul biometrik.
+
 ## Ronde: v24 — VIDEO CALL TANPA MIRROR + STIKER FIXED + SIDEBAR PREMIUM + CUACA 7 HARI + ANIME ENGINE BARU (2026-10-31)
 
 Semua klaim di bawah diverifikasi LIVE (login admin gedejulianto148@gmail.com via REST,
