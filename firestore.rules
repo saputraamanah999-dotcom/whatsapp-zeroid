@@ -492,6 +492,29 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // ---- biometrics (v26: pendaftaran kunci sidik jari per akun) ----
+    // HANYA perangkat pemilik yang mendaftar; sidik asli tidak pernah keluar
+    // dari perangkat (Android Keystore) — yang disimpan: hash perangkat + waktu.
+    match /biometrics/{uid} {
+      allow get: if signedIn() && (uid == me() || isAdmin());
+      allow list: if isAdmin();
+      allow create: if request.auth.uid == uid
+        && request.resource.data.diff({}).affectedKeys().hasOnly(['uid','on','deviceHash','at']);
+      allow update: if request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid','on','deviceHash','at']);
+      allow delete: if isAdmin() || (signedIn() && uid == me());
+    }
+
+    // ---- login_violations (v26: percobaan masuk akun dgn perangkat/sidik beda) ----
+    // Catatan PELANGGARAN (IP + perangkat + waktu) — dibaca developer/admin,
+    // dibuat oleh perangkat pelanggar (terbukti oleh sistem, bukan opini user).
+    match /login_violations/{id} {
+      allow get, list: if isMod();
+      allow create: if signedIn() && request.resource.data.get('uid', '') == me()
+        && request.resource.data.diff({}).affectedKeys().hasOnly(['uid','email','deviceHash','ip','at']);
+      allow update, delete: if isAdmin();
+    }
+
     // ---- appeals (user kirim keterangan saat dibanned — seperti WhatsApp) ----
     // PENTING: pengguna yang SEDANG dibanned harus tetap bisa mengirim banding,
     // jadi create TIDAK memakai notBanned().

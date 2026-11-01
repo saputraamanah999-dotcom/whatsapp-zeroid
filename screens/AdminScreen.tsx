@@ -30,6 +30,8 @@ import { subscribeAllFeedback, answerFeedback, deleteFeedback } from '../lib/fee
 import { Feedback as FeedbackType } from '../lib/types';
 import { subscribeVouchers, adminVoucherCreate, adminVoucherToggle, adminVoucherDelete, Voucher } from '../lib/vouchers';
 import { vanzzIpTrack } from '../lib/vanzz';
+import FancyModal from '../components/FancyModal';
+import { sfx, haptic } from '../lib/sfx';
 import { onSnapshot, doc as fsDoc, setDoc as fsSetDoc, collection as fsCol, getFirestore } from 'firebase/firestore';
 
 type GuardLog = {
@@ -1421,8 +1423,8 @@ export default function AdminScreen() {
                   {!!o.adminNote && <T v="caption" color={t.sub}>Catatan: {o.adminNote}</T>}
                   {o.status === 'pending' ? (
                     <View style={{ flexDirection: 'row', gap: 10 }}>
-                      <Btn small icon="checkmark" title="Konfirmasi" onPress={() => adminDecideOrder(o.id, true)} style={{ flex: 1 }} />
-                      <Btn small variant="neu" title="Tolak" onPress={() => adminDecideOrder(o.id, false)} style={{ flex: 1 }} />
+                      <Btn small icon="checkmark" title="Konfirmasi" onPress={() => { sfx('success'); haptic('success'); adminDecideOrder(o.id, true); }} style={{ flex: 1 }} />
+                      <Btn small variant="neu" title="Tolak" onPress={() => { sfx('error'); haptic('error'); adminDecideOrder(o.id, false); }} style={{ flex: 1 }} />
                     </View>
                   ) : (
                     <T v="sub" color={o.status === 'paid' ? t.success : t.danger}>
@@ -1826,12 +1828,12 @@ export default function AdminScreen() {
           <Btn small icon="checkmark" title="Simpan catatan" onPress={() => { if (editOrder) adminUpdateOrder(editOrder, { adminNote: editNote.trim() }); setEditOrder(null); }} />
         </View>
       </Sheet>
-      <Confirm
+      <FancyModal
         visible={!!deleteOrderId}
+        variant="delete"
         title="Hapus transaksi ini?"
-        body="Transaksi dihapus dari daftar dan tidak bisa dikembalikan. Data pembayaran/bukti ikut hilang."
+        body="Transaksi dihapus dari daftar. Data pembayaran/bukti ikut hilang."
         confirm="Hapus"
-        danger
         onConfirm={() => { if (deleteOrderId) adminDeleteOrder(deleteOrderId); setDeleteOrder(null); }}
         onClose={() => setDeleteOrder(null)}
       />

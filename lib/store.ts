@@ -3537,6 +3537,103 @@ export function clearLock() {
   bump();
 }
 
+// ===========================================================================
+// KUNCI BIOMETRIK — SIDIK JARI / TELAPAK TANGAN (v26)
+// 2 pilihan kunci: PIN atau sidik jari (expo-local-authentication). Pendaftaran
+// sidik TERSIMPAN KE FIREBASE (koleksi biometrics/{uid}: perangkat + waktu),
+// sedangkan sidik asli TIDAK PERNAH keluar dari perangkat (Android Keystore).
+// PELANGGARAN: kalau akun dibuka dari HP/sidik yang BERBEDA dari yang
+// terdaftar → akses DITOLAK + pelanggaran tercatat (login_violations: IP +
+// perangkat) + pemilik asli mendapat notifikasi WA (pusat notif + push FCM).
+// ===========================================================================
+export type BioInfo = { on: boolean; deviceHash: string; at: number } | null;
+let bioInfo: BioInfo = null;
+export const bioNow = (): BioInfo => bioInfo;
+
+/** Muat pendaftaran biometrik pemilik akun (dipanggil LockScreen/Security). */
+export async function loadBioInfo(): Promise<BioInfo> {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFirebaseConfigured) { bioInfo = null; return null; }
+  try {
+    const s = await getDoc(doc(fb.db, 'biometrics', me.id));
+    const d = s.exists() ? (s.data() as any) : null;
+    bioInfo = d?.on ? { on: true, deviceHash: String(d.deviceHash ?? ''), at: Number(d.at ?? 0) } : null;
+  } catch { bioInfo = null; }
+  bump();
+  return bioInfo;
+}
+
+/** Aktif/matikan kunci sidik jari — verifikasi biometrik perangkat dulu. */
+export async function enrollBio(on: boolean): Promise<{ ok: boolean; error?: string }> {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFirebaseConfigured) return { ok: false, error: 'Belum masuk.' };
+  if (on) {
+    try {
+      const LA = require('expo-local-authentication');
+      const has = await LA.hasHardwareAsync().catch(() => false);
+      const enrolled = await LA.isEnrolledAsync().catch(() => false);
+      if (!has || !enrolled) return { ok: false, error: 'Perangkat belum punya sidik jari — daftarkan dulu di Pengaturan Android › Keamanan.' };
+      const r = await LA.authenticateAsync({ promptMessage: 'Verifikasi sidik jari untuk mengaktifkan kunci biometrik', cancelLabel: 'Batal' });
+      if (!r?.success) return { ok: false, error: 'Verifikasi dibatalkan.' };
+    } catch { return { ok: false, error: 'Biometrik tidak tersedia di perangkat ini.' }; }
+  }
+  const dh = await getDeviceHash();
+  try {
+    await setDoc(doc(fb.db, 'biometrics', me.id), clean({ uid: me.id, on, deviceHash: dh || '', at: Date.now() }));
+    bioInfo = on ? { on: true, deviceHash: dh || '', at: Date.now() } : null;
+    bump();
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: fbError(e) };
+  }
+}
+
+/** Buka kunci lewat SIDIK JARI perangkat (hanya perangkat terdaftar). */
+export async function bioUnlock(): Promise<{ ok: boolean; mismatch?: boolean; error?: string }> {
+  const me = getMe();
+  if (!me) return { ok: false, error: 'Belum masuk.' };
+  const bio = bioInfo ?? (await loadBioInfo());
+  if (!bio?.on) return { ok: false, error: 'Sidik jari belum diaktifkan.' };
+  const dh = await getDeviceHash();
+  // PERANGKAT BERBEDA → PELANGGARAN SERIUS: tolak + catat IP + peringatkan pemilik
+  if (bio.deviceHash && dh && bio.deviceHash !== dh) {
+    await reportBioViolation();
+    return { ok: false, mismatch: true };
+  }
+  try {
+    const LA = require('expo-local-authentication');
+    const r = await LA.authenticateAsync({ promptMessage: 'Buka kunci dengan sidik jari kamu', cancelLabel: 'Pakai PIN' });
+    if (!r?.success) return { ok: false, error: 'Verifikasi dibatalkan.' };
+    locked = false;
+    if (isWeb) window.sessionStorage.setItem(LOCK_KEY, '1');
+    else AsyncStorage.setItem(LOCK_KEY, '1').catch(() => {});
+    bump();
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'Biometrik tidak tersedia.' };
+  }
+}
+
+/** CATAT PELANGGARAN LOGIN — akses akun dari perangkat/sidik berbeda: IP +
+ *  perangkat tercatat, pemilik asli langsung diperingatkan (notif + push). */
+export async function reportBioViolation(): Promise<void> {
+  const me = getMe();
+  const fb = firebase();
+  if (!me || !fb || !isFirebaseConfigured) return;
+  const dh = await getDeviceHash();
+  let ip = '';
+  try {
+    const g = await proxyGet('/api/guard?action=ip-ban', 10000);
+    if (g.ok) ip = String(g.data?.ip ?? '').slice(0, 45);
+  } catch { /* jaringan mati — tetap catat tanpa IP */ }
+  try {
+    await addDoc(collection(fb.db, 'login_violations'), clean({ uid: me.id, email: String(me.email ?? '').slice(0, 120), deviceHash: dh || '', ip, at: Date.now() }));
+  } catch { /* best effort */ }
+  notifyFor(me.id, 'admin', '⚠️ Ada yang mencoba masuk ke akunmu', `Perangkat & sidik jari BERBEDA terdeteksi${ip ? ` (IP ${ip})` : ''} — akses DITOLAK. Kalau ini bukan kamu, segera ganti password.`, {});
+}
+
 // ============================ OTP via Trigger Email extension ============================
 
 export async function sendOtp(userId: string): Promise<'firebase' | 'unavailable'> {

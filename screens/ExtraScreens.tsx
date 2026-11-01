@@ -25,6 +25,9 @@ import {
   setPin,
   unlock,
   logout,
+  loadBioInfo,
+  bioUnlock,
+  enrollBio,
   setUsername,
   updateMe,
   createSticker,
@@ -53,6 +56,9 @@ import { MusicSong, MusicPlaylist, MusicArtist, musicSearch, TRENDING } from '..
 import { play as playSong, openFull, usePlayer } from '../lib/player';
 import { useMusicFavs, loadFavs, isFav, toggleFav as toggleSongFav, removeFav } from '../lib/musicfav';
 import { startMix, stopMix } from '../lib/player';
+import PalmScan from '../components/PalmScan';
+import FancyModal from '../components/FancyModal';
+import { sfx, haptic } from '../lib/sfx';
 import FirePet from '../components/FirePet';
 import { fireState, reviveFire, FIRE_MIN_STREAK, REVIVES_PER_MONTH } from '../lib/streak';
 import { setTheme } from '../lib/store';
@@ -750,6 +756,9 @@ export function PremiumScreen() {
   const [payStep, setPayStep] = useState<'method' | 'pay'>('method');
   const [payMethod, setPayMethod] = useState<'qris' | 'dana' | 'koin'>('qris');
   const [activeOrder, setActiveOrder] = useState<{ orderId: string; chatId: string } | null>(null);
+  // v26: SUCCESS MODAL (referensi WA0060) — muncul setelah pesanan dibuat /
+  // bukti terkirim, lengkap dengan suara CEKLING + konfeti SVG.
+  const [placed, setPlaced] = useState<{ title: string; body: string } | null>(null);
   const [qrisImg, setQrisImg] = useState<string | null>(null);
   const [qrisBusy, setQrisBusy] = useState(false);
   const [proofBusy, setProofBusy] = useState(false);
@@ -813,12 +822,12 @@ export function PremiumScreen() {
         pushBanner({ title: `Voucher ${rd.voucher.code} terpakai`, body: `Diskon ${rd.voucher.percent}% — kamu bayar ${rupiah(paid)} (normal ${rupiah(original)}).`, icon: 'ticket' });
       }
       setVoucher(null); setVCode(''); setVMsg(null);
-      if (r && 'chatId' in r) nav.navigate('ChatRoom', { chatId: r.chatId });
+      if (r && 'chatId' in r) { setPlaced({ title: 'Pesanan dibuat!', body: `${productOf(product).title} — ${rupiah(paid)}. Menunggu konfirmasi admin, lalu fitur langsung aktif.` }); }
       return;
     }
     const r = createOrder(product, plan, method);
     if (r && 'error' in r) { pushBanner({ title: 'Pembelian dibatasi', body: r.error, icon: 'alert' }); return; }
-    if (r && 'chatId' in r) nav.navigate('ChatRoom', { chatId: r.chatId });
+    if (r && 'chatId' in r) { setPlaced({ title: 'Pesanan dibuat!', body: `${productOf(product).title} — menunggu konfirmasi admin, lalu fitur langsung aktif.` }); }
   };
 
   // ================= ALUR PEMBAYARAN BARU (QRIS + DANA + BUKTI) =================
@@ -867,7 +876,7 @@ export function PremiumScreen() {
       pushBanner({ title: 'Dibayar dengan koin', body: `${need.toLocaleString('id-ID')} koin terpakai — menunggu konfirmasi admin.`, icon: 'checkmark-circle' });
       setVoucher(null); setVCode(''); setVMsg(null);
       setBuy(null);
-      if (r && 'chatId' in r) nav.navigate('ChatRoom', { chatId: r.chatId });
+      setPlaced({ title: 'Pesanan dibuat!', body: `Dibayar ${need.toLocaleString('id-ID')} koin — menunggu konfirmasi admin, lalu fitur langsung aktif.` });
       return;
     }
     // QRIS / DANA → order dibuat dulu (pending), lalu unggah bukti
@@ -922,6 +931,11 @@ export function PremiumScreen() {
       if (!up?.url) throw new Error('Upload bukti gagal — coba lagi.');
       const r = await attachOrderProof(oid, up.url);
       if (!r.ok) pushBanner({ title: 'Bukti gagal dikirim', body: r.error ?? 'Coba lagi.', icon: 'alert' });
+      else {
+        sfx('success'); haptic('success');
+        setBuy(null); setActiveOrder(null);
+        setPlaced({ title: 'Bukti terkirim — pesanan dibuat!', body: 'Admin akan mengonfirmasi pembayaranmu. Setelah itu pesanan langsung dieksekusi otomatis.' });
+      }
     } catch (e: any) {
       pushBanner({ title: 'Bukti gagal', body: String(e?.message ?? 'Coba lagi.').slice(0, 140), icon: 'alert' });
     } finally {
@@ -1229,6 +1243,14 @@ export function PremiumScreen() {
           </View>
         )}
       </Sheet>
+      {/* v26: SUCCESS MODAL (referensi "Order Placed!") — suara cekling + konfeti */}
+      <FancyModal
+        visible={!!placed}
+        variant="success"
+        title={placed?.title ?? ''}
+        body={placed?.body}
+        onClose={() => setPlaced(null)}
+      />
     </Screen>
   );
 }
@@ -1242,6 +1264,10 @@ export function SecurityScreen() {
   const [pin, setPinInput] = useState('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [sending, setSending] = useState(false);
+  // v26: KUNCI SIDIK JARI — pendaftaran tersimpan ke Firebase (biometrics/{uid})
+  const [bio, setBio] = useState<{ on: boolean; deviceHash: string; at: number } | null>(null);
+  const [bioBusy, setBioBusy] = useState(false);
+  useEffect(() => { void loadBioInfo().then((b) => setBio(b)); }, []);
   if (!me) return null;
   return (
     <Screen>
@@ -1290,6 +1316,36 @@ export function SecurityScreen() {
               <NeuInput icon="lock-closed" placeholder="PIN baru" secureTextEntry keyboardType="number-pad" value={pin} onChangeText={(s) => setPinInput(s.replace(/\D/g, '').slice(0, 6))} />
               <Btn small title={me.pin ? 'Ganti PIN' : 'Aktifkan PIN'} icon="lock-closed" disabled={pin.length < 4} onPress={() => (setPin(pin), setPinInput(''), pushBanner({ title: 'PIN disimpan', body: 'Aplikasi akan meminta PIN saat dibuka.', icon: 'lock-closed' }))} />
               {!!me.pin && <Btn small variant="ghost" title="Matikan PIN" onPress={() => setPin(null)} />}
+              {/* v26: pilihan kedua — SIDIK JARI (pemindai telapak tangan) */}
+              <View style={{ height: 1, backgroundColor: t.border }} />
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Ionicons name="finger-print" size={20} color={bio?.on ? t.success : t.sub} />
+                <View style={{ flex: 1 }}>
+                  <T style={{ fontWeight: '800' }}>Kunci sidik jari</T>
+                  <T v="caption" color={t.faint} style={{ lineHeight: 17 }}>
+                    {bio?.on ? 'Aktif — layar kunci menampilkan pemindai telapak tangan. HP lain/sidik berbeda otomatis DITOLAK + pelanggaran IP tercatat + kamu diberi peringatan.' : 'Daftarkan sidik jari HP ini. Saat membuka kunci kamu bisa pilih sidik ATAU PIN.'}
+                  </T>
+                </View>
+              </View>
+              <Btn
+                small
+                title={bio?.on ? 'Matikan sidik jari' : 'Daftarkan sidik jari'}
+                icon={bio?.on ? 'close-circle' : 'finger-print'}
+                variant={bio?.on ? 'ghost' : 'primary'}
+                loading={bioBusy}
+                onPress={async () => {
+                  setBioBusy(true);
+                  const r = await enrollBio(!(bio?.on));
+                  setBioBusy(false);
+                  if (r.ok) {
+                    const b = await loadBioInfo();
+                    setBio(b);
+                    pushBanner({ title: bio?.on ? 'Sidik jari dimatikan' : 'Sidik jari terdaftar ✓', body: bio?.on ? 'Kunci kembali pakai PIN saja.' : 'Tersimpan ke akunmu — perangkat lain dengan sidik berbeda akan ditolak.', icon: 'finger-print' });
+                  } else {
+                    setMsg({ ok: false, text: r.error ?? 'Gagal.' });
+                  }
+                }}
+              />
             </View>
           ) : (
             <View style={{ padding: 12, gap: 12 }}>
@@ -1816,25 +1872,84 @@ export function SetUsernameScreen() {
   );
 }
 
-// ---------------- PIN lock ----------------
+// ---------------- PIN lock + SIDIK JARI (v26) ----------------
+/**
+ * LAYAR KUNCI — 2 pilihan sesuai permintaan: PIN atau SIDIK JARI.
+ * - Sidik jari: pemindai telapak tangan SVG beranimasi (PalmScan) → verifikasi
+ *   perangkat → terverifikasi pemilik sah. Pendaftaran tersimpan di Firebase.
+ * - PELANGGARAN: akun dibuka dari HP/sidik BERBEDA dari yang terdaftar →
+ *   akses DITOLAK total (layar merah serius) + IP & perangkat tercatat +
+ *   pemilik asli menerima peringatan di notifikasi WA-nya.
+ */
 export function LockScreen() {
   const t = useTheme();
   const { me } = useStore();
   const [pin, setPinInput] = useState('');
   const [err, setErr] = useState('');
+  const [bioState, setBioState] = useState<'idle' | 'scanning' | 'ok' | 'fail'>('idle');
+  const [bio, setBio] = useState<{ on: boolean; deviceHash: string; at: number } | null>(null);
+  const [violation, setViolation] = useState(false);
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const b = await loadBioInfo();
+      if (alive) setBio(b);
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const doBio = async () => {
+    setBioState('scanning');
+    const r = await bioUnlock();
+    if (r.ok) { setBioState('ok'); return; }
+    if (r.mismatch) { setViolation(true); setBioState('fail'); return; }
+    setBioState('fail');
+    setErr(r.error ?? 'Verifikasi gagal.');
+    setTimeout(() => setBioState('idle'), 1600);
+  };
+
+  // ===== PELANGGARAN SERIUS — perangkat/sidik berbeda mencoba masuk =====
+  if (violation) {
+    return (
+      <Screen>
+        <View style={{ flex: 1, justifyContent: 'center', padding: 26, gap: 16, alignItems: 'center', maxWidth: 420, width: '100%', alignSelf: 'center' }}>
+          <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: 'rgba(255,90,95,0.14)', alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="warning" size={44} color="#FF5A5F" />
+          </View>
+          <T v="h2" style={{ textAlign: 'center' }} color="#FF5A5F">AKSES DITOLAK — PELANGGARAN</T>
+          <T v="sub" color={t.sub} style={{ textAlign: 'center', lineHeight: 22 }}>
+            Perangkat & sidik jari ini TIDAK COCOK dengan pendaftaran pemilik akun. IP dan perangkatmu sudah dicatat sebagai pelanggaran, dan pemilik asli akun SUDAH diberi peringatan otomatis di WhatsApp-nya.
+          </T>
+          <Btn title="Keluar akun" variant="danger" icon="log-out" style={{ width: '100%' }} onPress={logout} />
+        </View>
+      </Screen>
+    );
+  }
+
   return (
     <Screen>
-      <View style={{ flex: 1, paddingTop: insets.top + 80, padding: 26, gap: 18, alignItems: 'center', maxWidth: 420, width: '100%', alignSelf: 'center' }}>
+      <View style={{ flex: 1, paddingTop: insets.top + 60, padding: 26, gap: 16, alignItems: 'center', maxWidth: 420, width: '100%', alignSelf: 'center' }}>
         <Avatar uri={me?.avatar} name={me?.name ?? ''} color={me?.color} size={90} />
         <T v="h2">Zeroid terkunci</T>
+        {/* pilihan kunci: sidik jari (bila terdaftar) ATAU PIN */}
+        {bio?.on && Platform.OS !== 'web' && (
+          <Pressable onPress={() => void doBio()} style={{ alignItems: 'center' }}>
+            <PalmScan state={bioState} size={176} />
+          </Pressable>
+        )}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, width: '100%' }}>
+          <View style={{ flex: 1, height: 1, backgroundColor: t.border }} />
+          <T v="caption" color={t.faint}>atau pakai PIN</T>
+          <View style={{ flex: 1, height: 1, backgroundColor: t.border }} />
+        </View>
         <NeuInput
           icon="keypad"
           placeholder="Masukkan PIN"
           secureTextEntry
           keyboardType="number-pad"
           value={pin}
-          autoFocus
           onChangeText={(s) => setPinInput(s.replace(/\D/g, '').slice(0, 6))}
           onSubmitEditing={() => (unlock(pin) ? null : setErr('PIN salah'))}
           containerStyle={{ width: '100%' }}
