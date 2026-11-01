@@ -108,6 +108,7 @@ export default function MeTab() {
         <Row icon="person" title="Edit profil" subtitle="Foto, nama tampilan, info" onPress={() => nav.navigate('EditProfile')} />
         <Row icon="lock-closed" title="Privasi" subtitle="Terakhir dilihat, foto profil, tanda dibaca, blokir" onPress={() => nav.navigate('Privacy')} />
         <Row icon="shield-checkmark" title="Keamanan" subtitle={`${me.otpVerified ? 'OTP Gmail terverifikasi' : 'Verifikasi OTP Gmail'}${me.security ? ' · PIN' : ''}`} onPress={() => nav.navigate('Security')} />
+        <Row icon="card" iconColor="#7B3BFF" title="Langganan & tagihan" subtitle="Sisa masa aktif, perpanjang paket, riwayat invoice" onPress={() => nav.navigate('Subscription')} />
         <Row icon="star" title="Pesan berbintang" subtitle={`${starred} pesan`} onPress={() => nav.navigate('Starred')} />
         <Row icon="musical-notes" iconColor="#1DB954" title="Musik" subtitle={me.spotify ? me.spotify.title : 'Spotify & YouTube — pasang di profil'} onPress={() => nav.navigate('Music')} />
         <Row icon="gift" iconColor="#FF7A9C" title="Menu Gratis" subtitle="Anime · Berita · Cuaca · Gempa · Quotes · AM Finder" onPress={() => nav.navigate('FreeMenu')} />

@@ -38,6 +38,7 @@ import MediaViewer from './screens/MediaViewer';
 import AdminScreen from './screens/AdminScreen';
 import ApiStatus from './screens/ApiStatus';
 import { UserProfile, PremiumScreen, SecurityScreen, MusicScreen, StickersScreen, SetUsernameScreen, LockScreen } from './screens/ExtraScreens';
+import SubscriptionScreen from './screens/SubscriptionScreen';
 import { AnimeScreen, AnimeDetailScreen, AnimeWatchScreen } from './screens/AnimeScreens';
 import { FreeMenuScreen } from './screens/FreeMenu';
 import { EditProfile, PrivacyScreen, NotifSettings, PermissionsScreen, NotificationsScreen, StarredScreen } from './screens/SettingsScreens';
@@ -566,6 +567,7 @@ export default function App() {
                   <Stack.Screen name="ApiStatus" component={ApiStatus} />
                   <Stack.Screen name="UserProfile" component={UserProfile} />
                   <Stack.Screen name="Premium" component={PremiumScreen} />
+                  <Stack.Screen name="Subscription" component={SubscriptionScreen} />
                   <Stack.Screen name="Security" component={SecurityScreen} />
                   <Stack.Screen name="Music" component={MusicScreen} />
                   <Stack.Screen name="Anime" component={AnimeScreen} />

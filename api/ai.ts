@@ -363,6 +363,25 @@ const VEXO_MODELS = [
   'qwen/qwen3-32b', 'llama-3.3-70b-versatile',
 ];
 
+// ---------------------------------------------------------------------------
+// 8 MODEL AI MODERN (v27) — SEMUA DIUJI LIVE 2026-11-01 (jawaban nyata, bukan
+// asumsi): setiap id di bawah membalas via Jerexd /api/ai/aichat dengan model
+// EXAK. Model ini jadi pilihan UTAMA pengguna di chat AI (chip teratas).
+// ---------------------------------------------------------------------------
+const MODERN_MODELS = [
+  'openai/gpt-5.6-terra',
+  'anthropic/claude-opus-4.8',
+  'anthropic/claude-sonnet-5',
+  'deepseek/deepseek-v4-pro',
+  'google/gemini-3.1-pro-preview',
+  'xai/grok-4.1-fast-non-reasoning',
+  'alibaba/qwen3-max',
+  'meta/llama-4-maverick',
+];
+
+/** Model Jerexd? (format "vendor/nama") → dipakai untuk routing EXAK. */
+const isModernModel = (m: string) => !!m && m.includes('/') && MODERN_MODELS.includes(m);
+
 async function vexoChat(messages: { role: string; content: string }[], timeoutMs: number): Promise<{ ok: boolean; text: string }> {
   const key = await apiKey('VEXO_APIKEY'); // env Vercel dulu, cadangan: secrets/ai (Firestore SA)
   if (!key) return { ok: false, text: '' };
@@ -437,10 +456,25 @@ function providerOrder(): ProviderId[] {
 }
 
 /** Jawab dengan SATU prompt penuh (sudah termasuk persona) — failover 4 penyedia.
- *  steps: jejak percobaan tiap penyedia (terminal preview agent). */
+ *  steps: jejak percobaan tiap penyedia (terminal preview agent).
+ *  v27: model modern pilihan pengguna (mis. "google/gemini-3.1-pro-preview")
+ *  dicoba DULU via Jerexd dengan model EXAK sebelum rantai normal. */
 async function chatFullPrompt(fullPrompt: string, model: string, budgetMs: number, sessionId = '', steps?: { provider: string; ok: boolean; ms: number }[]): Promise<{ text: string; provider: ProviderId } | null> {
   const t0 = Date.now();
   const slice = fullPrompt.slice(0, 3600);
+  // PRIORITAS: model modern EXAK pilihan pengguna (format vendor/nama)
+  if (isModernModel(model) || (model && model.includes('/')) ) {
+    const per = Math.min(Math.max(budgetMs - 4000, 8000), 50000);
+    const st0 = Date.now();
+    try {
+      const r = await jerePost('/api/ai/aichat', { prompt: slice, model, session_id: `zw_${Math.random().toString(36).slice(2, 10)}` }, per);
+      const text = r.ok ? pickText(r.data) : '';
+      steps?.push({ provider: `Jerexd·${model}`, ok: !!text.trim(), ms: Date.now() - st0 });
+      if (text.trim()) { sticky = 'jerexd'; return { text: text.trim(), provider: 'jerexd' }; }
+    } catch {
+      steps?.push({ provider: `Jerexd·${model}`, ok: false, ms: Date.now() - st0 });
+    }
+  }
   for (const p of providerOrder()) {
     const left = budgetMs - (Date.now() - t0);
     if (left < 6000) break;
@@ -578,10 +612,10 @@ export default async function handler(req: any, res: any) {
       if (!list.length && typeof raw?.message === 'string') {
         list = raw.message.split(/\n|,|·|;/).map((x: string) => x.trim().replace(/^[-*\d.\s]+/, '')).filter((x: string) => x.includes('/') || x.length > 2).slice(0, 80);
       }
-      // gabung daftar model VEXO (tidak perlu bolak-balik — statis dari dokumen API)
-      const merged = [...new Set([...list, ...VEXO_MODELS])].slice(0, 80);
+      // gabung: 8 MODEL MODERN terverifikasi di PALING ATAS + daftar live upstream + VEXO
+      const merged = [...MODERN_MODELS, ...new Set([...list, ...VEXO_MODELS].filter((m) => !MODERN_MODELS.includes(m)))].slice(0, 80);
       if (!merged.length) return bad(res, 502, 'Layanan AI gagal mengambil daftar model.');
-      return res.status(200).json({ ok: true, models: merged });
+      return res.status(200).json({ ok: true, models: merged, modern: MODERN_MODELS });
     }
 
     if (action === 'img') {

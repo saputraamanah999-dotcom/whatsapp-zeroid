@@ -947,6 +947,17 @@ export function PremiumScreen() {
     <Screen>
       <Header title="Zeroid Premium" subtitle="VIP · Member · Centang biru · Keamanan" />
       <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 40, maxWidth: 720, width: '100%', alignSelf: 'center', gap: 18 }}>
+        {/* v27: pintasan SUBSCRIPTION BILLING — kelola langganan & invoice */}
+        <Pressable onPress={() => nav.navigate('Subscription')} style={({ pressed }) => ({ borderRadius: R.lg, padding: 13, backgroundColor: t.bg, boxShadow: pressed ? t.insetSm : t.raisedSm, flexDirection: 'row', alignItems: 'center', gap: 11 } as any)}>
+          <View style={{ width: 40, height: 40, borderRadius: 13, backgroundColor: 'rgba(123,59,255,0.12)', alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="card" size={20} color="#7B3BFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <T v="body" style={{ fontWeight: '700' }}>Langganan & tagihan</T>
+            <T v="caption" color={t.sub}>Sisa masa aktif, perpanjang, riwayat invoice (DANA · QRIS)</T>
+          </View>
+          <Ionicons name="chevron-forward" size={17} color={t.faint} />
+        </Pressable>
         {/* VOUCHER DISKON — dari admin panel */}
         <Neu radius={R.xl} style={{ padding: 16, gap: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>

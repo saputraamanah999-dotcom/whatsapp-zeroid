@@ -55,6 +55,27 @@ import { fireState } from '../lib/streak';
 
 const EMOJIS = ['\u2764\uFE0F', '\u{1F44D}', '\u{1F602}', '\u{1F62E}', '\u{1F622}', '\u{1F64F}', '\u{1F525}'];
 
+/** Label cantik utk chip pilih model AI (v27): "openai/gpt-5.6-terra" →
+ *  "GPT-5.6 Terra", "anthropic/claude-opus-4.8" → "Claude Opus 4.8". */
+function modelLabel(m: string): string {
+  const MAP: Record<string, string> = {
+    'openai/gpt-5.6-terra': 'GPT-5.6 Terra',
+    'anthropic/claude-opus-4.8': 'Claude Opus 4.8',
+    'anthropic/claude-sonnet-5': 'Claude Sonnet 5',
+    'deepseek/deepseek-v4-pro': 'DeepSeek V4 Pro',
+    'google/gemini-3.1-pro-preview': 'Gemini 3.1 Pro',
+    'xai/grok-4.1-fast-non-reasoning': 'Grok 4.1 Fast',
+    'alibaba/qwen3-max': 'Qwen3 Max',
+    'meta/llama-4-maverick': 'Llama 4 Maverick',
+    gpt: 'GPT (Auto)',
+  };
+  if (MAP[m]) return MAP[m];
+  const raw = String(m ?? '');
+  if (!raw.includes('/')) return raw;
+  const [, name] = raw.split('/');
+  return name.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).slice(0, 22);
+}
+
 type Item = { kind: 'msg'; m: Message; showName: boolean } | { kind: 'day'; label: string; id: string };
 
 export default function ChatRoom() {
@@ -501,7 +522,7 @@ export default function ChatRoom() {
                       onPress={() => setAiPrefs((x) => ({ ...x, model: on ? '' : m }))}
                       style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999, backgroundColor: on ? t.accent2 : t.bg2, borderWidth: 1, borderColor: on ? t.accent2 : t.border }}
                     >
-                      <T v="caption" color={on ? '#fff' : t.faint} numberOfLines={1}>{m}</T>
+                      <T v="caption" color={on ? '#fff' : t.faint} numberOfLines={1}>{modelLabel(m)}</T>
                     </Pressable>
                   );
                 })}
