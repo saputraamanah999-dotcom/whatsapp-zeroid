@@ -348,11 +348,21 @@ async function jerePost(path: string, payload: Record<string, any>, timeoutMs: n
       body: JSON.stringify({ ...payload, apikey: key }),
     });
     const data = await r.json().catch(() => null);
+    // v27 AUDIT (dibuktikan live): upstream Jerexd MENOLAK prompt panjang utk sesi
+    // anonim dan mengembalikan HTTP 200 + teks "This message is quite long.
+    // Anonymous users have reached the limit. Sign in to continue..." — dulu teks
+    // ini dianggap JAWABAN AI dan dikirim ke pengguna. Sekarang dianggap GAGAL →
+    // rantai otomatis lanjut ke penyedia berikutnya (Sylvatica/Saputra).
+    const txt = pickText(data);
+    if (txt && JERE_LIMIT_RE.test(txt)) return { ok: false, status: r.status, data: { error: 'upstream-anon-limit' } };
     return { ok: r.ok, status: r.status, data };
   } finally {
     clearTimeout(timer);
   }
 }
+
+/** Teks "limit sesi anonim" dari upstream Jerexd — BUKAN jawaban AI. */
+const JERE_LIMIT_RE = /sign in to continue|reached the limit|anonymous users|this message is quite long|unlimitedai\.chat team/i;
 
 // ---------------------------------------------------------------------------
 // PENYEDIA 3 — VEXO (format OpenAI-compatible)
