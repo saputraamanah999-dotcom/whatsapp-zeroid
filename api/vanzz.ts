@@ -443,7 +443,18 @@ async function ipTrackerFallback(ip: string): Promise<any> {
   } finally { clearTimeout(timer); }
 }
 
-/** Panggil endpoint Vanzz; gambar → data URL (maks ~6 MB). */
+/** Panggil endpoint Vanzz; gambar → data URL (maks ~6 MB).
+ *  v25.1 ANTI-HALAMAN-404: upstream kadang membalas HTTP 200 berisi halaman
+ *  HTML "404 Not Found | Vanzz API" (TERBUKTI di uji E2E IP Tracker — dulu
+ *  halaman HTML itu disimpan sebagai "hasil" pesanan!). Kini respons
+ *  text/html dianggap GAGAL → retry jalan → fallback jalan. */
+function looksLikeHtmlErrorPage(mime: string, text: string): boolean {
+  const m = mime.toLowerCase();
+  if (m.includes('text/html')) return true;
+  const head = text.slice(0, 400).toLowerCase();
+  return head.includes('<!doctype html') || head.includes('<html') || head.includes('<title>404');
+}
+
 async function vanzzGet(ep: Ep, params: Record<string, string>, key: string): Promise<{ ok: boolean; status: number; data?: any; dataUrl?: string; mime?: string; error?: string }> {
   const url = new URL(VANZZ_BASE + ep.path);
   url.searchParams.set('apikey', key);
@@ -462,6 +473,10 @@ async function vanzzGet(ep: Ep, params: Record<string, string>, key: string): Pr
       return { ok: true, status: 200, dataUrl: `data:${mime};base64,${buf.toString('base64')}`, mime };
     }
     const text = await r.text();
+    // halaman HTML error dengan kode 200 → perlakukan sebagai gagal upstream
+    if (r.ok && looksLikeHtmlErrorPage(mime, text)) {
+      return { ok: false, status: 502, error: 'Layanan upstream mengembalikan halaman error (HTML).' };
+    }
     let data: any = null;
     try { data = JSON.parse(text); } catch { data = text.slice(0, 4000); }
     return { ok: r.ok, status: r.status, data };
