@@ -58,6 +58,7 @@ import { useMusicFavs, loadFavs, isFav, toggleFav as toggleSongFav, removeFav } 
 import { startMix, stopMix } from '../lib/player';
 import PalmScan from '../components/PalmScan';
 import FancyModal from '../components/FancyModal';
+import PurchaseTicker from '../components/PurchaseTicker';
 import { sfx, haptic } from '../lib/sfx';
 import FirePet from '../components/FirePet';
 import { fireState, reviveFire, FIRE_MIN_STREAK, REVIVES_PER_MONTH } from '../lib/streak';
@@ -958,6 +959,9 @@ export function PremiumScreen() {
           </View>
           <Ionicons name="chevron-forward" size={17} color={t.faint} />
         </Pressable>
+        {/* v29.2 PERMINTAAN PEMILIK: pengumuman pembelian BERJALAN ke kiri terus
+            (semua produk) — di bawah kartu teratas, TIDAK pernah hilang */}
+        <PurchaseTicker />
         {/* VOUCHER DISKON — dari admin panel */}
         <Neu radius={R.xl} style={{ padding: 16, gap: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>

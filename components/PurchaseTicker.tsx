@@ -1,15 +1,23 @@
 /**
- * PURCHASE TICKER (v29) — pengumuman pembelian BERJALAN ke kiri terus-menerus.
+ * PURCHASE TICKER (v29.2) — pengumuman pembelian BERJALAN ke kiri terus-menerus.
  *
  * Permintaan pemilik: "pengumuman pembelian apapun user nanti muncul berjalan ke
  * kiri, terus muncul yang lain juga — taruh bukan di atas banget, apalagi bisa
- * hilang". Maka:
- *  - posisi: di bawah bilah pencarian layar Chat (bukan overlay paling atas).
- *  - berjalan: Animated translateX loop — teks bergeser ke kiri tanpa putus,
- *    item baru masuk otomatis (real-time dari koleksi purchases).
- *  - tidak hilang: komponen selalu dirender selama ada 1+ pembelian; kalau
- *    kosong, tampil satu baris ajangan toko (tetap kelihatan, tidak lompat).
- *  - nyata: sumber = db.purchases (order dikonfirmasi admin), BUKAN dummy.
+ * hilang". Dipasang di layar Premium + Layar Langganan (Billing) + beranda Chat.
+ *
+ * v29.2 FIX "teks hilang saat konten pendek": dulu isi berjalan hanya diduplikasi
+ * 2× — kalau total isi lebih PENDEK dari lebar layar (toko baru, 1-2 pembelian),
+ * satu putaran mengosongkan seluruh bilah → terlihat seperti pengumuman "hilang".
+ * Kini isi digandakan SECARA DINAMIS sampai satu salinan pasti lebih lebar dari
+ * layar (dihitung dari lebar satu unit pengumuman yang diukur tersembunyi), lalu
+ * blok itu diduplikasi 2× → gulungan tak berujung TANPA celah kosong, apa pun
+ * jumlah pembelian.
+ *  - posisi: selalu di bawah kartu teratas layar masing-masing (bukan overlay
+ *    paling atas).
+ *  - tidak hilang: komponen selalu dirender; kalau belum ada pembelian, tampil
+ *    satu baris ajangan toko (bilah tetap ada, tidak lompat).
+ *  - nyata: sumber = koleksi purchases (order dikonfirmasi admin, SEMUA produk),
+ *    real-time onSnapshot — pengumuman baru masuk otomatis tanpa refresh.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Pressable, Animated, Easing, Text } from 'react-native';
@@ -19,13 +27,16 @@ import { useTheme, R } from '../lib/theme';
 import { useStore } from '../lib/store';
 import { rupiah } from '../lib/products';
 
-const SPEED = 55; // piksel per detik — kecepatan baca nyaman
+const SPEED = 55;            // piksel per detik — kecepatan baca nyaman
+const SEP = '      •      '; // pemisah antar pengumuman
+const EST_UNIT = 240;        // estimasi lebar 1 unit (px) sebelum pengukuran pertama
 
 export default function PurchaseTicker() {
   const t = useTheme();
   const { db } = useStore();
-  const [w, setW] = useState(0);           // lebar area terlihat
-  const [cw, setCw] = useState(0);         // lebar total konten berjalan
+  const [w, setW] = useState(0);          // lebar area terlihat
+  const [unitW, setUnitW] = useState(0);  // lebar 1 unit pengumuman (terukur)
+  const [copyW, setCopyW] = useState(0);  // lebar 1 salinan blok berjalan (terukur)
   const x = useRef(new Animated.Value(0)).current;
 
   const items = useMemo(() => db.purchases.slice(0, 12), [db.purchases]);
@@ -37,13 +48,24 @@ export default function PurchaseTicker() {
         const money = p.total > 0 ? ` — ${rupiah(p.total)}` : '';
         return `🎉 ${p.name || 'Seseorang'} membeli ${p.product}${money}`;
       })
-      .join('      •      ');
+      .join(SEP);
   }, [items]);
 
-  // animasi berulang: 0 → -cw lalu loncat ke 0 (konten diduplikasi 2× agar mulus)
+  // 1 unit = seluruh isi + pemisah (agar sambungan antar salinan rapi)
+  const unit = line ? line + SEP : '';
+  // gandakan isi sampai 1 salinan pasti menutupi layar → tidak pernah kosong
+  const reps = useMemo(() => {
+    if (!unit || !w) return 1;
+    const uw = unitW > 0 ? unitW : EST_UNIT;
+    return Math.max(1, Math.ceil(w / Math.max(uw, 1)) + 1);
+  }, [unit, w, unitW]);
+
+  const chunk = useMemo(() => (reps > 1 ? Array(reps).fill(line).join(SEP) : line), [line, reps]);
+
+  // animasi berulang: 0 → -copyW lalu loncat ke 0 (blok diduplikasi 2× agar mulus)
   useEffect(() => {
-    if (!cw || !w) return;
-    const dist = Math.max(cw, 1);
+    if (!copyW || !w) return;
+    const dist = Math.max(copyW, 1);
     const dur = Math.max(6000, (dist / SPEED) * 1000);
     x.setValue(0);
     const loop = Animated.loop(
@@ -51,9 +73,7 @@ export default function PurchaseTicker() {
     );
     loop.start();
     return () => loop.stop();
-  }, [cw, w, line]);
-
-  const onLayoutContent = (e: any) => setCw(e.nativeEvent.layout.width);
+  }, [copyW, w, chunk]);
 
   return (
     <Pressable
@@ -65,19 +85,23 @@ export default function PurchaseTicker() {
       </View>
       {line ? (
         <View style={{ flex: 1, overflow: 'hidden' }}>
+          {/* pengukur tersembunyi: lebar 1 unit (tanpa memengaruhi layout) */}
+          <Text numberOfLines={1} onLayout={(e) => setUnitW(e.nativeEvent.layout.width)} style={{ position: 'absolute', opacity: 0, color: t.sub, fontSize: 12.5, fontWeight: '700' }}>
+            {unit}
+          </Text>
           <Animated.View style={{ flexDirection: 'row', transform: [{ translateX: x }] }}>
-            {/* dua salinan → gulungan tak berujung (saat salinan-1 lewat, salinan-2 menyusul) */}
-            <Text numberOfLines={1} onLayout={onLayoutContent} style={{ color: t.sub, fontSize: 12.5, fontWeight: '700', paddingRight: 60 }}>
-              {line}
+            {/* dua salinan blok → saat salinan-1 habis digeser, salinan-2 tepat di posisi awalnya */}
+            <Text numberOfLines={1} onLayout={(e) => setCopyW(e.nativeEvent.layout.width)} style={{ color: t.sub, fontSize: 12.5, fontWeight: '700', paddingRight: 0 }}>
+              {chunk}
             </Text>
-            <Text numberOfLines={1} style={{ color: t.sub, fontSize: 12.5, fontWeight: '700', paddingRight: 60 }}>
-              {line}
+            <Text numberOfLines={1} style={{ color: t.sub, fontSize: 12.5, fontWeight: '700', paddingRight: 0 }}>
+              {chunk}
             </Text>
           </Animated.View>
         </View>
       ) : (
         <T v="caption" color={t.sub} style={{ flex: 1, fontWeight: '700' }}>
-          Pengumuman pembelian akan muncul di sini — real-time
+          🎉 Pengumuman pembelian pembeli lain akan berjalan di sini — real-time
         </T>
       )}
     </Pressable>

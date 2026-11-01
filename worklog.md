@@ -1268,3 +1268,26 @@ probe endpoint produksi sebelum & sesudah perubahan — bukan asumsi).
 - **ZIP final** `ZEROID-WHATSAPP-FIXED-COMPLETE.zip` (81 MB, 577 file): source
   + rules + indexes + functions + docs + .env.example + APK 1.6.9 di release/
   — tanpa node_modules/.git/.env/kredensial.
+
+## v29.2 (2 Nov 2026) — PERMINTAAN PEMILIK: pengumuman pembelian di PAYMENT BILLING
+
+- **KELUHAN**: "di payment billing masih belum ada perubahan yang aku bilang
+  kemarin" — ticker pengumuman pembelian v29 hanya dipasang di beranda Chat,
+  TIDAK di layar tagihan yang dilihat pemilik.
+- **DIPASANG DI 2 LAYAR BARU** (komponen yang sama, tidak diduplikasi):
+  1. Layar Langganan/Billing (SubscriptionScreen) — tepat di bawah kartu hero
+     (bukan paling atas), sebelum kartu Metode pembayaran.
+  2. Layar Zeroid Premium (ExtraScreens) — di bawah pintasan "Langganan &
+     tagihan", tempat semua produk dibeli.
+- **BUG NYATA DIPERBAIKI di PurchaseTicker (anti "hilang")**: dulu isi berjalan
+  hanya diduplikasi 2× — bila total isi lebih pendek dari lebar layar (toko
+  baru, 1-2 pembelian), satu putaran mengosongkan seluruh bilah → pengumuman
+  tampak menghilang berkala. Kini: lebar 1 unit pengumuman DIUKUR (teks
+  tersembunyi), isi digandakan dinamis sampai 1 salinan pasti ≥ lebar layar,
+  baru diduplikasi 2× → gulungan tak berujung TANPA celah kosong, apa pun
+  jumlah pembelian. Bilah selalu dirender (kalau kosong: ajangan toko).
+- Sumber data TETAP NYATA: koleksi `purchases` (order dikonfirmasi admin,
+  semua produk) via onSnapshot real-time — pengumuman baru masuk sendiri.
+- Bukti: tsc 0 error; expo export web sukses; string ticker terverifikasi di
+  bundle produksi; boot web di-headless-browser (agent-browser) tanpa error.
+- APK 1.9.2 (versionCode 21).

@@ -37,6 +37,7 @@ import { pickGallery, uploadMedia } from '../lib/media';
 import { pushBanner } from '../lib/bus';
 import { chatTime } from '../lib/format';
 import FancyModal from '../components/FancyModal';
+import PurchaseTicker from '../components/PurchaseTicker';
 import { sfx, haptic } from '../lib/sfx';
 import { ProductKey } from '../lib/types';
 
@@ -265,6 +266,11 @@ export default function SubscriptionScreen() {
       <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40, maxWidth: 720, width: '100%', alignSelf: 'center', gap: 18 }}>
         {/* HERO */}
         <BillingHero spent30={spent30} activeCount={activeCount} />
+
+        {/* v29.2 PERMINTAAN PEMILIK: pengumuman pembelian BERJALAN ke kiri terus
+            (pembeli apapun, semua produk) — di bawah kartu teratas (bukan di atas
+            banget), TIDAK pernah hilang; pembelian baru masuk otomatis real-time */}
+        <PurchaseTicker />
 
         {/* METODE PEMBAYARAN — v29: susunan TUMPUK (dulu 3 kolom digencet badge →
             judul patah "pembayara-n" + caption jadi 7 baris pendek jelek) */}
