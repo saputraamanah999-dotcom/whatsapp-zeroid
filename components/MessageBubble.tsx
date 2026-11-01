@@ -15,6 +15,7 @@ import LivePhotoBubble from './LivePhotoBubble';
 import { Ticks } from './ChatRow';
 import MentionText from './MentionText';
 import MdText from './MdText';
+import AiArtifact, { hasHtmlArtifact, extractHtml } from './AiArtifact';
 import { AppleEmoji } from './Emoji';
 import { STICKER_SIZE } from '../lib/sticker';
 import { useTheme, R } from '../lib/theme';
@@ -23,7 +24,7 @@ import { resolveBubble } from '../lib/bubbles';
 import BubbleDecor from './BubbleDecor';
 import { Chat, DB, Message, User } from '../lib/types';
 import { messageStatus, messagePreview } from '../lib/store';
-import { timeShort, bytes } from '../lib/format';
+import { timeShort, bytes, compactId } from '../lib/format';
 
 export default function MessageBubble({
   m,
@@ -69,6 +70,8 @@ export default function MessageBubble({
   // BAGIAN 5: metadata internal AI (:::writing{...}, <think>) TIDAK BOLEH tampil.
   // Dibersihkan juga saat render supaya pesan LAMA yang tersimpan dengan
   // metadata ikut rapi (server & klien baru sudah membersihkan saat masuk).
+  // v26: pesan artifak (blok ```html) dipotong dari teks tampil — kode utuh
+  // ada di kartu Artifak di bawahnya (pratinjau/unduh/salin).
   const mText = useMemo(() => (isAiText(m) ? cleanAiText(m.text ?? '') : m.text ?? ''), [m.text, m.assistant, m.senderId]);
 
   if (m.type === 'system') {
@@ -108,6 +111,7 @@ export default function MessageBubble({
   const bg = skin.backgroundColor;
   const fg = skin.color;
   const subFg = mine ? 'rgba(255,255,255,0.75)' : t.faint;
+  const artifactOutside = m.assistant && !m.deletedForAll && hasHtmlArtifact(mText);
   const reactions = Object.values(m.reactions);
   const grouped = reactions.reduce<Record<string, number>>((a, e) => ((a[e] = (a[e] ?? 0) + 1), a), {});
   // REAKSI TAMBAHAN (paket beli) — tumpuk ke emoji terbanyak, tampil sebagai
@@ -163,7 +167,7 @@ export default function MessageBubble({
               {Object.entries(grouped).map(([e, n]) => (
                 <View key={e} style={{ flexDirection: 'row', alignItems: 'center', gap: 1 }}>
                   <AppleEmoji e={e} size={13} />
-                  {n > 1 ? <T v="caption" style={{ fontSize: 11.5, opacity: 0.8 }}>{n}</T> : null}
+                  {n > 1 ? <T v="caption" style={{ fontSize: 11.5, opacity: 0.8 }}>{compactId(n)}</T> : null}
                 </View>
               ))}
             </View>
@@ -502,6 +506,11 @@ export default function MessageBubble({
             )}
           </>
         )}
+        {/* v26 MODE AGENT EKSEKUSI NYATA: jawaban AI berisi website → kartu
+            artifak (pratinjau/unduh/salin), bukan sekadar teks kode. */}
+        {m.assistant && !m.deletedForAll && hasHtmlArtifact(m.text ?? '') && (
+          <AiArtifact html={extractHtml(m.text ?? '')} title={m.text?.slice(0, 40)} />
+        )}
         <View style={{ flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 4, marginTop: 3, paddingHorizontal: isMedia ? 8 : 0, paddingBottom: isMedia ? 4 : 0 }}>
           {m.viewOnce && <Ionicons name="eye-off" size={11} color={subFg} />}
           {m.expiresAt && <Ionicons name="timer-outline" size={11} color={subFg} />}
@@ -518,11 +527,13 @@ export default function MessageBubble({
         </View>
       </Pressable>
       {Object.keys(grouped).length > 0 && (
-        <View style={{ flexDirection: 'row', gap: 2, marginTop: -6, marginHorizontal: 10, backgroundColor: t.bg, borderRadius: R.pill, paddingHorizontal: 7, paddingVertical: 2, boxShadow: t.raisedSm } as any}>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 2, marginTop: -6, marginHorizontal: 10, backgroundColor: t.bg, borderRadius: R.pill, paddingHorizontal: 7, paddingVertical: 2, boxShadow: t.raisedSm, alignSelf: mine ? 'flex-end' : 'flex-start' } as any}>
+          {/* v26: reaksi RAPI — angka ringkas 1rb/2rb/1jt (compactId); emoji yang
+              cuma 1 tampil TANPA angka (cuma emojinya, langsung gabung rapi). */}
           {Object.entries(grouped).map(([e, n]) => (
             <View key={e} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
               <AppleEmoji e={e} size={15} />
-              {n > 1 ? <T v="caption" style={{ fontSize: 12.5, fontWeight: '700' }}>{n}</T> : null}
+              {n > 1 ? <T v="caption" style={{ fontSize: 12.5, fontWeight: '700' }}>{compactId(n)}</T> : null}
             </View>
           ))}
         </View>

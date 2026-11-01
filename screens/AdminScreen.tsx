@@ -29,11 +29,13 @@ import { pickGallery, uploadMedia, uploadMediaDirect } from '../lib/media';
 import { subscribeAllFeedback, answerFeedback, deleteFeedback } from '../lib/feedback';
 import { Feedback as FeedbackType } from '../lib/types';
 import { subscribeVouchers, adminVoucherCreate, adminVoucherToggle, adminVoucherDelete, Voucher } from '../lib/vouchers';
+import { vanzzIpTrack } from '../lib/vanzz';
 import { onSnapshot, doc as fsDoc, setDoc as fsSetDoc, collection as fsCol, getFirestore } from 'firebase/firestore';
 
 type GuardLog = {
   id: string; uid: string; name: string; role: string; chatId: string; chatName: string;
   kind: string; reason: string; excerpt: string; action: string; until: number; at: number;
+  ip?: string; ipInfo?: string;
 };
 
 type GuardConfig = {
@@ -66,6 +68,45 @@ const KIND_LABEL: Record<string, string> = {
   porn: 'Konten 18+', profanity: 'Kata kasar', sticker_spam: 'Spam stiker',
   media_bomb: 'Bom media', login_attempt: 'Coba login admin', login_ban: 'Ban penyerang',
 };
+
+// ---------------------------------------------------------------------------
+// PRATINJAU HASIL PESANAN UNTUK ADMIN — SELALU BERSIH (v26).
+// Dulu admin melihat JSON/HTML mentah (termasuk payload rusak "bodyType:html"
+// dari upstream) — kini diringkas jadi baris label: nilai manusiawi; string
+// mirip kode/HTML DIBUANG, bukan dimunculkan.
+// ---------------------------------------------------------------------------
+const ADMIN_SKIP_KEYS = new Set(['status', 'creator', 'success', 'successcount', 'code', 'query', 'userid', 'method', 'bodytype', 'html', 'fetchedat', 'timestamp', 'verifydone', 'kind']);
+const looksLikeCode = (s: string) =>
+  /<\s*(div|html|body|span|script|iframe|p\s|a\s)/i.test(s) || s.includes('\\u003c') || /href\s*=\s*["']?https?:/i.test(s) || /^\s*[[{]/.test(s);
+function orderResultPreview(o: any): string {
+  let r: any = o?.result;
+  if (r && typeof r === 'object' && typeof r.json === 'string') {
+    try { r = JSON.parse(r.json); } catch { r = {}; }
+  }
+  if (r == null || typeof r !== 'object') return typeof r === 'string' && !looksLikeCode(r) ? r.slice(0, 200) : 'Hasil tersimpan — pembeli melihat kartu lengkap di Premium.';
+  const out: string[] = [];
+  const walk = (v: any, pre: string, depth: number) => {
+    if (out.length >= 8 || v == null || depth > 2) return;
+    if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+      const s = String(v);
+      if (looksLikeCode(s)) return;
+      out.push(`${pre}${s}`.slice(0, 110));
+      return;
+    }
+    if (Array.isArray(v)) {
+      if (v.length && typeof v[0] !== 'object') out.push(`${pre}${v.slice(0, 6).join(', ')}`.slice(0, 110));
+      return;
+    }
+    if (typeof v === 'object') {
+      for (const [k, vv] of Object.entries(v)) {
+        if (ADMIN_SKIP_KEYS.has(k.toLowerCase())) continue;
+        walk(vv, pre ? `${pre} · ${k}` : k, depth + 1);
+      }
+    }
+  };
+  walk(r, '', 0);
+  return out.length ? out.join('\n') : 'Hasil tersimpan — pembeli melihat kartu lengkap di Premium.';
+}
 
 /**
  * AI GUARD — panel monitoring + atur skill moderator AI:
@@ -266,6 +307,13 @@ function GuardPanel() {
                 <T v="caption" color={t.faint} style={{ flex: 1, textAlign: 'right' }}>{l.at ? ago(l.at) : ''}</T>
               </View>
               <T v="caption" color={t.sub}>{l.chatName ? `di ${l.chatName} — ` : ''}{l.reason}{l.excerpt ? ` · "${l.excerpt}"` : ''}</T>
+              {/* v26: data IP pelaku tampil langsung di laporan (sesuai permintaan developer) */}
+              {!!l.ip && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="locate" size={12} color={t.accent} />
+                  <T v="caption" style={{ fontWeight: '800', flexShrink: 1 }}>IP pelaku: {l.ip}{l.ipInfo ? ` — ${l.ipInfo}` : ''}</T>
+                </View>
+              )}
               <T v="caption" style={{ fontWeight: '700', color: String(l.action ?? '').includes('ban') ? t.danger : t.accent }}>Tindakan: {l.action}</T>
               {!!l.uid && l.kind !== 'login_attempt' && l.kind !== 'login_ban' && (
                 <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
@@ -531,6 +579,67 @@ function VoucherPanel() {
         })}
       </Card>
     </View>
+  );
+}
+
+/**
+ * IP TRACKER — ALAT KHUSUS DEVELOPER (v26).
+ * Dipindah dari produk berbayar → Admin Panel, GRATIS, langsung jalan.
+ * Hasil SELALU kartu data bersih (ipwho.is) — tidak pernah memuntahkan
+ * HTML/JSON mentah. IP kosong → lacak IP publik pemanggil.
+ */
+function IpTrackerPanel() {
+  const t = useTheme();
+  const [ip, setIp] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<any>(null);
+  const [err, setErr] = useState('');
+
+  const run = async (selfMode: boolean) => {
+    setBusy(true); setErr(''); setRes(null);
+    const r = await vanzzIpTrack(selfMode ? '' : ip.trim());
+    setBusy(false);
+    if (!r.ok) { setErr(r.error ?? 'Gagal melacak IP — coba lagi.'); return; }
+    setRes(r.data);
+    pushBanner({ title: 'IP terlacak', body: r.data?.ip ? `Data ${r.data.ip} siap dilihat.` : 'Hasil siap dilihat.', icon: 'locate' });
+  };
+
+  const rows: [string, string][] = res ? [
+    ['Alamat IP', res.ip], ['Tipe', res.type],
+    ['Negara', res.location?.country], ['Wilayah', res.location?.region],
+    ['Kota', res.location?.city], ['Kode pos', res.location?.postal],
+    ['Koordinat', res.location?.coordinates],
+    ['ISP', res.network?.isp], ['Organisasi', res.network?.org],
+    ['ASN', res.network?.asn], ['Domain', res.network?.domain],
+    ['Zona waktu', [res.timezone?.id, res.timezone?.utc].filter(Boolean).join(' · ')],
+    ['Proxy', res.flags?.proxy ? 'Terdeteksi' : 'Tidak'],
+    ['Tor / relay', res.flags?.tor || res.flags?.relay ? 'Terdeteksi' : 'Tidak'],
+  ] : [];
+
+  return (
+    <Card title="IP Tracker · khusus Developer">
+      <View style={{ padding: 10, gap: 10 }}>
+        <T v="sub">Lacak lokasi, ISP & jaringan dari sebuah alamat IP. Kosongkan kolom lalu tekan "Lacak IP saya" untuk melihat IP publikmu sendiri. Fitur ini gratis dan TIDAK dijual lagi.</T>
+        <NeuInput icon="locate" placeholder="Contoh: 114.10.40.10" value={ip} onChangeText={(v) => setIp(v.trim().slice(0, 64))} autoCapitalize="none" />
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <Btn small icon="locate" title="Lacak IP" loading={busy && !!ip.trim()} disabled={busy || !ip.trim()} onPress={() => void run(false)} style={{ flex: 1 }} />
+          <Btn small variant="neu" icon="person" title="Lacak IP saya" loading={busy && !ip.trim()} disabled={busy} onPress={() => void run(true)} style={{ flex: 1 }} />
+        </View>
+        {!!err && <T v="caption" color={t.danger}>{err}</T>}
+        {!!res && (
+          <Neu inset radius={R.md} style={{ padding: 12, gap: 6 }}>
+            <T v="caption" style={{ fontWeight: '900', letterSpacing: 0.6 }} color={t.accent}>HASIL PELACAKAN</T>
+            {rows.filter(([, v]) => !!v).map(([k, v]) => (
+              <View key={k} style={{ flexDirection: 'row', gap: 10, alignItems: 'flex-start' }}>
+                <T v="caption" color={t.faint} style={{ width: 100 }}>{k}</T>
+                <T v="caption" style={{ flex: 1, fontWeight: '700', flexWrap: 'wrap' }}>{v}</T>
+              </View>
+            ))}
+            {!!res.meta?.note && <T v="caption" color={t.faint}>{res.meta.note}</T>}
+          </Neu>
+        )}
+      </View>
+    </Card>
   );
 }
 
@@ -1301,7 +1410,7 @@ export default function AdminScreen() {
                     o.delivered ? (
                       <View style={{ borderRadius: R.md, padding: 10, backgroundColor: 'rgba(20,196,122,0.1)', gap: 4 }}>
                         <T v="caption" style={{ fontWeight: '800' }} color={t.success}>Hasil sudah dikirim ke pembeli</T>
-                        <T v="caption" numberOfLines={4} color={t.sub}>{(() => { try { const rr = o.result?.json ? JSON.parse(o.result.json) : o.result; return JSON.stringify(rr).slice(0, 400); } catch { return String(o.result?.json ?? o.result ?? '').slice(0, 400); } })()}</T>
+                        <T v="caption" color={t.sub}>{orderResultPreview(o)}</T>
                       </View>
                     ) : o.deliveryError ? (
                       <T v="caption" color={t.warning}>Realisasi otomatis gagal: {o.deliveryError} — kirim hasil manual ke pembeli.</T>
@@ -1511,6 +1620,7 @@ export default function AdminScreen() {
         {tab === 'system' && (
           <>
             <MonitoringCard />
+            {(me.developer || me.role === 'developer') && <IpTrackerPanel />}
             <Card title="Mode pemeliharaan">
               <View style={{ padding: 10, gap: 12 }}>
                 <T v="sub">Saat aktif, pengguna biasa melihat layar pemeliharaan. Admin & moderator tetap dapat masuk.</T>

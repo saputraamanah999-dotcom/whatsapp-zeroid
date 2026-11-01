@@ -37,18 +37,19 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { AppNotification, Call, Chat, ChatAppeal, DB, LeaderRow, Message, ModOffense, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav, Ban, Appeal, AiProfile } from './types';
-import { productOf, productSafe, rupiah, PAYMENT_METHODS, apiProductOf, API_PRODUCTS, applyPricingConfig, apiPriceOf, planPriceOf } from './products';
+import { productOf, productSafe, rupiah, PAYMENT_METHODS, apiProductOf, API_PRODUCTS, applyPricingConfig, apiPriceOf, planPriceOf, unitPriceOf } from './products';
 import { vanzzDeliver } from './vanzz';
+import { proxyGet } from './proxy';
 import { applyStreak } from './streak';
 import { voMarkOpened } from './viewonce';
 import { refCodeFor, applyPendingReferral, captureRefFromUrl } from './points';
 import { sendMail, otpEmailHtml } from './mail';
-import { uid, hash, isEmail, duration as fmtDur } from './format';
+import { uid, hash, isEmail, duration as fmtDur, compactId } from './format';
 import { AVATAR_COLORS, setThemeMode, ThemeMode } from './theme';
 import { pushBanner, activeChatId, navRef } from './bus';
 import { presentLocal } from './notify';
 import { resolveMentions, MentionResolution } from './mentions';
-import { askAI, thinkAI, analyzeImage, AI_PROVIDERS, askBotReply, webSearch, guardEnforce } from './ai';
+import { askAI, thinkAI, analyzeImage, AI_PROVIDERS, askBotReply, webSearch, guardEnforce, generateAIImage } from './ai';
 import { firebase, isFirebaseConfigured, COLLECTIONS as C, firebaseConfig } from './firebase';
 import { fcmPush } from './fcm';
 import { recordFbError } from './health';
@@ -957,18 +958,25 @@ export async function recheckDeviceBan(): Promise<boolean> {
   return false;
 }
 
-/** Catat IP + perangkat sesi ini ke `usermeta/{uid}` — dipakai admin saat mem-ban. */
+/** Catat IP + perangkat sesi ini ke `usermeta/{uid}` — dipakai admin saat mem-ban.
+ *  v26: IP PLAIN (lastIp) ikut disimpan — laporan AI Guard ke developer memuat
+ *  data IP pelaku yang nyata (bukan cuma hash), diambil dari /api/guard sendiri. */
 async function recordUsermeta(who: string) {
   try {
     const fb = firebase();
     if (!fb) return;
     const dh = await getDeviceHash();
     let ipHash = '';
-    if (Platform.OS === 'web') {
+    let ipPlain = '';
+    try {
+      const g = await proxyGet('/api/guard?action=ip-ban', 12000);
+      if (g.ok && g.data) { ipHash = String(g.data.hash ?? ''); ipPlain = String(g.data.ip ?? '').slice(0, 45); }
+    } catch { /* coba jalur same-origin di bawah (web) */ }
+    if (Platform.OS === 'web' && !ipHash) {
       const r = await fetch('/api/guard?action=ip-ban', { cache: 'no-store' }).catch(() => null);
-      if (r?.ok) { const j = await r.json().catch(() => ({} as any)); ipHash = String(j.hash ?? ''); }
+      if (r?.ok) { const j = await r.json().catch(() => ({} as any)); ipHash = String(j.hash ?? ''); ipPlain = String(j.ip ?? '').slice(0, 45); }
     }
-    setDoc(doc(fb.db, 'usermeta', who), { lastIpHash: ipHash || null, lastDeviceHash: dh || null, at: Date.now() }, { merge: true }).catch(() => {});
+    setDoc(doc(fb.db, 'usermeta', who), { lastIpHash: ipHash || null, lastIp: ipPlain || null, lastDeviceHash: dh || null, at: Date.now() }, { merge: true }).catch(() => {});
   } catch { /* best effort */ }
 }
 
@@ -2491,6 +2499,41 @@ export async function askSearchAssistant(chatId: string, query: string) {
   }
 }
 
+/**
+ * AI IMAGE GENERATOR (v26) — buat gambar dari prompt, hasilnya dikirim ke chat
+ * sebagai pesan gambar sungguhan. Mesin: Sylvatica Flux / Vexo DuckAI /
+ * Jerexd Txt2Img (milik pemilik, diuji live); `provider` = pilihan pengguna.
+ * Dipicu dari chat AI (toggle "Buat gambar") atau perintah "gambar <deskripsi>".
+ */
+export async function askImageAssistant(chatId: string, prompt: string, provider = '') {
+  const setAiTyping = (on: boolean) => {
+    const next = { ...(db.aiTyping ?? {}) };
+    if (on) next[chatId] = Date.now(); else delete next[chatId];
+    db.aiTyping = next;
+    bump();
+  };
+  setAiTyping(true);
+  routingKe = true;
+  try {
+    await sendMessage(chatId, { text: `gambar ${prompt}` });
+  } finally {
+    routingKe = false;
+  }
+  try {
+    const r = await generateAIImage(prompt, provider);
+    await sendMessage(chatId, {
+      type: 'image',
+      uri: r.image,
+      text: `${prompt}\n\n— dibuat ${r.provider === 'sylvatica' ? 'Sylvatica Flux' : r.provider === 'vexo' ? 'Vexo DuckAI' : r.provider === 'jerexd' ? 'Jerexd AI' : 'Zeroid AI'} · AI Zeroid`,
+      assistant: true,
+    });
+  } catch (e: any) {
+    await sendMessage(chatId, { text: `Gagal membuat gambar: ${String(e?.message ?? 'coba lagi nanti.').slice(0, 160)}`, assistant: true });
+  } finally {
+    setAiTyping(false);
+  }
+}
+
 // ============================ anime favourites ============================
 
 const favId = (slug: string, u: string) => `${u}__${slug}`;
@@ -3692,6 +3735,15 @@ export function createOrder(product: ProductKey, planIdx: number, methodKey: str
     return { error: `Limit beli tercapai (maks ${ORDER_MAX}x per jam). Coba lagi dalam ${mins} menit.` };
   }
   const method = PAYMENT_METHODS.find((m) => m.key === methodKey) ?? (methodKey === 'koin' ? { key: 'koin', label: 'Koin Zeroid' } : PAYMENT_METHODS[0]);
+  // v26 FIX HARGA DYNAMIS: produk SATUAN (followers/reaksi) dulu tersimpan Rp0
+  // bila tanpa voucher (plan.price = 0 untuk produk unit) — sekarang total
+  // DIHITUNG DARI JUMLAH YANG DIPILIH: 5.000 followers × Rp600 = Rp3.000.000,
+  // dan label pesanan menampilkan jumlahnya ("5rb followers") di riwayat.
+  if (ap?.unit) {
+    const n = Number(String((meta as any)?.amount ?? '').replace(/[^0-9]/g, '')) || ap.minAmount || ap.unit;
+    plan.price = unitPriceOf(product, n);
+    plan.label = `${compactId(n)} ${ap.unitLabel ?? ''}`.trim();
+  }
   // VOUCHER: harga akhir = harga paket - diskon voucher (pembulatan ke atas)
   const finalPrice = priceOverride != null && priceOverride > 0 ? Math.ceil(priceOverride) : plan.price;
   const voucherNote = finalPrice < plan.price ? ` · voucher -${Math.round(((plan.price - finalPrice) / plan.price) * 100)}%` : '';

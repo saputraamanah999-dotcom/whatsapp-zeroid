@@ -38,7 +38,7 @@ import {
 import { spendKoin } from '../lib/points';
 import { attachOrderProof, adminUpdateOrder } from '../lib/store';
 import { getVoucher, voucherUsable, redeemVoucher, priceWithDiscount, Voucher } from '../lib/vouchers';
-import { PRODUCTS, PAYMENT_METHODS, rupiah, rupiahShort, productOf, productSafe, API_PRODUCTS, apiProductOf, unitPriceOf, apiPriceOf, productPlans, planPriceOf, productsWithPrices } from '../lib/products';
+import { PRODUCTS, PAYMENT_METHODS, rupiah, rupiahShort, productOf, productSafe, API_PRODUCTS, apiProductOf, apiProductOfAny, unitPriceOf, apiPriceOf, productPlans, planPriceOf, productsWithPrices } from '../lib/products';
 import { vanzzQris, vanzzCall } from '../lib/vanzz';
 import { resolveMedia } from '../lib/spotify';
 import { pickGallery, uploadMedia, pickVideo, uploadMediaDirect } from '../lib/media';
@@ -390,10 +390,21 @@ function ResultCard({ order, title, color, icon }: { order: any; title: string; 
   } else if (order.product === 'iptracker') {
     // bentuk fallback server: { result: { ip, type, location:{country,region,city,postal,coordinates},
     //   network:{isp,org,asn,domain}, timezone:{id,utc}, flags:{proxy,tor,relay} } }
+    // v26: payload LAMA bisa rusak (berisi HTML dari upstream) — dulu tampil
+    // memuntahkan kode; kini terdeteksi dan diganti catatan bersih.
+    const garbage = looksLikeCodeStr(String(p.html ?? ''))
+      || looksLikeCodeStr(String(r.html ?? ''))
+      || String(p.bodyType ?? r.bodyType ?? '').toLowerCase() === 'html'
+      || (!p.ip && !p.location && looksLikeCodeStr(JSON.stringify(r).slice(0, 600)));
     const loc = p.location && typeof p.location === 'object' ? p.location : {};
     const net = p.network && typeof p.network === 'object' ? p.network : {};
     const tz = p.timezone && typeof p.timezone === 'object' ? p.timezone : {};
     const fl = p.flags && typeof p.flags === 'object' ? p.flags : {};
+    if (garbage) {
+      headline = String(order?.meta?.ip ?? 'IP Tracker');
+      sub = 'Hasil lama rusak (data tidak terbaca)';
+      rows = [['Info', 'Fitur ini kini alat gratis khusus Developer — minta admin Developer melacak ulang IP ini lewat Admin Panel.']];
+    } else {
     headline = String(p.ip ?? order?.meta?.ip ?? 'IP terlacak');
     rows = [
       ['Negara', loc.country],
@@ -409,6 +420,7 @@ function ResultCard({ order, title, color, icon }: { order: any; title: string; 
       ['Indikasi proxy', fl.proxy === true ? 'Ya' : fl.proxy === false ? 'Tidak' : ''],
     ];
     sub = String(p?.meta?.note ?? '');
+    }
   } else if (order.product === 'cekresi') {
     // bentuk nyata: { result: { message, data: { resi, ekspedisi, status,
     //   tanggalKirim, lastPosition, history:[{tanggal,keterangan}] } } }
@@ -512,8 +524,17 @@ function ResultCard({ order, title, color, icon }: { order: any; title: string; 
 
 /** Objek nested → daftar pasangan [label, nilai] untuk fallback generik.
  *  Kunci teknis (status boolean, creator, jumlah sukses) dilewati agar kartu
- *  tetap terbaca manusiawi — dulu tampil "Status: true / Creator: Vanzz Ryuichi". */
-const SKIP_KEYS = new Set(['status', 'creator', 'successcount', 'errorcount', 'totalrequested', 'query', 'code', 'success', 'verifydone', 'fetchedat', 'timestamp', 'userid', 'method']);
+ *  tetap terbaca manusiawi — dulu tampil "Status: true / Creator: Vanzz Ryuichi".
+ *  v26: string mirip KODE/HTML (payload rusak upstream: "<div style=…",
+ *  href=…, \u003c, JSON mentah) DIBUANG — kartu tidak pernah memuntahkan kode. */
+const SKIP_KEYS = new Set(['status', 'creator', 'successcount', 'errorcount', 'totalrequested', 'query', 'code', 'success', 'verifydone', 'fetchedat', 'timestamp', 'userid', 'method', 'html', 'bodytype']);
+function looksLikeCodeStr(s: string): boolean {
+  if (!s) return false;
+  return /<\s*(div|html|body|span|script|iframe|p\s|a\s)/i.test(s)
+    || s.includes('\\u003c')
+    || /href\s*=\s*["']?https?:/i.test(s)
+    || /^\s*[[{]/.test(s.trim());
+}
 function flatPairs(o: any, prefix = '', depth = 0): [string, string][] {
   if (!o || typeof o !== 'object' || depth > 2) return [];
   const out: [string, string][] = [];
@@ -521,7 +542,11 @@ function flatPairs(o: any, prefix = '', depth = 0): [string, string][] {
     if (v == null) continue;
     if (SKIP_KEYS.has(k.toLowerCase())) continue;
     const label = k.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
-    if (typeof v !== 'object') out.push([label, String(v)]);
+    if (typeof v !== 'object') {
+      const s = String(v);
+      if (looksLikeCodeStr(s)) continue;
+      out.push([label, s]);
+    }
     else if (Array.isArray(v) && v.length && typeof v[0] !== 'object') out.push([label, v.join(', ')]);
     else if (typeof v === 'object' && depth < 2) out.push(...flatPairs(v, prefix + label + ' · ', depth + 1));
   }
@@ -1084,7 +1109,7 @@ export function PremiumScreen() {
         {myOrders.length > 0 && (
           <Card title="Riwayat pesanan">
             {myOrders.filter((o) => o.id !== '_schema').map((o) => {
-            const po = apiProductOf(o.product) ? ({ ...apiProductOf(o.product)!, icon: o.product === 'cekresi' ? 'cube' : o.product === 'followers' ? 'people' : o.product === 'reaction' ? 'heart' : o.product === 'iptracker' ? 'locate' : 'receipt' } as any) : productSafe(o.product);
+            const po = apiProductOfAny(o.product) ? ({ ...apiProductOfAny(o.product)!, icon: o.product === 'cekresi' ? 'cube' : o.product === 'followers' ? 'people' : o.product === 'reaction' ? 'heart' : o.product === 'iptracker' ? 'locate' : 'receipt' } as any) : productSafe(o.product);
             const ro = resultObj(o);
             const ampWaitVerify = (o.product === 'amp' || o.product === 'amunlock') && o.status === 'paid' && o.delivered && !(ro?.verifyDone === true || String(ro?.status ?? '') === 'success' || !!ro?.premium);
             return (
@@ -1122,6 +1147,11 @@ export function PremiumScreen() {
                       autoCapitalize="none"
                     />
                     <Btn small variant="primary" icon="checkmark-circle" title={amBusy === o.id ? 'Memproses verifikasi…' : 'Konfirmasi — jadikan premium'} loading={amBusy === o.id} onPress={() => void submitAmVerify(o.id)} />
+                    {/* v26: sesuai alur AM — kalau verifikasi terus gagal → hubungi admin */}
+                    <Btn small variant="ghost" icon="chatbubbles" title="Masih gagal? Hubungi admin" onPress={() => {
+                      const adminUser = Object.values(db.users).find((x) => x.role === 'developer' || x.role === 'admin');
+                      if (adminUser) nav.navigate('ChatRoom', { chatId: openDirect(adminUser.id) });
+                    }} />
                     {!!o.meta?.urlVerify && <T v="caption" color={t.faint} numberOfLines={1}>URL terakhir: {o.meta.urlVerify}</T>}
                   </Neu>
                 )}

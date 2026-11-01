@@ -40,6 +40,87 @@ import { fcmAccessToken, serviceAccountProject } from './_fcmAuth';
 
 const JEREXD_BASE = 'https://api.jerexd.my.id';
 const VEXO_BASE = 'https://vexoapi.site';
+const SYLV_BASE = 'https://sylvatica.my.id/api';
+
+/**
+ * AI IMAGE GENERATION (v26) — mesin gambar milik pemilik, CHAIN NYATA yang
+ * diuji live (2026-11-01):
+ *   1. SYLVATICA /api/ai/flux?prompt=  → JALAN (url .webp) ✔
+ *   2. VEXO      /api/ai/duckaiimage    → route ada (kadang maintenance —
+ *      diuji otomatis lagi tiap kali dipakai, kembali hidup tanpa deploy)
+ *   3. JEREXD    /api/ai/txt2img        → route ada (upstream kadang gagal —
+ *      ikut rantai)
+ *   4. VSUNSEE   — TIDAK punya endpoint gambar (terbukti 404) — di-skip jujur.
+ * Param `provider` = pilihan pengguna (sylvatica/vexo/jerexd); kosong = auto.
+ */
+async function imgFromSylvatica(prompt: string): Promise<{ ok: boolean; url?: string }> {
+  const key = await apiKey('SYLVATICA_APIKEY');
+  if (!key) return { ok: false };
+  try {
+    const r = await fetch(`${SYLV_BASE}/ai/flux?prompt=${encodeURIComponent(prompt)}&apikey=${encodeURIComponent(key)}`, { signal: AbortSignal.timeout(75000) });
+    const j = await r.json().catch(() => null);
+    const url = String(j?.url ?? '');
+    return r.ok && /^https:\/\//.test(url) ? { ok: true, url } : { ok: false };
+  } catch { return { ok: false }; }
+}
+async function imgFromVexo(prompt: string): Promise<{ ok: boolean; url?: string }> {
+  const key = await apiKey('VEXO_APIKEY');
+  if (!key) return { ok: false };
+  try {
+    const r = await fetch(`${VEXO_BASE}/api/ai/duckaiimage?prompt=${encodeURIComponent(prompt)}&key=${encodeURIComponent(key)}`, { signal: AbortSignal.timeout(75000) });
+    const j = await r.json().catch(() => null);
+    const url = String(j?.url ?? j?.image ?? j?.data?.url ?? j?.data?.image ?? '');
+    return r.ok && /^https:\/\//.test(url) ? { ok: true, url } : { ok: false };
+  } catch { return { ok: false }; }
+}
+async function imgFromJerexd(prompt: string): Promise<{ ok: boolean; url?: string }> {
+  const key = await apiKey('JEREXD_APIKEY');
+  if (!key) return { ok: false };
+  try {
+    const r = await fetch(`${JEREXD_BASE}/api/ai/txt2img?prompt=${encodeURIComponent(prompt)}&apikey=${encodeURIComponent(key)}`, { signal: AbortSignal.timeout(75000) });
+    const j = await r.json().catch(() => null);
+    const url = String(j?.url ?? j?.image ?? j?.data?.url ?? '');
+    return r.ok && /^https:\/\//.test(url) ? { ok: true, url } : { ok: false };
+  } catch { return { ok: false }; }
+}
+
+/** GEO IP ringkas (ipwho.is, tanpa kunci) utk laporan AI Guard ke developer —
+ *  v26: laporan tidak lagi "diem-diem"; developer menerima lokasi/ISP pelaku. */
+async function ipGeo(ip: string): Promise<string> {
+  if (!ip || !/^[0-9a-fA-F.:%]{3,45}$/.test(ip)) return '';
+  try {
+    const r = await fetch(`https://ipwho.is/${encodeURIComponent(ip)}`, { signal: AbortSignal.timeout(8000) });
+    const j = await r.json().catch(() => null);
+    if (!j || j.success === false) return '';
+    return [j.city, j.region, j.country].filter(Boolean).join(', ') + (j.connection?.isp ? ` · ${j.connection.isp}` : '') + (j.connection?.asn ? ` (AS${j.connection.asn})` : '');
+  } catch {
+    return '';
+  }
+}
+
+/** Push FCM LANGSUNG KE TOKEN (v26) — topic sudah mati (IID di-retire), dulu
+ *  push guard-enforce via topic TIDAK PERNAH sampai. Kini query fcmtokens. */
+async function pushToUidTokens(project: string, uids: string[], title: string, body: string, data: Record<string, string>): Promise<void> {
+  try {
+    const tok = await fcmAccessToken();
+    if (!tok) return;
+    const proj = serviceAccountProject() ?? project;
+    for (const uid of uids.slice(0, 20)) {
+      let docs: { id: string; fields: Record<string, any> }[] = [];
+      try { docs = await fbQuery(proj, 'fcmtokens', [{ field: 'uid', op: 'EQUAL', value: { stringValue: uid } }], 40); } catch { continue; }
+      await Promise.all(docs.map((d) => {
+        const tk = String(d.fields?.token ?? '');
+        if (tk.length < 20) return Promise.resolve(null);
+        return fetch(`https://fcm.googleapis.com/v1/projects/${proj}/messages:send`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: { token: tk, notification: { title, body }, data, android: { priority: 'high', notification: { channel_id: 'admin', visibility: 'PUBLIC' } } } }),
+          signal: AbortSignal.timeout(8000),
+        }).catch(() => null);
+      }));
+    }
+  } catch { /* best effort */ }
+}
 
 // ---------------------------------------------------------------------------
 // PERSONA ZEROID — SATU prompt untuk semua penyedia
@@ -165,6 +246,7 @@ CARA BERPIKIR & MENJAWAB:
 - Bila menjawab berdasarkan hasil pencarian web, sebutkan sumbernya dengan nama situs + URL.
 - Kamu paham fitur ZEROID WhatsApp: chat & grup realtime, channel, story, panggilan, asisten AI, cari lagu/lirik, unduh YouTube/MP3, anime (jeli, favorit), komik, premium VIP, centang biru, koin & check-in, admin panel.
 - Pertanyaan seputar ZEROID jawab spesifik; pertanyaan umum jawab normal sebaik mungkin.
+- AGENT EKSEKUSI NYATA: bila diminta MEMBUAT website/landing page/halaman HTML/game sederhana, HASILKAN SATU blok kode \`\`\`html ... \`\`\` yang LENGKAP dan siap jalan (HTML+CSS+JS inline, tanpa file luar, responsif mobile) — aplikasi menampilkannya sebagai pratinjau interaktif yang bisa dibuka & diunduh. Jangan hanya menjelaskan langkah-langkah; KERJAKAN langsung.
 - Tolak permintaan berbahaya atau ilegal dengan sopan.
 ${bio ? `Deskripsi publikmu: "${bio}" — selaras dengan itu saat relevan.` : ''}`;
 }
@@ -502,6 +584,27 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ ok: true, models: merged });
     }
 
+    if (action === 'img') {
+      const prompt = s(body?.prompt, 900);
+      if (!prompt) return bad(res, 400, 'Tulis deskripsi gambarnya dulu.');
+      const want = s(body?.provider, 20).toLowerCase();
+      const engines: { id: string; run: () => Promise<{ ok: boolean; url?: string }> }[] = [
+        { id: 'sylvatica', run: () => imgFromSylvatica(prompt) },
+        { id: 'vexo', run: () => imgFromVexo(prompt) },
+        { id: 'jerexd', run: () => imgFromJerexd(prompt) },
+      ];
+      const ordered = want === 'vexo' ? [engines[1], engines[0], engines[2]]
+        : want === 'jerexd' ? [engines[2], engines[0], engines[1]]
+        : engines;
+      const tried: string[] = [];
+      for (const eng of ordered) {
+        const r = await eng.run();
+        if (r.ok && r.url) return res.status(200).json({ ok: true, image: r.url, provider: eng.id });
+        tried.push(eng.id);
+      }
+      return bad(res, 502, `Mesin gambar (${tried.join(', ')}) sedang sibuk/maintenance — coba lagi beberapa menit atau pilih AI lain.`);
+    }
+
     if (action === 'chat') {
       const messages = Array.isArray(body?.messages) ? body.messages : null;
       if (!messages || !messages.length || messages.length > 24) return bad(res, 400, 'Percakapan tidak valid.');
@@ -817,30 +920,38 @@ export default async function handler(req: any, res: any) {
       }
 
       // catatan log + laporan ke admin panel (SELALU, termasuk staff)
+      // v26: laporan kini AKTIF ke developer — data IP pelaku (dari usermeta,
+      // diisi perangkat pelaku sendiri) + geo ISP ikut dilampirkan.
+      const om = await fbGetDoc(project, `usermeta/${offenderId}`).catch(() => null as any);
+      const offIp = String(om?.lastIp ?? '').slice(0, 45);
+      const offIpInfo = await ipGeo(offIp);
       await fbCreateDoc(project, 'guardlog', logId, {
         uid: fsStr(offenderId), name: fsStr(offenderName), role: fsStr(offenderRole),
         chatId: fsStr(chatId), chatName: fsStr(sanitizePersonaText(chat.name, 60) || chatLabel), chatType: fsStr(String(chat.type ?? 'group')),
         kind: fsStr(kind), reason: fsStr(reason), excerpt: fsStr(String(msg.text ?? '').slice(0, 90)),
         action: fsStr(staff ? 'dilaporkan ke developer (staff)' : enabled ? action2 : 'dimatikan oleh config'),
         until: fsInt(until), byCaller: fsStr(caller.uid), msgId: fsStr(messageId), at: fsInt(now),
+        ip: fsStr(offIp), ipInfo: fsStr(offIpInfo),
       });
 
-      // notifikasi FCM ke semua admin + developer (langsung dari server)
+      // v26 LAPORAN LANGSUNG KE ADMIN/DEVELOPER (bukan diem lagi):
+      //  1) notifikasi in-app (pusat notifikasi, kategori admin) — isi lengkap
+      //     siapa + apa + di mana + sanksi + data IP pelaku,
+      //  2) push FCM LANGSUNG KE TOKEN (dulu topic — mati, tak pernah sampai).
       try {
         const admins = await fbQuery(project, 'users', [
           { field: 'role', op: 'IN', value: { arrayValue: { values: [{ stringValue: 'admin' }, { stringValue: 'developer' }] } } },
         ], 20);
-        const accTok = await fcmAccessToken();
-        const fproj = serviceAccountProject();
-        if (accTok && fproj) {
-          await Promise.all(admins.map((a) => fetch(`https://fcm.googleapis.com/v1/projects/${fproj}/messages:send`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${accTok}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ message: { topic: `user_${a.id}`, notification: { title: `AI Guard · ${chatLabel}`, body: `${offenderName}: ${reason} → ${staff ? 'dilaporkan (staff)' : action2}` }, data: { chatId, kind }, android: { priority: 'high', notification: { channel_id: 'admin', visibility: 'PUBLIC' } } } }),
-            signal: AbortSignal.timeout(8000),
-          }).catch(() => null)));
-        }
-      } catch { /* notif best effort */ }
+        const notifTitle = `AI Guard · ${chatLabel}`;
+        const ipLine = offIp ? `\nIP pelaku: ${offIp}${offIpInfo ? ` (${offIpInfo})` : ''}` : '';
+        const notifBody = `${offenderName}: ${reason} → ${staff ? 'dilaporkan (staff)' : action2}.${ipLine}`;
+        await Promise.all(admins.map((a, i) => fbCreateDoc(project, 'notifications', `grd_${now}_${i}_${Math.random().toString(36).slice(2, 6)}`, {
+          userId: fsStr(String(a.id)), kind: fsStr('admin'),
+          title: fsStr(notifTitle), body: fsStr(notifBody.slice(0, 300)),
+          createdAt: fsTimeMs(), read: fsBool(false), chatId: fsStr(chatId),
+        }).catch(() => null)));
+        void pushToUidTokens(project, admins.map((a) => String(a.id)), notifTitle, notifBody.slice(0, 220), { chatId, kind: 'admin' });
+      } catch { /* laporan best effort */ }
 
       return res.status(200).json({ ok: true, enforced: !staff && enabled, action: staff ? 'reported' : enabled ? action2 : 'disabled' });
     }

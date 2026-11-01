@@ -13,7 +13,7 @@
  * (dicoba dicari via judul).
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, FlatList, ScrollView, Pressable, ActivityIndicator, Linking, useWindowDimensions } from 'react-native';
+import { View, FlatList, ScrollView, Pressable, ActivityIndicator, Linking, Platform, useWindowDimensions } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,8 +22,35 @@ import { T, Btn, Card, Empty, Header, IconBtn, Neu, NeuInput, Row, Screen } from
 import VideoPlayer from '../components/VideoPlayer';
 import { useTheme, R } from '../lib/theme';
 import { isAnimeFav, toggleAnimeFav, useStore } from '../lib/store';
-import { animeSchedule, animeQuotes, animeNews, animeLatest as jereLatest, animeHot as jereHot, animeSearch as jereSearch, animeDetail as jereDetail, AnimeCard, AnimeQuote, AnimeNews, AnimeDetail as JereDetail } from '../lib/jere';
+import { animeSchedule, animeQuotes, animeNews, animeLatest as jereLatest, animeHot as jereHot, animeSearch as jereSearch, animeDetail as jereDetail, ytSearch, YtResult, AnimeCard, AnimeQuote, AnimeNews, AnimeDetail as JereDetail } from '../lib/jere';
 import { animeInSearch, animeInInfo, animeInStreams, animeFyp, otakudesuLatest, AnimeInMovie, AnimeInEpisode } from '../lib/vanzz';
+
+/** PEMUTAR YOUTUBE (VIDEO penuh, bukan audio) — dipakai nonton episode anime.
+ *  CDN video scraper (animein/storages) kini memblokir hotlink (403 terbukti
+ *  live) → episode resmi di YouTube (Muse Indonesia / Ani-One dsb.) jadi jalur
+ *  nonton yang BENAR-BENAR jalan: web = iframe embed, APK = WebView in-app. */
+const NativeWebView = Platform.OS === 'web' ? null : (require('react-native-webview').WebView as any);
+export function YtEmbed({ id, height = 230 }: { id: string; height?: number }) {
+  if (Platform.OS === 'web') {
+    return (
+      <View style={{ borderRadius: 14, overflow: 'hidden', backgroundColor: '#000' }}>
+        {React.createElement('iframe', {
+          src: `https://www.youtube.com/embed/${id}?rel=0&playsinline=1`,
+          width: '100%', height, frameBorder: 0,
+          allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen',
+          allowFullScreen: true,
+          style: { border: 0, borderRadius: 14, display: 'block', background: '#000' },
+          title: 'Pemutar YouTube',
+        })}
+      </View>
+    );
+  }
+  return (
+    <View style={{ borderRadius: 14, overflow: 'hidden', height, backgroundColor: '#000' }}>
+      <NativeWebView source={{ uri: `https://www.youtube.com/embed/${id}?rel=0&playsinline=1` }} allowsFullscreenVideo style={{ flex: 1, backgroundColor: '#000' }} />
+    </View>
+  );
+}
 
 /** Cache poster fallback per judul (Jikan/MyAnimeList — CORS publik). */
 const posterFallback = new Map<string, string>();
@@ -149,12 +176,26 @@ export function AnimeScreen() {
           cards = list.map((a: AnimeCard) => ({ slug: a.slug, title: a.title, poster: a.poster, sub: a.episode ? `EP ${a.episode}` : a.releaseDay }));
         }
       } else if (which === 'hot') {
+        // v26: POSTER WAJIB ADA — CDN animein (poster FYP) terbukti 403 untuk
+        // semua akses langsung → Populer kini dari MyAnimeList TOP (poster resmi
+        // cdn.myanimelist.net, skor nyata). Fallback: animein FYP → jere.
         try {
-          const rows = await animeFyp();
-          cards = rows.map((r) => ({ slug: r.id_movie ? `ain:${r.id_movie}` : `q:${r.anime}`, title: r.anime, poster: r.poster, sub: r.episode ? `EP ${r.episode}` : undefined }));
+          const j = await jikanTimeout('https://api.jikan.moe/v4/top/anime?limit=24&sfw=true', 9000);
+          if (!j?.data) throw new Error('Jikan limit');
+          cards = (j.data ?? []).map((a: any) => ({
+            slug: `jikan:${a.mal_id}`,
+            title: a.title ?? a.title_english ?? a.title_japanese,
+            poster: a.images?.jpg?.large_image_url ?? a.images?.jpg?.image_url,
+            sub: a.score && a.score !== 'N/A' ? `★ ${a.score}` : [a.type, a.year].filter(Boolean).join(' · '),
+          })).filter((c: Card) => c.title && c.slug !== 'jikan:undefined');
         } catch {
-          const list = await jereHot();
-          cards = list.map((a: AnimeCard) => ({ slug: a.slug, title: a.title, poster: a.poster, sub: a.rating ? `★ ${a.rating}` : undefined }));
+          try {
+            const rows = await animeFyp();
+            cards = rows.map((r) => ({ slug: r.id_movie ? `ain:${r.id_movie}` : `q:${r.anime}`, title: r.anime, poster: r.poster, sub: r.episode ? `EP ${r.episode}` : undefined }));
+          } catch {
+            const list = await jereHot();
+            cards = list.map((a: AnimeCard) => ({ slug: a.slug, title: a.title, poster: a.poster, sub: a.rating ? `★ ${a.rating}` : undefined }));
+          }
         }
       } else {
         const list = await animeSchedule(); // jere — fallback Jikan resmi masih hidup
@@ -543,6 +584,40 @@ export function AnimeWatchScreen() {
   const [sel, setSel] = useState(0);
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
+  // v26: NONTON VIA YOUTUBE — CDN mp4 scraper terbukti 403 → episode dicari di
+  // YouTube (seringkali upload RESMI Muse Indonesia / Ani-One) lalu diputar
+  // in-app (iframe web / WebView APK). Ini jalur nonton yang beneran jalan.
+  const [ytList, setYtList] = useState<YtResult[]>([]);
+  const [ytId, setYtId] = useState('');
+  const [ytBusy, setYtBusy] = useState(false);
+
+  // "One Piece — Episode 1010" → nama + label episode utk query YouTube
+  const mYt = label.match(/^(.*?)(?:\s+[—–-]\s+)(.+)$/);
+  const ytName = (mYt?.[1] ?? label).replace(/\s*\[.*?\]\s*/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  const ytEp = (mYt?.[2] ?? '').trim();
+
+  useEffect(() => {
+    let alive = true;
+    setYtList([]); setYtId('');
+    (async () => {
+      setYtBusy(true);
+      const tries = [
+        [ytName, ytEp, 'sub indo'].filter(Boolean).join(' '),
+        [ytName, ytEp].filter(Boolean).join(' '),
+        `${ytName} bahasa indonesia`,
+      ].filter((q) => q.trim().length > 2);
+      for (const q of tries) {
+        try {
+          const vids = await ytSearch(q.slice(0, 110));
+          if (!alive) return;
+          const good = vids.filter((v) => v.id && /^[A-Za-z0-9_-]{11}$/.test(v.id)).slice(0, 6);
+          if (good.length) { setYtList(good); setYtId(good[0].id); break; }
+        } catch { /* lanjut query berikutnya */ }
+      }
+      if (alive) setYtBusy(false);
+    })();
+    return () => { alive = false; };
+  }, [label]);
 
   useEffect(() => {
     let alive = true;
@@ -575,6 +650,7 @@ export function AnimeWatchScreen() {
   return (
     <Screen>
       <Header title={label} back />
+      <ScrollView contentContainerStyle={{ paddingBottom: 44 }}>
       {loading && (
         <View style={{ padding: 30, alignItems: 'center' }}>
           <ActivityIndicator color={t.accent} />
@@ -602,7 +678,7 @@ export function AnimeWatchScreen() {
       )}
       {!loading && !cur && !err && (
         <View style={{ padding: 16, gap: 8 }}>
-          <Empty icon="videocam-off" title="Pemain langsung tidak tersedia" body="Buka lewat server embed di bawah." />
+          <Empty icon="videocam-off" title="Pemain langsung tidak tersedia" body="Nonton lewat YouTube di bawah — diputar langsung di sini." />
         </View>
       )}
       {!loading && !!err && (
@@ -614,13 +690,51 @@ export function AnimeWatchScreen() {
         />
       )}
       {!loading && !!embed.length && (
-        <ScrollView contentContainerStyle={{ padding: 16, paddingTop: 4, gap: 8, paddingBottom: 40 }}>
+        <View style={{ padding: 16, paddingTop: 4, gap: 8 }}>
           <T v="caption" style={{ fontWeight: '900' }}>Server embed (buka browser)</T>
           {embed.slice(0, 12).map((s, i) => (
             <Btn key={`e${i}`} icon="open" title={[s.quality, s.name].filter(Boolean).join(' · ') || `Server ${i + 1}`} variant="neu" small onPress={() => Linking.openURL(s.link).catch(() => {})} />
           ))}
-        </ScrollView>
+        </View>
       )}
+      {/* ===== NONTON VIA YOUTUBE (VIDEO) — selalu tampil, jalan walau scraper mati ===== */}
+      {!loading && (
+        <View style={{ padding: 16, paddingTop: 12, gap: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Ionicons name="logo-youtube" size={18} color="#FF3B30" />
+            <T v="h3" style={{ fontSize: 15 }}>Nonton episode ini di YouTube</T>
+          </View>
+          {ytBusy && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <ActivityIndicator size="small" color={t.accent} />
+              <T v="caption" color={t.sub}>Mencari episode di YouTube…</T>
+            </View>
+          )}
+          {!ytBusy && !!ytId && <YtEmbed id={ytId} height={Platform.OS === 'web' ? 240 : 230} />}
+          {!ytBusy && ytList.length > 1 && (
+            <View style={{ gap: 6 }}>
+              {ytList.slice(0, 6).map((v) => (
+                <Row
+                  key={v.id}
+                  icon={v.id === ytId ? 'play-circle' : 'videocam'}
+                  title={v.title}
+                  subtitle={[v.channel, v.duration].filter(Boolean).join(' · ')}
+                  onPress={() => setYtId(v.id)}
+                />
+              ))}
+            </View>
+          )}
+          {!ytBusy && !ytId && (
+            <Btn
+              icon="open"
+              variant="neu"
+              title={`Cari di YouTube — ${[ytName, ytEp].filter(Boolean).join(' ')}`}
+              onPress={() => Linking.openURL(`https://www.youtube.com/results?search_query=${encodeURIComponent(`${ytName} ${ytEp} sub indo`)}`).catch(() => {})}
+            />
+          )}
+        </View>
+      )}
+      </ScrollView>
     </Screen>
   );
 }

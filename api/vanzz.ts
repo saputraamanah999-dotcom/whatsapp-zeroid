@@ -30,6 +30,39 @@ import { verifyIdToken, fbGetDoc, fbPatchDoc, fbQuery, apiKey } from './_fbrest'
 
 const VANZZ_BASE = 'https://apiz.vsunsee.qzz.io';
 const PROJECT = process.env.FIREBASE_PROJECT_ID || 'whatsapp-zeroid';
+/** AM dapjisync — host TERPISAH (bukan Vanzz), auth lewat header bypass key. */
+const AM2_BASE = 'https://am.dapjisync.my.id/api';
+const AM2_KEY = process.env.AM2_BYPASS_KEY || 'amfree_key';
+
+/** Cadangan AM via dapjisync: send magic link / verifikasi link Firebase auth.
+ *  Hasil dibentuk jadi struktur yang SAMA dengan jalur utama supaya kartu hasil
+ *  tampil rapi tanpa perubahan UI. Null bila gagal (maintenance/gagal hulu). */
+async function am2Call(kind: 'send' | 'verif', email: string, link: string): Promise<any | null> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 45000);
+  try {
+    const r = await fetch(`${AM2_BASE}/${kind === 'send' ? 'send' : 'verif'}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Bypass-Key': AM2_KEY },
+      body: JSON.stringify(kind === 'send' ? { gmail: email } : { gmail: email, link }),
+      signal: ctl.signal,
+    });
+    const j = await r.json().catch(() => null);
+    if (!j || j.success === false) return null;
+    return {
+      status: true,
+      result: {
+        email: j.email ?? email,
+        message: j.message ?? '',
+        planName: j.planName, orderId: j.orderId,
+        validUntil: j.validUntil, membershipStatus: j.membershipStatus,
+        verifyDone: kind === 'verif',
+      },
+    };
+  } catch {
+    return null;
+  } finally { clearTimeout(timer); }
+}
 
 // ---------------------------------------------------------------------------
 // REGISTRY — whitelist endpoint. Path tanpa apikey (ditambah server).
@@ -94,6 +127,11 @@ const PAID: Record<string, Ep> = {
   netflix: { path: '/vsunseeV8/netflix/token' },
   amp: { path: '/vsunseeV8/alightmotion/send-link', params: ['email'], timeout: 45000 },
   amunlock: { path: '/vsunseeV8/alightmotion/unlockVip', params: ['email', 'urlVerify'], timeout: 45000 },
+  // AM SEND/VERIFY v26 — sumber KEDUA (dapjisync, bypass key amfree_key dari
+  // pemilik). Dipakai sebagai CADANGAN bila upstream utama gagal — service
+  // dapjisync kadang maintenance; server mencoba utama dulu, lalu ini.
+  am_send2: { path: '/am/send', params: ['email'], timeout: 45000 },
+  am_verif2: { path: '/am/verif', params: ['email', 'urlVerify'], timeout: 45000 },
   // IP TRACKER — lacak lokasi/ISP dari alamat IP. Kalau upstream Vanzz gagal
   // (flaky 404 terbukti), server fallback ke ipwho.is (gratis, tanpa kunci)
   // supaya fitur TETAP menghasilkan data nyata, bukan error.
@@ -415,14 +453,17 @@ function nomorFallback(nomor: string): any {
 }
 
 // ---------------------------------------------------------------------------
-// IP TRACKER FALLBACK — ipwho.is (publik, tanpa kunci). Bentuk hasil dirapikan
-// jadi kartu yang sama informatifnya dengan upstream.
+// IP WHOIS (ipwho.is, publik tanpa kunci) — dipakai DUA jalur:
+//  1) alat IP TRACKER di Admin Panel (khusus DEVELOPER, gratis — v26),
+//  2) fallback deliver pesanan iptracker LAMA yang masih 'paid'.
+// Bentuk hasil dirapikan jadi kartu yang sama informatifnya dengan upstream.
 // ---------------------------------------------------------------------------
-async function ipTrackerFallback(ip: string): Promise<any> {
+const IP_RE = /^(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$|^[0-9a-fA-F:]{2,45}$/;
+async function ipWhoLookup(ip: string): Promise<any> {
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 12000);
   try {
-    const u = /^\d+\.+/.test(ip) || /^[0-9a-fA-F:]+$/.test(ip) ? `https://ipwho.is/${encodeURIComponent(ip)}` : 'https://ipwho.is/';
+    const u = ip ? `https://ipwho.is/${encodeURIComponent(ip)}` : 'https://ipwho.is/';
     const r = await fetch(u, { signal: ctl.signal, headers: { accept: 'application/json' } });
     const j = await r.json().catch(() => null);
     if (!j || j.success === false) return null;
@@ -435,12 +476,16 @@ async function ipTrackerFallback(ip: string): Promise<any> {
         network: { isp: j.connection?.isp, org: j.connection?.org, asn: j.connection?.asn ? `AS${j.connection.asn}` : '', domain: j.connection?.domain },
         timezone: { id: j.timezone?.id, utc: j.timezone?.utc },
         flags: { proxy: !!j.security?.proxy, tor: !!j.security?.tor, relay: !!j.security?.relay },
-        meta: { note: 'Sumber cadangan: ipwho.is — upstream utama sedang tidak bisa dihubungi.' },
+        meta: { note: ip ? 'Sumber: ipwho.is (data publik IP).' : 'Sumber: ipwho.is — ini IP publik server/permintaanmu.' },
       },
     };
   } catch {
     return null;
   } finally { clearTimeout(timer); }
+}
+/** Cadangan utk deliver pesanan lama — bentuk lama dipertahankan. */
+async function ipTrackerFallback(ip: string): Promise<any> {
+  return ipWhoLookup(ip);
 }
 
 /** Panggil endpoint Vanzz; gambar → data URL (maks ~6 MB).
@@ -528,11 +573,30 @@ export default async function handler(req: any, res: any) {
   if (!who) return res.status(401).json({ error: 'Masuk dulu untuk memakai fitur ini.' });
   if (rateLimited(who.uid)) return res.status(429).json({ error: 'Terlalu banyak permintaan — tunggu beberapa menit.' });
 
-  const key = (process.env.VANZZ_API_KEY || '').trim();
-  if (!key) return res.status(503).json({ error: 'Layanan Vanzz belum dikonfigurasi di server (VANZZ_API_KEY).' });
-
   const body = await readBody(req);
   const action = String(body?.action ?? 'call');
+
+  // ---------------- IP TRACKER — ALAT KHUSUS DEVELOPER (ADMIN PANEL) --------
+  // v26: fitur dipindah dari produk berbayar ke Admin Panel — khusus
+  // developer, GRATIS, langsung jalan (tanpa kunci Vanzz). Input IP kosong →
+  // lacak IP pemanggil. Hasil SELALU data bersih (ipwho.is) — tidak pernah
+  // lagi memuntahkan HTML/JSON mentah.
+  if (action === 'iptrack') {
+    const me = await fbGetDoc(PROJECT, `users/${who.uid}`);
+    const isDev = me && (String((me as any).role ?? '') === 'developer' || (me as any).developer === true);
+    if (!isDev) return res.status(403).json({ error: 'IP Tracker hanya untuk Developer.' });
+    const fwd = String(req.headers?.['x-forwarded-for'] ?? '').split(',')[0].trim();
+    const callerIp = fwd || String(req.headers?.['x-real-ip'] ?? '').trim() || '';
+    const ip = clean(body?.ip, 64);
+    if (ip && !IP_RE.test(ip)) return res.status(400).json({ error: 'Format alamat IP tidak valid.' });
+    const target = ip || callerIp;
+    const out = await ipWhoLookup(target);
+    if (!out) return res.status(502).json({ error: 'Layanan pelacak IP sedang sibuk — coba lagi sebentar.' });
+    return res.status(200).json({ ok: true, result: out.result, self: !ip });
+  }
+
+  const key = (process.env.VANZZ_API_KEY || '').trim();
+  if (!key) return res.status(503).json({ error: 'Layanan Vanzz belum dikonfigurasi di server (VANZZ_API_KEY).' });
 
   // ---------------- QRIS dinamis (pembayaran) ----------------
   if (action === 'qris') {
@@ -661,6 +725,11 @@ export default async function handler(req: any, res: any) {
         r = await vanzzGet(epAdj, params, key);
       }
     }
+    // AM SEND/VERIFY — CADANGAN dapjisync bila jalur utama gagal (v26)
+    if (!r.ok && (product === 'amp' || product === 'amunlock')) {
+      const alt = await am2Call(params.urlVerify ? 'verif' : 'send', params.email, params.urlVerify);
+      if (alt) r = { ok: true, status: 200, data: alt };
+    }
     // CEK NOMOR — upstream mati/flaky → fallback prefiks operator (server)
     if (!r.ok && product === 'checknomor' && params.nomor) {
       const fbData = nomorFallback(params.nomor);
@@ -743,16 +812,22 @@ export default async function handler(req: any, res: any) {
       meta: { mapValue: { fields: newMeta } },
     } as any).catch(() => {});
     const r = await vanzzGet(PAID.amunlock, { email, urlVerify }, key);
-    const at = Date.now();
+    // AM VERIFY — CADANGAN dapjisync bila jalur utama gagal (v26)
+    let rFinal = r;
     if (!r.ok) {
-      const msg = pickMsg(r.data) || r.error || `Verifikasi gagal (HTTP ${r.status}) — pastikan URL-nya persis dari email.`;
+      const alt = await am2Call('verif', email, urlVerify);
+      if (alt) rFinal = { ok: true, status: 200, data: alt };
+    }
+    const at = Date.now();
+    if (!rFinal.ok) {
+      const msg = pickMsg(rFinal.data) || rFinal.error || `Verifikasi gagal (HTTP ${rFinal.status}) — pastikan URL-nya persis dari email. Kalau terus gagal, hubungi admin.`;
       await fbPatchDoc(PROJECT, `orders/${orderId}`, {
         deliveryError: { stringValue: msg.slice(0, 300) },
         deliveryTriedAt: { integerValue: String(at) },
       } as any);
       return res.status(502).json({ error: msg });
     }
-    const result = r.data ?? {};
+    const result = rFinal.data ?? {};
     (result as any).verifyDone = true;
     await fbPatchDoc(PROJECT, `orders/${orderId}`, {
       delivered: { booleanValue: true },

@@ -44,6 +44,9 @@ export const vanzzDeliver = (orderId: string) => post({ action: 'deliver', order
 /** LANGKAH 2 AlightMotion — tempel URL verifikasi dari email (SPAM) → unlock premium. */
 export const vanzzAmVerify = (orderId: string, urlVerify: string) => post({ action: 'amverify', orderId, urlVerify }, 55000);
 
+/** IP TRACKER (khusus Developer, Admin Panel) — ip kosong = lacak IP sendiri. */
+export const vanzzIpTrack = (ip: string) => post({ action: 'iptrack', ip }, 30000);
+
 // ---------------------------------------------------------------------------
 // MENU GRATIS — definisi layar (dipakai screens/AnimeScreens.tsx / FreeMenu)
 // ---------------------------------------------------------------------------

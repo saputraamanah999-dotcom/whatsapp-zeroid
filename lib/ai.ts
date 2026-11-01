@@ -121,6 +121,16 @@ export async function webSearch(query: string): Promise<WebResult[]> {
   return Array.isArray(data?.results) ? data.results.slice(0, 8) : [];
 }
 
+// ---------------- AI IMAGE GENERATION (v26) ----------------
+/** Mesin gambar milik pemilik (diuji live): Sylvatica Flux → Vexo DuckAI →
+ *  Jerexd Txt2Img. `provider` = pilihan pengguna ('' = auto rantai). */
+export async function generateAIImage(prompt: string, provider = ''): Promise<{ image: string; provider: string }> {
+  const data = await post({ action: 'img', prompt: String(prompt ?? '').slice(0, 900), provider }, 95000);
+  const image = String(data?.image ?? '');
+  if (!/^https?:\/\//.test(image)) throw new Error(String(data?.error ?? 'Gagal membuat gambar — coba lagi.'));
+  return { image, provider: String(data?.provider ?? 'ai') };
+}
+
 // ---------------- BOT ZEROID (server-side) ----------------
 /**
  * Minta BOT "Zeroid Bot" menjawab di chat setelah ada pesan yang menyebutnya.

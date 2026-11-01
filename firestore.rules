@@ -477,7 +477,8 @@ service cloud.firestore {
     }
 
     // ---- usermeta (v11: IP/perangkat terakhir per akun, ditulis klien sendiri) ----
-    // Hanya field teknis hash (bukan IP mentah) — admin membacanya saat mem-ban.
+    // v26: `lastIp` (IP publik perangkat sendiri) ikut disimpan — dipakai laporan
+    // AI Guard ke developer (server-only SA membaca). Read tetap: pemilik / admin.
     // FIX v13: create TIDAK BOLEH memakai resource.data (resource = null saat create
     // → diff() error → seluruh kondisi false → seed & catatan sesi selalu ditolak).
     // Create memakai diff({}) — affectedKeys = semua field yang ditulis.
@@ -485,9 +486,9 @@ service cloud.firestore {
       allow get: if signedIn() && (uid == me() || isAdmin());
       allow list: if isAdmin();
       allow create: if request.auth.uid == uid
-        && request.resource.data.diff({}).affectedKeys().hasOnly(['lastIpHash','lastDeviceHash','at']);
+        && request.resource.data.diff({}).affectedKeys().hasOnly(['lastIpHash','lastDeviceHash','lastIp','at']);
       allow update: if request.auth.uid == uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastIpHash','lastDeviceHash','at']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['lastIpHash','lastDeviceHash','lastIp','at']);
       allow delete: if isAdmin();
     }
 

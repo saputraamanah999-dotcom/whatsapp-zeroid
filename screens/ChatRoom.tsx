@@ -41,6 +41,7 @@ import {
   loadOlder,
   markDelivered,
   askAssistant,
+  askImageAssistant,
   aiTypingIn,
   AI_THINK_STEPS,
   followersCount,
@@ -77,7 +78,7 @@ export default function ChatRoom() {
   const [badgeInfo, setBadgeInfo] = useState(false);
   const openBadgeInfo = () => setBadgeInfo(true);
   const [replyTo, setReplyTo] = useState<Message | null>(null);
-  const [aiPrefs, setAiPrefs] = useState<{ model: string; thinking: boolean; search: boolean; agent: boolean }>({ model: '', thinking: false, search: false, agent: false });
+  const [aiPrefs, setAiPrefs] = useState<{ model: string; thinking: boolean; search: boolean; agent: boolean; image: boolean; imageProvider: string }>({ model: '', thinking: false, search: false, agent: false, image: false, imageProvider: '' });
   // ANIMASI THINKING + TERMINAL AGENT — frasa berputar & baris terminal muncul
   // progresif selama AI menyusun jawaban (waktu nyata, bukan data palsu).
   const [thinkStep, setThinkStep] = useState(0);
@@ -433,6 +434,12 @@ export default function ChatRoom() {
                         .slice(-8)
                         .map((m) => ({ role: (m.assistant ? 'assistant' : 'user') as 'user' | 'assistant', content: m.text! }));
                       setReplyTo(null);
+                      // v26: MODE GAMBAR — prompt dikirim jadi gambar oleh mesin AI
+                      // milik pemilik (Sylvatica/Vexo/Jerexd, pilihan pengguna).
+                      if (aiPrefs.image && !payload.uri) {
+                        void askImageAssistant(chatId, prompt, aiPrefs.imageProvider);
+                        return;
+                      }
                       const opts: AskOpts = { history, model: aiPrefs.model || undefined, thinking: aiPrefs.thinking, search: aiPrefs.search, agent: aiPrefs.agent };
                       if (payload.uri) {
                         // foto dikirim di chat AI → dianalisis lewat endpoint vision
@@ -508,6 +515,33 @@ export default function ChatRoom() {
               <T v="caption" color={t.faint}>Jawaban + log penyedia AI tampil ala terminal — terlihat seperti agent sungguhan</T>
             </View>
             <Toggle value={aiPrefs.agent} onChange={(v) => setAiPrefs((x) => ({ ...x, agent: v }))} />
+          </View>
+          {/* v26: BUAT GAMBAR — mesin AI milik pemilik, pengguna pilih sendiri */}
+          <View style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Ionicons name="image" size={20} color={t.accent} />
+              <View style={{ flex: 1 }}>
+                <T style={{ fontWeight: '800' }}>Buat gambar (AI Zeroid)</T>
+                <T v="caption" color={t.faint}>Tulis deskripsi → jadi gambar sungguhan di chat ini</T>
+              </View>
+              <Toggle value={aiPrefs.image} onChange={(v) => setAiPrefs((x) => ({ ...x, image: v }))} />
+            </View>
+            {aiPrefs.image && (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {[{ id: '', label: 'Auto' }, { id: 'sylvatica', label: 'Sylvatica Flux' }, { id: 'vexo', label: 'Vexo DuckAI' }, { id: 'jerexd', label: 'Jerexd AI' }].map((p) => {
+                  const on = aiPrefs.imageProvider === p.id;
+                  return (
+                    <Pressable
+                      key={p.id || 'auto'}
+                      onPress={() => setAiPrefs((x) => ({ ...x, imageProvider: p.id }))}
+                      style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999, backgroundColor: on ? t.accent : t.bg2, borderWidth: 1, borderColor: on ? t.accent : t.border }}
+                    >
+                      <T v="caption" color={on ? '#fff' : t.sub} style={{ fontWeight: '800' }}>{p.label}</T>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
             <Ionicons name="bulb" size={20} color={t.accent} />

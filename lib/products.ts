@@ -53,12 +53,9 @@ export const API_PRODUCTS: ApiProduct[] = [
     fields: [{ key: 'email', label: 'Email', placeholder: 'email@kamu.com' }],
     note: 'Ikuti petunjuk unlock di pesanan — tempel URL verifikasi dari email kamu.',
   },
-  {
-    key: 'iptracker', title: 'IP Tracker', icon: 'locate', color: '#00B8A9', price: 5000,
-    desc: 'Lacak lokasi, ISP, dan info perangkat dari sebuah alamat IP.',
-    fields: [{ key: 'ip', label: 'Alamat IP', placeholder: 'Contoh: 114.10.40.10' }],
-    note: 'Hasil pelacakan IP muncul otomatis di pesanan setelah admin konfirmasi pembayaran.',
-  },
+  // IP TRACKER TIDAK DIJUAL LAGI (v26): dipindah ke ADMIN PANEL khusus
+  // Developer — gratis & langsung jalan. Pesanan lama tetap tampil rapi
+  // lewat LEGACY_API_PRODUCTS di bawah.
   {
     key: 'followers', title: 'Followers Saluran', icon: 'people', color: '#1E9BFF', price: 3000,
     unit: 5, unitLabel: 'followers', minAmount: 5, maxAmount: 1000000,
@@ -82,6 +79,20 @@ export const API_PRODUCTS: ApiProduct[] = [
 ];
 
 export const apiProductOf = (k?: string) => API_PRODUCTS.find((p) => p.key === k);
+
+/** Produk LAMA yang sudah tidak dijual (mis. IP Tracker kini alat Developer
+ *  gratis di Admin Panel) — tetap dipakai untuk menampilkan riwayat pesanan
+ *  lama dengan judul/ikon yang benar, BUKAN "Produk" generik. */
+export const LEGACY_API_PRODUCTS: ApiProduct[] = [
+  {
+    key: 'iptracker', title: 'IP Tracker', icon: 'locate', color: '#00B8A9', price: 5000,
+    desc: 'Lacak lokasi, ISP, dan info perangkat dari sebuah alamat IP.',
+    fields: [{ key: 'ip', label: 'Alamat IP', placeholder: 'Contoh: 114.10.40.10' }],
+    note: 'Fitur ini kini alat gratis khusus Developer di Admin Panel.',
+  },
+];
+/** Cari produk utk tampilan riwayat: produk aktif dulu, lalu legacy. */
+export const apiProductOfAny = (k?: string) => apiProductOf(k) ?? LEGACY_API_PRODUCTS.find((p) => p.key === k);
 
 // ---------------------------------------------------------------------------
 // HARGA DARI ADMIN (config/pricing) — semua harga produk berbayar BISA diubah
