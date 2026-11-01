@@ -29,11 +29,14 @@ export type PlayerState = {
   /** true = memakai YouTube embed resmi (direct audio tidak tersedia) */
   embed: boolean;
   error: string;
+  /** v26 MODE MIX AI: gabungan lagu — transisi CROSSFADE otomatis (nyambung
+   *  seperti mashup TikTok: Ignite x Alone PT II x All Falls Down…). */
+  mix: boolean;
 };
 
 let state: PlayerState = {
   current: null, playing: false, loading: false, position: 0, duration: 0,
-  queue: [], barVisible: true, fullOpen: false, embed: false, error: '',
+  queue: [], barVisible: true, fullOpen: false, embed: false, error: '', mix: false,
 };
 const listeners = new Set<() => void>();
 const emit = () => listeners.forEach((l) => l());
@@ -83,6 +86,13 @@ function startTicker() {
       dur = nativePlayer.duration ?? 0;
     }
     if (dur > 0 || pos > 0) set({ position: pos, duration: dur || state.duration });
+    // v26 MIX AI — CROSSFADE OTOMATIS (web): 6 detik sebelum lagu habis, lagu
+    // berikutnya dinyalakan perlahan sementara yang lama memudar → gabungan
+    // lagu TERNYAMBUNG (bukan jeda aneh antar lagu).
+    if (Platform.OS === 'web' && state.mix && !state.embed && audio && dur > 14 && dur - pos <= 6.2 && !fadeLock) {
+      fadeLock = true;
+      void crossfadeNext();
+    }
     // posisi utk notifikasi media OS (spesifikasi MediaSession)
     if (Platform.OS === 'web' && typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
       try {
@@ -338,8 +348,86 @@ export function close() {
       (navigator as any).mediaSession.playbackState = 'none';
     } catch {}
   }
-  set({ current: null, playing: false, position: 0, duration: 0, queue: [], fullOpen: false, embed: false, error: '' });
+  set({ current: null, playing: false, position: 0, duration: 0, queue: [], fullOpen: false, embed: false, error: '', mix: false });
   void hideMediaNotification();
+}
+
+// ===========================================================================
+// MIX AI (v26) — GABUNGAN LAGU OTOMATIS (ala mashup TikTok)
+// Pilih beberapa lagu → diputar berurutan dgn CROSSFADE 6 detik: lagu berikut
+// sudah masuk sementara yang lama memudar → terdengar seperti SATU remix
+// panjang yang nyambung. Web: dua <audio> + ramp volume. APK: lanjut otomatis
+// mulus (ExoPlayer gapless) — tetap satu antrean mix.
+// ===========================================================================
+const MIX_FADE = 6; // detik tumpang tindih
+let fadeLock = false;
+
+function mixNextSong(): MusicSong | null {
+  const q = state.queue;
+  if (q.length < 2) return null;
+  const i = q.findIndex((s) => s.videoId === state.current?.videoId);
+  return q[(i + 1) % q.length] ?? null; // melingkar — mix terus tanpa berhenti
+}
+
+async function crossfadeNext() {
+  const nxt = mixNextSong();
+  if (!nxt || Platform.OS !== 'web') { fadeLock = false; return; }
+  let url: string | null = null;
+  try { url = await musicStream(nxt.videoId); } catch { url = null; }
+  const oldAudio = audio;
+  if (!url || !oldAudio) {
+    // gagal resolve → jadwalkan lewat jalur normal (next() saat lagu habis)
+    fadeLock = false;
+    return;
+  }
+  try {
+    const b = oldAudio.cloneNode(false) as HTMLAudioElement;
+    b.src = url;
+    b.preload = 'auto';
+    b.volume = 0;
+    b.dataset.zeroidMusic = '1';
+    await b.play().catch(() => { throw new Error('play'); });
+    const t0 = Date.now();
+    const ramp = setInterval(() => {
+      const k = Math.min(1, (Date.now() - t0) / (MIX_FADE * 1000));
+      try { b.volume = k; oldAudio.volume = 1 - k * 0.96; } catch { /* noop */ }
+      if (k >= 1) {
+        clearInterval(ramp);
+        try { oldAudio.pause(); oldAudio.src = ''; } catch {}
+        audio = b;
+        audio.addEventListener('ended', () => next());
+        audio.addEventListener('error', () => { if (!state.current || state.embed) return; set({ playing: false }); retryResolve(); });
+        attachWebAudio(audio);
+        resolveCount++;
+        set({ current: nxt, position: 0, duration: 0, playing: true, loading: false, embed: false });
+        mediaSession(nxt);
+        void showMediaNotification(nxt, true);
+        setTimeout(() => { fadeLock = false; }, 1200);
+      }
+    }, 90);
+  } catch {
+    fadeLock = false;
+  }
+}
+
+/** Mulai MODE MIX: gabungan lagu-lagu ini diputar nyambung (crossfade). */
+export async function startMix(songs: MusicSong[]) {
+  if (!songs.length) return;
+  set({ mix: true, queue: songs });
+  await play(songs[0], songs);
+  if (songs.length > 1) {
+    pushBannerSafe({ title: 'Mix AI aktif', body: `${songs.length} lagu digabung otomatis — transisi nyambung (crossfade).`, icon: 'infinite' });
+  }
+}
+
+/** Keluar mode mix (kembali ke pemutar normal). */
+export function stopMix() {
+  fadeLock = false;
+  set({ mix: false });
+}
+
+function pushBannerSafe(b: { title: string; body: string; icon?: string }) {
+  try { require('./bus').pushBanner(b); } catch { /* optional */ }
 }
 
 // PENJAGA WEB (v21) — kalau tab sempat dibekukan sistem & audio berhenti

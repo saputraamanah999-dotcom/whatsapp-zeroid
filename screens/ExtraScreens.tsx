@@ -51,6 +51,8 @@ import { placeCall } from './tabs/CallsTab';
 import { ProductKey } from '../lib/types';
 import { MusicSong, MusicPlaylist, MusicArtist, musicSearch, TRENDING } from '../lib/music';
 import { play as playSong, openFull, usePlayer } from '../lib/player';
+import { useMusicFavs, loadFavs, isFav, toggleFav as toggleSongFav, removeFav } from '../lib/musicfav';
+import { startMix, stopMix } from '../lib/player';
 import FirePet from '../components/FirePet';
 import { fireState, reviveFire, FIRE_MIN_STREAK, REVIVES_PER_MONTH } from '../lib/streak';
 import { setTheme } from '../lib/store';
@@ -1318,6 +1320,21 @@ export function MusicScreen() {
   const [err, setErr] = useState('');
   const [link, setLink] = useState('');
   const [linkBusy, setLinkBusy] = useState(false);
+  // v26: FAVORIT di storage HP (AsyncStorage) — tanpa server, instan.
+  const favs = useMusicFavs();
+  useEffect(() => { void loadFavs(); }, []);
+  // v26: MIX AI — gabung lagu jadi satu (transisi nyambung ala mashup)
+  const [mixSel, setMixSel] = useState<MusicSong[]>([]);
+  // v26: REFERENSI LANGSUNG MUNCUL — tidak harus ngetik dulu. Saat layar
+  // dibuka, katalog trending otomatis dimuat (Spotify kita beneran: buka = ada
+  // lagu). Sekali saja per sesi layar.
+  const bootRef = useRef(false);
+  useEffect(() => {
+    if (bootRef.current) return;
+    bootRef.current = true;
+    void runSearch(TRENDING[0], true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // ANTI-NGELEG: (1) debounce timer di ref, (2) nomor urut pencarian — hasil
   // respons lama TIDAK BOLEH menimpa ketikan terbaru, (3) runSearch TIDAK
   // menyentuh setQ — dulu ia menulis balik teks lama → ketikan "balik sendiri"
@@ -1325,7 +1342,7 @@ export function MusicScreen() {
   const seq = useRef(0);
   const debounceT = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const runSearch = async (text: string) => {
+  const runSearch = async (text: string, isBoot = false) => {
     const s = text.trim();
     const my = ++seq.current;
     if (!s) {
@@ -1333,7 +1350,7 @@ export function MusicScreen() {
       return;
     }
     setSearching(true);
-    setErr('');
+    if (!isBoot) setErr('');
     try {
       const r = await musicSearch(s, 'all') as any;
       if (my !== seq.current) return; // ketikan lebih baru sudah jalan — buang hasil basi
@@ -1401,6 +1418,95 @@ export function MusicScreen() {
     <Screen>
       <Header title="ZEROID MUSIC" subtitle="Spotify kita — cari, putar, lirik" />
       <ScrollView contentContainerStyle={{ padding: 18, paddingBottom: 90, maxWidth: 720, width: '100%', alignSelf: 'center', gap: 14 }} keyboardShouldPersistTaps="handled">
+
+        {/* v26: PENGGUNA MASUK OTOMATIS — tidak ada login terpisah; sesi WhatsApp
+            ZEROID dipakai langsung (buka musik = sudah masuk pakai akunmu). */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: -4 }}>
+          <Ionicons name="checkmark-circle" size={15} color={t.success} />
+          <T v="caption" color={t.sub} style={{ flex: 1 }} numberOfLines={1}>
+            Masuk sebagai <T v="caption" style={{ fontWeight: '900' }}>{me?.name ?? 'kamu'}</T> — pakai akun ZEROID-mu, tanpa login ulang.
+          </T>
+        </View>
+
+        {/* v26: FAVORIT KAMU — tersimpan di STORAGE HP (AsyncStorage), instan & privat */}
+        {favs.length > 0 && (
+          <Card title={`Favorit kamu · ${favs.length} (tersimpan di HP)`}>
+            <View style={{ gap: 2 }}>
+              {favs.slice(0, 20).map((f) => (
+                <Row
+                  key={`fav-${f.videoId}`}
+                  icon="heart"
+                  image={f.thumb}
+                  chevron={false}
+                  title={f.title}
+                  subtitle={[f.artist, f.duration].filter(Boolean).join(' · ') || 'Favorit'}
+                  onPress={() => { void playSong(f, favs); setTimeout(openFull, 350); }}
+                  right={
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                      <Pressable
+                        onPress={() => void toggleSongFav(f)}
+                        onLongPress={() => void removeFav(f.videoId)}
+                        hitSlop={8}
+                        accessibilityLabel="Hapus dari favorit (tekan lama)"
+                        style={({ pressed }: any) => ({ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}
+                      >
+                        <Ionicons name="heart-dislike" size={19} color={t.sub} />
+                      </Pressable>
+                      <Pressable onPress={() => { void playSong(f, favs); setTimeout(openFull, 350); }} hitSlop={8} style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }}>
+                        <Ionicons name="play-circle" size={30} color="#1DB954" />
+                      </Pressable>
+                    </View>
+                  }
+                />
+              ))}
+            </View>
+            <T v="caption" color={t.faint} style={{ marginTop: 6 }}>Tekan ikon hati di daftar lagu untuk menambah. Tekan lama ikon untuk menghapus.</T>
+          </Card>
+        )}
+
+        {/* v26: MIX AI — GABUNGAN LAGU (ala mashup TikTok: Ignite x Alone PT II x …)
+            Pilih 2-5 lagu → diputar nyambung dgn transisi crossfade otomatis. */}
+        {favs.length >= 2 && (
+          <Card title="Mix AI — gabung lagu jadi satu">
+            <View style={{ padding: 8, gap: 10 }}>
+              <T v="caption" color={t.sub}>
+                Pilih 2-5 lagu dari favoritmu → diputar seperti SATU remix panjang: lagu berikutnya masuk perlahan sementara yang lama memudar (crossfade) — nyambung didengar.
+              </T>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                {favs.slice(0, 24).map((f) => {
+                  const on = mixSel.some((x) => x.videoId === f.videoId);
+                  return (
+                    <Pressable
+                      key={`mx-${f.videoId}`}
+                      onPress={() => setMixSel((x) => (on ? x.filter((y) => y.videoId !== f.videoId) : x.length >= 5 ? x : [...x, f]))}
+                      style={{ paddingHorizontal: 11, paddingVertical: 6, borderRadius: 999, backgroundColor: on ? t.accent : t.bg2, borderWidth: 1, borderColor: on ? t.accent : t.border, maxWidth: '100%' }}
+                    >
+                      <T v="caption" numberOfLines={1} color={on ? '#fff' : t.sub} style={{ fontWeight: '800' }}>{on ? '✓ ' : '+ '}{f.title}</T>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {!!mixSel.length && (
+                <T v="caption" color={t.accent} style={{ fontWeight: '900' }} numberOfLines={2}>
+                  {mixSel.map((s) => s.title).join('  x  ')}
+                </T>
+              )}
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Btn
+                  small
+                  variant="primary"
+                  icon="infinite"
+                  title={mixSel.length >= 2 ? `Putar Mix · ${mixSel.length} lagu` : 'Pilih minimal 2 lagu'}
+                  disabled={mixSel.length < 2}
+                  onPress={() => { void startMix([...mixSel]); setTimeout(openFull, 350); }}
+                  style={{ flex: 1 }}
+                />
+                {!!mixSel.length && <Btn small variant="neu" title="Kosongkan" onPress={() => setMixSel([])} />}
+              </View>
+              {st.mix && <Btn small variant="ghost" icon="close" title="Matikan mode mix" onPress={() => stopMix()} />}
+            </View>
+          </Card>
+        )}
 
         {/* HERO — lagu yang sedang berputar di player global */}
         <View style={[glass, { borderRadius: R.lg, padding: 14, gap: 12, boxShadow: t.raisedSm }]}>
@@ -1489,20 +1595,31 @@ export function MusicScreen() {
                   subtitle={[s.artist, s.album, s.duration].filter(Boolean).join(' · ') || 'Lagu'}
                   onPress={() => openSong(s)}
                   right={
-                    <Pressable
-                      onPress={() => openSong(s)}
-                      hitSlop={8}
-                      accessibilityLabel={active ? 'Sedang diputar' : 'Putar lagu'}
-                      style={({ pressed }) => ({ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: active ? 'rgba(29,185,84,0.14)' : 'transparent', transform: [{ scale: pressed ? 0.9 : 1 }] })}
-                    >
-                      {active && st.loading ? (
-                        <ActivityIndicator size="small" color="#1DB954" />
-                      ) : active ? (
-                        <Ionicons name={st.playing ? 'volume-high' : 'play'} size={20} color="#1DB954" />
-                      ) : (
-                        <Ionicons name="play-circle" size={30} color="#1DB954" />
-                      )}
-                    </Pressable>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      {/* v26: tombol SUKA — langsung ke storage HP */}
+                      <Pressable
+                        onPress={() => void toggleSongFav(s)}
+                        hitSlop={8}
+                        accessibilityLabel={isFav(s.videoId) ? 'Hapus dari favorit' : 'Tambah ke favorit'}
+                        style={({ pressed }: any) => ({ width: 34, height: 38, alignItems: 'center', justifyContent: 'center', opacity: pressed ? 0.7 : 1 })}
+                      >
+                        <Ionicons name={isFav(s.videoId) ? 'heart' : 'heart-outline'} size={20} color={isFav(s.videoId) ? '#FF4D6D' : t.sub} />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => openSong(s)}
+                        hitSlop={8}
+                        accessibilityLabel={active ? 'Sedang diputar' : 'Putar lagu'}
+                        style={({ pressed }) => ({ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', backgroundColor: active ? 'rgba(29,185,84,0.14)' : 'transparent', transform: [{ scale: pressed ? 0.9 : 1 }] })}
+                      >
+                        {active && st.loading ? (
+                          <ActivityIndicator size="small" color="#1DB954" />
+                        ) : active ? (
+                          <Ionicons name={st.playing ? 'volume-high' : 'play'} size={20} color="#1DB954" />
+                        ) : (
+                          <Ionicons name="play-circle" size={30} color="#1DB954" />
+                        )}
+                      </Pressable>
+                    </View>
                   }
                 />
               );

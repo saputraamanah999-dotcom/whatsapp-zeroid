@@ -9,7 +9,11 @@
  *   suggest → saran pencarian
  * Tapi sumbernya diganti yang lebih kokoh (backend rapxz.eu.cc sudah mati):
  *   - search  : YouTube Music InnerTube (WEB_REMIX) — tanpa key rahasia
- *   - stream  : Piped instances → Invidious instances → InnerTube ANDROID
+ *   - stream  : Piped → Invidious → InnerTube ANDROID → v26: MESIN MP3
+ *               MILIK PEMILIK (jerexd ytmp3 → vexo ytmp3 — FILE MP3 ASLI yang
+ *               jalan di BACKGROUND & jauh lebih awet; keluhan "sumber audio
+ *               langsung sedang tidak tersedia" + embed mp4 tak bisa latar
+ *               belakang teratasi di sini)
  *   - lyrics  : LRCLIB (lirik besar, gratis, tanpa key)
  *   - suggest : Google suggest (client=firefox, ds=yt)
  *
@@ -24,8 +28,12 @@
 export const config = { runtime: 'nodejs' };
 export const maxDuration = 60;
 
+import { apiKey } from './_fbrest';
+
 const ITUBE_KEY = 'AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30'; // public web key for youtubei
 const YTM_BASE = 'https://music.youtube.com/youtubei/v1';
+const JEREXD_BASE = 'https://api.jerexd.my.id';
+const VEXO_BASE = 'https://vexoapi.site';
 const WEB_REMIX_CTX = {
   client: { clientName: 'WEB_REMIX', clientVersion: '1.20240401.01.00', hl: 'id', gl: 'ID' },
 };
@@ -179,6 +187,29 @@ const INVIDIOUS_INSTANCES = [
 ];
 
 /** light liveness probe — a stream URL that does not answer is not a success */
+// ---------------- MESIN MP3 MILIK PEMILIK (v26) ----------------
+/** jerexd ytmp3 — FILE MP3 ASLI (diuji live 2026-11-01: result.downloadUrl).
+ *  Ini yang bikin musik beneran jalan di latar belakang & tahan lama. */
+async function jerexdYt3(videoId: string): Promise<string | null> {
+  const key = await apiKey('JEREXD_APIKEY');
+  if (!key) return null;
+  try {
+    const d = await j(`${JEREXD_BASE}/api/downloader/ytmp3?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&apikey=${encodeURIComponent(key)}`, {}, 45000);
+    const u = String(d?.result?.downloadUrl ?? d?.result?.url ?? '');
+    return u && /^https:\/\//.test(u) && (await playable(u)) ? u : null;
+  } catch { return null; }
+}
+/** vexo ytmp3 — cadangan kedua (route ada; kadang 502 — diuji otomatis). */
+async function vexoYt3(videoId: string): Promise<string | null> {
+  const key = await apiKey('VEXO_APIKEY');
+  if (!key) return null;
+  try {
+    const d = await j(`${VEXO_BASE}/api/download/ytmp3?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&key=${encodeURIComponent(key)}`, {}, 45000);
+    const u = String(d?.result?.downloadUrl ?? d?.result?.url ?? d?.url ?? d?.download?.url ?? '');
+    return u && /^https:\/\//.test(u) && (await playable(u)) ? u : null;
+  } catch { return null; }
+}
+
 async function playable(url: string): Promise<boolean> {
   try {
     const ctl = new AbortController();
@@ -319,7 +350,9 @@ export default async function handler(req: any, res: any) {
     if (action === 'stream') {
       const id = String(req.query.id ?? '').replace(/[^A-Za-z0-9_-]/g, '');
       if (!id) return fail(res, 400, 'ID video wajib.');
-      const url = (await invidiousStream(id)) ?? (await pipedStream(id)) ?? (await innertubeStream(id));
+      // v26 URUTAN BARU: sumber MP3 pemilik DULUAN (file mp3 asli, background OK,
+      // tahan lama) → baru scraper publik → embed hanya sebagai jurus terakhir.
+      const url = (await jerexdYt3(id)) ?? (await vexoYt3(id)) ?? (await invidiousStream(id)) ?? (await pipedStream(id)) ?? (await innertubeStream(id));
       if (!url) {
         // semua sumber gagal — klien beralih ke YouTube embed resmi (selalu jalan)
         return res.status(200).json({
