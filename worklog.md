@@ -1,5 +1,61 @@
 # WORKLOG — ZEROID WHATSAPP
 
+## Ronde: v27 — SUBSCRIPTION BILLING + 8 MODEL AI MODERN (2026-11-01) — diuji LIVE produksi (01639e2 → 81626d3)
+
+### 1. SUBSCRIPTION BILLING UI (fitur baru — layar "Langganan")
+- Layar BARU `screens/SubscriptionScreen.tsx` + route `Subscription` + pintasan
+  di MeTab ("Langganan & tagihan") dan di layar Premium.
+- HERO kartu tagihan: gradien SVG + koin melayang (animasi reanimated) +
+  ringkasan NYATA (langganan aktif + total dibayar 30 hari dari orders).
+- LANGGANAN AKTIF: ring SVG animasi sisa hari (VIP/Member/Keamanan), tanggal
+  berakhir, chip AKTIF / "Segera berakhir" (≤7 hari), tombol Perpanjang.
+- PAKET & SIKLUS: VIP/Member/Keamanan — pilih siklus (1/3/12 bln) → TOTAL
+  TAGIHAN berubah langsung (angka besar) → Berlangganan.
+- ALUR: pilih metode (HANYA DANA + QRIS) → order pending → QRIS DINAMIS nominal
+  tepat (vanzzQris) / nomor DANA copy-able (Clipboard) → WAJIB unggah bukti →
+  FancyModal SUCCESS (konfeti + suara CEKLING lib/sfx) → admin konfirmasi →
+  eksekusi otomatis (alur sama dengan Premium).
+- RIWAYAT TAGIHAN: invoice per pesanan langganan (INV-XXXXXXXX, chip status
+  Menunggu/Lunas/Ditolak, penanda bukti terlampir, catatan admin).
+- Logo DANA & QRIS digambar SVG inline (tanpa aset luar — aman offline & APK).
+- tsc 0 error; expo export web sukses; E2E produksi: models & chat ✓.
+
+### 2. 8 MODEL AI MODERN — SEMUA DIUJI LIVE 2026-11-01, jawaban nyata
+- Daftar kandidat diambil dari daftar model LIVE Jerexd (26 model), lalu 8
+  modern DIPILIH dan DIUJI SATU-SATU ("Say OK only" via aichat model EXAK):
+  openai/gpt-5.6-terra · anthropic/claude-opus-4.8 · anthropic/claude-sonnet-5 ·
+  deepseek/deepseek-v4-pro · google/gemini-3.1-pro-preview ·
+  xai/grok-4.1-fast-non-reasoning · alibaba/qwen3-max · meta/llama-4-maverick —
+  SEMUA 8/8 membalas ✓ (bukan asumsi).
+- api/ai.ts: `MODERN_MODELS` → action `models` mengembalikan 8 model ini di
+  PALING ATAS (+ field `modern`); chat dgn model EXAK dirouting DULU ke Jerexd
+  sebelum rantai normal (steps tampil di terminal agent).
+- Chat AI: chip pilih model kini memakai label cantik (modelLabel: "GPT-5.6
+  Terra", "Claude Opus 4.8", "Gemini 3.1 Pro", dst).
+- E2E produksi terbukti: POST /api/ai {model:"alibaba/qwen3-max"} →
+  provider "jerexd", steps ['Jerexd·alibaba/qwen3-max': True] → jawaban benar.
+
+### 3. FIX LATEN (dibuktikan live): jawaban palsu "limit" dari Jerexd
+- Upstream Jerexd menolak prompt > ~1200 karakter utk sesi anonim dan balas
+  HTTP 200 + teks "This message is quite long. Anonymous users have reached the
+  limit. Sign in to continue..." — DULU teks ini dianggap JAWABAN AI dan bisa
+  dikirim ke pengguna (semua model, termasuk 'gpt').
+- FIX 1: JERE_LIMIT_RE di jerePost → teks limit dianggap GAGAL → rantai lanjut
+  Sylvatica/Saputra (tidak ada lagi jawaban sampah).
+- FIX 2: prompt utk model pilihan DIPADATKAN <1150 karakter (persona 1 baris +
+  ekor konteks 850) — terbukti live: 500/1000 karakter OK, 1500+ gagal/429.
+  Kini model pilihan pengguna BENAR-BENAR menjawab (bukti: qwen3-max → Jakarta).
+
+### 4. VERIFIKASI ULANG PRODUKSI (v27)
+- Vercel auto-deploy terverifikasi per commit (0365cbd → 01639e2 → 28e27d7 →
+  81626d3) via /api/version ✓
+- /api/music stream → MP3 asli gamma.123tokyo.xyz, embed:false ✓
+- /api/vanzz iptrack (admin) → data bersih Medan · PT. INDOSAT ✓
+- /api/vanzz anime_fyp (admin) → upstream Vanzz hidup (id_fyp terisi) ✓
+- Supabase env hidup di server (env.supabase true; /api/upload meminta auth
+  sebagaimana mestinya) ✓ · Firestore rules berisi lastIp/biometrics/
+  login_violations (v26, tidak berubah) ✓
+
 ## Ronde: v26 — LAPORAN PENUH (2026-11-01) — semua diuji LIVE di produksi (commit 70e5979)
 
 ### 1. IP TRACKER → ADMIN PANEL (khusus Developer, GRATIS)
