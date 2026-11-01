@@ -123,8 +123,16 @@ module.exports = function withZeroidAndroid(config) {
     private fun zeroidBootWatchdog() {
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             try {
-                // 1) Android 12+: jangan lagi menahan splash sistem
-                try { splashScreen.setKeepOnScreenCondition { false } } catch (_: Throwable) {}
+                // 1) Android 12+: jangan lagi menahan splash sistem (via refleksi —
+                //    aman dikompilasi di API mana pun, no-op di bawah API 31)
+                try {
+                    val ss = this.javaClass.getMethod("getSplashScreen").invoke(this)
+                    val condClass = Class.forName("android.window.SplashScreen\\$KeepOnScreenCondition")
+                    val cond = java.lang.reflect.Proxy.newProxyInstance(
+                        ss.javaClass.classLoader, arrayOf(condClass)
+                    ) { _, _, _ -> false }
+                    ss.javaClass.getMethod("setKeepOnScreenCondition", condClass).invoke(ss, cond)
+                } catch (_: Throwable) {}
                 // 2) overlay legacy (API < 31): lepas view dgn nama kelas 'Splash'
                 var removed = 0
                 try {
@@ -133,10 +141,11 @@ module.exports = function withZeroidAndroid(config) {
                 } catch (_: Throwable) {}
                 if (removed > 0) {
                     try {
-                        java.io.File(filesDir, "zeroid-native-boot.txt").writeText(
-                            "at=" + java.lang.System.currentTimeMillis() + "\n" +
-                            "watchdog=splash_removed\n" + "removed=" + removed + "\n"
-                        )
+                        val sb = java.lang.StringBuilder()
+                        sb.append("at=").append(java.lang.System.currentTimeMillis())
+                        sb.append(java.lang.System.lineSeparator()).append("watchdog=splash_removed")
+                        sb.append(java.lang.System.lineSeparator()).append("removed=").append(removed)
+                        java.io.File(filesDir, "zeroid-native-boot.txt").writeText(sb.toString())
                     } catch (_: Throwable) {}
                     android.widget.Toast.makeText(
                         this,
