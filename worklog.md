@@ -56,6 +56,17 @@
   sebagaimana mestinya) ✓ · Firestore rules berisi lastIp/biometrics/
   login_violations (v26, tidak berubah) ✓
 
+### 5. APK 1.7.1 (versionCode 17) — BUILD OTOMATIS BERHASIL
+- Trigger workflow `Build APK Zeroid` terverifikasi UTUH (byte-level: 5b 6d 61
+  69 6e 5d = "[main]") — push app.json otomatis memicu build.
+- Build sukses ±11 menit → terbit di GitHub Releases (apk-latest) pada
+  2026-11-01T13:10:54Z, 80.1 MB, 2-ABI ARM, R8/minify OFF (stabil), keystore
+  konsisten, env publik EXPO_PUBLIC_* dari secret ZEROID_WEB_ENV.
+- APK diunduh via domain sendiri (/api/version?action=apk-dl → CDN bertanda
+  tangan) dan DIVERIFIKASI: ZIP 1671 entri, classes.dex ada, lib arm64-v8a ✓.
+- Isi APK = semua perbaikan v24–v27 (subscription billing, 8 model AI modern,
+  musik MP3, sidik jari + pelanggaran, IP tracker admin, dll).
+
 ## Ronde: v26 — LAPORAN PENUH (2026-11-01) — semua diuji LIVE di produksi (commit 70e5979)
 
 ### 1. IP TRACKER → ADMIN PANEL (khusus Developer, GRATIS)
