@@ -1,5 +1,34 @@
 # WORKLOG — ZEROID WHATSAPP
 
+## Ronde: v28 — AUDIT PENUH 4 BATCH (64 butir) + "REAKSI LAINNYA" (2026-11-01)
+
+- Permintaan pemilik: "baca semua prompt yang kelewat… kalo udah ada jangan dibuat,
+  tapi cari analisis siapa tau kamu lupa". Maka: AUDIT butir-per-butir SEMUA batch
+  (16+14+12+22) terhadap kode nyata — bukan percaya catatan.
+- HASIL AUDIT: 21/22 butir batch-4 terverifikasi ADA di kode + LIVE produksi
+  (AM send+dapjisync+hubungi admin · AI Guard guardlog+IP pelaku+FCM token ·
+  IP Tracker di Admin Panel khusus Developer · anime nonton episode · Populer
+  poster Jikan · anti-muntah-kode · reaksi compactId 1rb/2rb · tier jumlah
+  followers 5/25/100/500/1rb+total dinamis · musik MP3 asli+background ·
+  Spotify kita: trending langsung+chip sesi+favorit storage HP · PalmScan
+  PIN/sidik+Firebase · pelanggaran login_violations+notif pemilik · Mix AI
+  crossfade · 4 provider AI (sylvatica/jerexd/vexo/vsunsee) · agent artifak
+  eksekusi nyata+8 model modern · cekling+suara admin · Subscription billing ·
+  FancyModal confirm/success/delete · APK anti-macet-boot).
+- SATU YANG TERLEWAT DITEMUKAN & DIBUAT: **"Reaksi lainnya"** (batch-4 butir 8,
+  paruh kedua). Kini chip reaksi menampilkan MAKS 3 jenis emoji (urut terbanyak);
+  sisanya jadi chip aksen "Reaksi lainnya +N" → membuka sheet rincian: SEMUA
+  jenis reaksi + jumlah ringkas (1rb/2rb/1jt) + NAMA pereaksi (dari reactions
+  per-pengguna). Reaksi orang lain yg cuma 1 tetap emoji saja tanpa angka.
+- VERIFIKASI LIVE PRODUKSI (semua nyata): /api/version = commit terbaru ✓ ·
+  /api/ai jawab "OK" via Sylvatica 6,0 dtk ✓ · /api/music search "lathi" →
+  LATHI Weird Genius + thumbnail ✓ · /api/music stream → file MP3 ASLI
+  eta.123tokyo.xyz (embed:false) ✓ · /api/upload 200 ✓ · env jere/imgbb/
+  sylvatica/supabase semua true ✓.
+- APK 1.8.0 (versionCode 18): bump memicu build otomatis GitHub Actions → APK
+  final berisi SEMUA perbaikan termasuk "Reaksi lainnya".
+- ZIP final dibangun ulang SETELAH v28 (zip lama masih v25.1 — kelewatan 3 ronde).
+
 ## Ronde: v27 — SUBSCRIPTION BILLING + 8 MODEL AI MODERN (2026-11-01) — diuji LIVE produksi (01639e2 → 81626d3)
 
 ### 1. SUBSCRIPTION BILLING UI (fitur baru — layar "Langganan")

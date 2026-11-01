@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Pressable, Linking, Platform } from 'react-native';
+import { View, Pressable, Linking, Platform, Modal, FlatList } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import Animated, { FadeInUp } from 'react-native-reanimated';
@@ -67,6 +67,8 @@ export default function MessageBubble({
   const senderColor = m.assistant ? '#7B61FF' : sender?.color ?? t.accent;
   const [showThink, setShowThink] = useState(false);
   const [showTerm, setShowTerm] = useState(false);
+  // v28: rincian "Reaksi lainnya" — sheet daftar semua reaksi + nama pereaksi
+  const [rxOpen, setRxOpen] = useState(false);
   // BAGIAN 5: metadata internal AI (:::writing{...}, <think>) TIDAK BOLEH tampil.
   // Dibersihkan juga saat render supaya pesan LAMA yang tersimpan dengan
   // metadata ikut rapi (server & klien baru sudah membersihkan saat masuk).
@@ -279,6 +281,7 @@ export default function MessageBubble({
   }
 
   return (
+    <>
     <SwipeReply onReply={() => onReply?.()} color={t.accent} disabled={!onReply || m.deletedForAll}>
     <Animated.View entering={FadeInUp.duration(220)} style={{ paddingHorizontal: 12, marginVertical: 3, alignItems: mine ? 'flex-end' : 'flex-start' }}>
       <Pressable
@@ -526,19 +529,73 @@ export default function MessageBubble({
           {mine && !m.deletedForAll && chat.type !== 'channel' && <Ticks status={status} color="rgba(255,255,255,0.8)" />}
         </View>
       </Pressable>
-      {Object.keys(grouped).length > 0 && (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 2, marginTop: -6, marginHorizontal: 10, backgroundColor: t.bg, borderRadius: R.pill, paddingHorizontal: 7, paddingVertical: 2, boxShadow: t.raisedSm, alignSelf: mine ? 'flex-end' : 'flex-start' } as any}>
-          {/* v26: reaksi RAPI — angka ringkas 1rb/2rb/1jt (compactId); emoji yang
-              cuma 1 tampil TANPA angka (cuma emojinya, langsung gabung rapi). */}
-          {Object.entries(grouped).map(([e, n]) => (
-            <View key={e} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-              <AppleEmoji e={e} size={15} />
-              {n > 1 ? <T v="caption" style={{ fontSize: 12.5, fontWeight: '700' }}>{compactId(n)}</T> : null}
-            </View>
-          ))}
-        </View>
-      )}
+      {Object.keys(grouped).length > 0 && (() => {
+        // v28: MAKS 3 jenis emoji terlihat — sisanya jadi chip "Reaksi lainnya"
+        // yang membuka rincian SEMUA reaksi (emoji + jumlah + nama pereaksi).
+        // Reaksi orang lain yg beda dgn punyamu tetap tampil emoji saja (tanpa
+        // angka bila cuma 1) — sesuai permintaan.
+        const rxEntries = Object.entries(grouped).sort((a, b) => b[1] - a[1]);
+        const visibleRx = rxEntries.slice(0, 3);
+        const hiddenRx = rxEntries.slice(3);
+        return (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 2, marginTop: -6, marginHorizontal: 10, backgroundColor: t.bg, borderRadius: R.pill, paddingHorizontal: 7, paddingVertical: 2, boxShadow: t.raisedSm, alignSelf: mine ? 'flex-end' : 'flex-start' } as any}>
+            {/* v26: reaksi RAPI — angka ringkas 1rb/2rb/1jt (compactId); emoji yang
+                cuma 1 tampil TANPA angka (cuma emojinya, langsung gabung rapi). */}
+            {visibleRx.map(([e, n]) => (
+              <View key={e} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
+                <AppleEmoji e={e} size={15} />
+                {n > 1 ? <T v="caption" style={{ fontSize: 12.5, fontWeight: '700' }}>{compactId(n)}</T> : null}
+              </View>
+            ))}
+            {hiddenRx.length > 0 && (
+              <Pressable
+                onPress={() => setRxOpen(true)}
+                hitSlop={6}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 6, paddingVertical: 1, borderRadius: R.pill, backgroundColor: (t.accent ?? '#25D366') + '22' }}>
+                <T v="caption" color={t.accent} style={{ fontSize: 11.5, fontWeight: '700' }}>
+                  {`Reaksi lainnya +${hiddenRx.length}`}
+                </T>
+              </Pressable>
+            )}
+          </View>
+        );
+      })()}
     </Animated.View>
     </SwipeReply>
+    {/* RINCIAN REAKSI — daftar semua jenis reaksi + siapa saja yang bereaksi */}
+    <Modal visible={rxOpen} transparent animationType="slide" onRequestClose={() => setRxOpen(false)}>
+      <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }} onPress={() => setRxOpen(false)}>
+        <Pressable onPress={() => {}} style={{ backgroundColor: t.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22, maxHeight: '70%', paddingBottom: 24 } as any}>
+          <View style={{ alignItems: 'center', paddingTop: 10, paddingBottom: 4 }}>
+            <View style={{ width: 42, height: 4, borderRadius: 2, backgroundColor: t.faint }} />
+          </View>
+          <View style={{ paddingHorizontal: 18, paddingBottom: 8 }}>
+            <T v="h3">Reaksi pesan ini</T>
+            <T v="caption" color={t.sub}>{`${Object.keys(grouped).length} jenis · ${compactId(Object.values(grouped).reduce((a, b) => a + b, 0))} reaksi`}</T>
+          </View>
+          <FlatList
+            data={Object.entries(grouped).sort((a, b) => b[1] - a[1])}
+            keyExtractor={([e]) => e}
+            contentContainerStyle={{ paddingHorizontal: 18, gap: 10, paddingBottom: 8 }}
+            renderItem={({ item: [e, n] }) => {
+              const names = Object.entries(m.reactions)
+                .filter(([, re]) => re === e)
+                .slice(0, 30)
+                .map(([uid]) => db.users?.[uid]?.name ?? 'Seseorang');
+              return (
+                <View style={{ gap: 3 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <AppleEmoji e={e} size={20} />
+                    <T v="label" style={{ fontSize: 13 }}>{compactId(n)}</T>
+                  </View>
+                  <T v="caption" color={t.sub} numberOfLines={2}>{names.join(', ')}</T>
+                </View>
+              );
+            }}
+          />
+        </Pressable>
+      </Pressable>
+    </Modal>
+    </>
   );
 }
