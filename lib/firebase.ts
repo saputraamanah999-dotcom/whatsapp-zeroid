@@ -61,6 +61,7 @@ export const COLLECTIONS = {
   reports: 'reports',
   notifications: 'notifications', // per-user notification center docs
   orders: 'orders', // premium/manual payment orders approved by an admin
+  purchases: 'purchases', // v29: umpan pengumuman pembelian (marquee publik)
   stickers: 'stickers',
   invites: 'invites', // group/channel invite links
   announcements: 'announcements', // admin announcements (banner / popup)

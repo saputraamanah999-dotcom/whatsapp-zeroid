@@ -19,7 +19,7 @@ import {
   adminGrowFollowers, adminGrowReactions, followersCount, subscribeMessages,
 } from '../lib/store';
 import { apiProductOf, productOf, productSafe, rupiah, rupiahShort, PRODUCTS, API_PRODUCTS, apiPriceOf, planPriceOf, productPlans, productsWithPrices, pricingKomisiPercent } from '../lib/products';
-import { useBackendHealth, healthLabel, supabaseStatus } from '../lib/health';
+import { useBackendHealth, healthLabel, supabaseStatus, startProbeLoop, probeBackend, type ProbeResult } from '../lib/health';
 import { firebase, firebaseConfig } from '../lib/firebase';
 import { proxyPost } from '../lib/proxy';
 import { ago, compactId } from '../lib/format';
@@ -934,21 +934,48 @@ function PricingPanel() {
   );
 }
 
-/** Monitoring backend: Firebase kesehatan + fallback Supabase + FCM (admin panel). */
+/** Monitoring backend: probe LIVE Firebase + Supabase + Server (admin panel). */
 function MonitoringCard() {
   const t = useTheme();
   const h = useBackendHealth();
   const st = healthLabel(h);
   const color = st.color === 'ok' ? t.success : st.color === 'warn' ? t.warning : t.danger;
   const fcmConfigured = !!String(process.env.FCM_SERVER_KEY ?? '').length; // server-side key tak terlihat client; tampilkan hint saja
+  // v29: probe live otomatis — panel dibuka → langsung probe + tiap 30 detik
+  useEffect(() => startProbeLoop(), []);
+  const clock = (at: number) => (at > 0 ? new Date(at).toLocaleTimeString('id-ID') : '—');
+  const row = (name: string, r: ProbeResult | null, note: string) => {
+    const ok = r?.ok;
+    const c = !r ? t.faint : ok ? t.success : t.danger;
+    return (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c }} />
+        <T v="caption" style={{ width: 86, fontWeight: '800' }}>{name}</T>
+        <T v="caption" style={{ flex: 1 }} color={t.sub}>
+          {r ? `${ok ? 'OK' : 'GAGAL'} · ${r.ms} ms${r.detail ? ` · ${r.detail}` : ''}` : note}
+        </T>
+        <T v="caption" color={t.faint}>{r ? clock(r.at) : ''}</T>
+      </View>
+    );
+  };
   return (
-    <Card title="Monitoring backend">
+    <Card title="Monitoring backend — LIVE">
       <View style={{ padding: 10, gap: 10 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
           <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: color }} />
           <T v="sub" style={{ flex: 1, fontWeight: '700' }}>{st.text}</T>
         </View>
-        <T v="caption">Backend utama: {backendMode}</T>
+        <View style={{ gap: 7 }}>
+          {row('Firebase', h.firebase, 'memprobe…')}
+          {row('Supabase', h.supabase, 'memprobe…')}
+          {row('Server API', h.server, 'memprobe…')}
+          {row('FCM push', { ok: true, ms: 0, at: h.lastProbeAt, detail: 'dijalankan server' }, 'dijalankan server')}
+        </View>
+        <T v="caption" color={t.faint}>
+          Probe otomatis tiap 30 detik (Firestore baca nyata · Supabase auth/v1/health · /api/version).
+          {' '}Terakhir: {h.lastProbeAt ? clock(h.lastProbeAt) : '—'} {h.probing ? '· sedang memprobe…' : ''}
+        </T>
+        <Btn small variant="neu" icon="refresh" title="Probe sekarang" onPress={() => void probeBackend()} />
         <T v="caption">Cadangan (Supabase): {supabaseStatus()} — media besar & AI proxy otomatis lewat Supabase saat Firebase limit/berat.</T>
         <T v="caption">Notifikasi FCM: dijalankan server ({fcmConfigured ? 'env server terdeteksi' : 'FCM_SERVER_KEY di Vercel env'}) — push luar aplikasi untuk pesan, panggilan, story developer & broadcast.</T>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>

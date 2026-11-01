@@ -1,5 +1,55 @@
 # WORKLOG — ZEROID WHATSAPP
 
+## Ronde: v29 — PERBAIKAN APK (prompt 13 bagian) + TOOLS + 6 BUG BARU USER (2026-11-01)
+
+- TOOLS terpasang & diuji (permintaan pemilik): **promptfoo v0.125.1** (npm global,
+  CLI jalan) + **browser-use 0.13.14** + Playwright Chromium (uji buka halaman nyata OK).
+- **AUDIT APK (scripts/audit_apk.py, androguard)**: com.zeroid.whatsapp ✔ ·
+  versionName/code 1.8.0/18 ✔ · v2-signed ✔ · SHA-256
+  `91A6D6998BE0395CB70C4109BA96E74F3C93FB1A56E3F9221DD8E8112CA7C759` · targetSdk 36 ·
+  izin wajar · bundle memuat fitur terbaru. Identitas TIDAK diubah (sesuai prompt).
+- **STARTUP FREEZE — lapisan baru**:
+  1. `lib/bootlog.ts` — diagnostik **[ZEROID_BOOT]** 10 fase (START, NATIVE_READY,
+     JS_BUNDLE_READY, ENV_READY, FIREBASE_INIT, AUTH_INIT, NAVIGATION_READY,
+     SPLASH_HIDDEN, LOGIN/HOME_RENDERED) → Logcat + ring buffer AsyncStorage.
+  2. **Watchdog NATIVE** (plugin withZeroidAndroid → MainActivity): 12 dtk setelah
+     Activity dibuat, splash sistem DILEPAS PAKSA (API 31+ setKeepOnScreenCondition
+     false; API lama: lepas view overlay 'Splash') + laporan file + Toast — bekerja
+     WALAU JavaScript mati (kasus yang tak mungkin ditangani timer JS).
+  3. Splash tidak pernah bergantung internet/Firebase/EAS Update (font 10 dtk cap,
+     ready dari onAuthStateChanged offline-safe, bootStuck 12 dtk → layar Coba Lagi).
+- **DEVELOPER VERIFICATION** `docs/DEVELOPER-VERIFICATION.md`: panduan resmi
+  (Android Developer Console, jalur luar-Play, akun terbatas 20 perangkat gratis,
+  advanced flow 24 jam, penegakan Indonesia mulai 30 Sep 2026 — makanya warning
+  "tidak dapat memverifikasi developer" muncul), langkah 👤 AKSI PEMILIK bernomor,
+  audit tanda tangan, perbandingan APK lama-baru. TANPA bypass keamanan.
+- **MONITORING BACKEND LIVE** (keluhan: "nyetack diem tetep 0 gak real-time, mana
+  supabase-nya"): lib/health dirombak — probe NYATA tiap 30 dtk (Firestore baca
+  nyata + Supabase auth/v1/health + /api/version) dengan latensi ms + jam update +
+  tombol "Probe sekarang"; Admin Panel › Sistem menampilkan baris live
+  Firebase/Supabase/Server/FCM — Supabase kini benar-benar di panel.
+- **MUSIK**: zip rapxz diselidiki — TIDAK ada apikey (frontend PWA; endpoint
+  eu.cc MATI terbukti live: DEPLOYMENT_NOT_FOUND). Yang dipakai: sylvatica
+  `/api/download/ytmp3` (route hidup terbukti live) ditambah sbg sumber ke-3 →
+  rantai MP3 kini 5 sumber (jerexd→vexo→sylvatica→invidious→piped→innertube),
+  background tetap (foreground service + MediaSession).
+- **ANIME "Judul tidak ditemukan di katalog"**: AKAR — fallback Jikan/jere hanya
+  jalan bila animeInSearch ERROR; kalau sukses-koSONG, langsung galat. Kini
+  fallback jalan saat id kosong + jaring terakhir: detail mini dari data kartu
+  + tombol "Nonton di YouTube" (pintasan `yt:` di layar Watch) → ketuk judul
+  PASTI terbuka, tidak ada lagi jalan buntu.
+- **REAKSI**: emoji berdampingan dulu (❤️😂 di SAMPING satu sama), SATU angka
+  gabungan setelahnya (dulu angka di antara emoji — "ketawa di belakang angka").
+- **TICKER PEMBELIAN** (permintaan: "berjalan ke kiri terus, bukan di atas banget
+  apalagi bisa hilang"): `components/PurchaseTicker.tsx` — marquee loop di bawah
+  pencarian layar Chat; sumber koleksi `purchases` (ditulis saat admin konfirmasi
+  order; rules v29 read-signedIn/write-admin) — real-time, semua user.
+- **UX**: kartu "Metode pembayaran" di Langganan dibeneran (dulu judul patah
+  "pembayara-n" + caption 7 baris digencet badge; kini 1 baris judul + caption
+  singkat "DANA & QRIS saja — dikonfirmasi admin."), subtitle hero dipadatkan.
+- APK **1.9.0 (versionCode 19)** — bump memicu build CI (memuat watchdog native).
+- tsc 0 error; expo export web sukses.
+
 ## Ronde: v28 — AUDIT PENUH 4 BATCH (64 butir) + "REAKSI LAINNYA" (2026-11-01)
 
 - Permintaan pemilik: "baca semua prompt yang kelewat… kalo udah ada jangan dibuat,

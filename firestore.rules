@@ -643,6 +643,13 @@ service cloud.firestore {
       allow write: if false; // ditulis HANYA oleh server (service account)
     }
 
+    // ---- v29 UMPAN PEMBELIAN (marquee pengumuman publik) ----
+    // Ditulis admin/developer saat order dikonfirmasi; dibaca semua yang login.
+    match /purchases/{pid} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
     // ---- v19 SECRETS SERVER (kunci API cadangan) — DILARANG untuk semua klien ----
     // Hanya kode server dengan service account yang bisa membaca/menulis
     // (service account melewati rules). Isi: secrets/ai { JEREXD_APIKEY, ... }.

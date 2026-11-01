@@ -49,6 +49,7 @@ import AuditScreen from './screens/AuditScreen';
 import { RewardsScreen, LeaderboardScreen } from './screens/RewardsScreens';
 import DevGuard from './components/DevGuard';
 import { captureRefFromUrl } from './lib/points';
+import { bootLog } from './lib/bootlog';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -384,6 +385,10 @@ function BootError({ onRetry }: { onRetry: () => void }) {
 }
 
 export default function App() {
+  // [ZEROID_BOOT] NATIVE_READY — komponen App dirender berarti native + Hermes jalan
+  bootLog('NATIVE_READY');
+  // [ZEROID_BOOT] ENV_READY — konfigurasi env/Firebase terbaca
+  bootLog('ENV_READY', isFirebaseConfigured ? 'firebase config ada' : 'config TIDAK lengkap → layar Config');
   // FONTS + ANTI-MACET: kalau font bawaan gagal dimuat (storage lambat/asset
   // korup), jangan gantung splash selamanya — lanjutkan dengan font sistem
   // setelah 10 detik. Dulu: useFonts tanpa timeout → APK diam di logo.
@@ -420,6 +425,7 @@ export default function App() {
 
   /** dipanggil setiap navigasi: sinkronkan history web + publikasikan route aktif */
   const handleNavStateChange = useCallback(() => {
+    bootLog('NAVIGATION_READY');
     onNavStateChange();
     try {
       const st = nav.getState();
@@ -431,6 +437,7 @@ export default function App() {
   }, [onNavStateChange]);
 
   useEffect(() => {
+    // [ZEROID_BOOT] FIREBASE_INIT/AUTH_INIT dicatat di initStore (lib/store.ts)
     initStore();
     setupNotifications();
     captureRefFromUrl(); // web: simpan ?ref=CODE dari link ajakan teman
@@ -462,8 +469,18 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (ready && fontsLoaded) SplashScreen.hideAsync().catch(() => {});
+    if (ready && fontsLoaded) {
+      SplashScreen.hideAsync().catch(() => {});
+      bootLog('SPLASH_HIDDEN');
+    }
   }, [ready, fontsLoaded]);
+
+  // [ZEROID_BOOT] LOGIN/HOME RENDERED — layar pertama yang benar-benar tampil
+  useEffect(() => {
+    if (!ready || !fontsLoaded) return;
+    if (!me) bootLog('LOGIN_RENDERED');
+    else bootLog('HOME_RENDERED');
+  }, [ready, fontsLoaded, me]);
 
   useEffect(() => {
     if (me && tokenFor.current !== me.id) {

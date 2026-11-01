@@ -115,8 +115,8 @@ function BillingHero({ spent30, activeCount }: { spent30: number; activeCount: n
       <View style={{ padding: 18, paddingTop: 20, gap: 4 }}>
         <T v="caption" color="#FFFFFFB3" style={{ fontWeight: '700', letterSpacing: 0.4 }}>SUBSCRIPTION BILLING</T>
         <T v="h2" color="#fff" style={{ fontSize: 21 }}>Kelola langganan Zeroid</T>
-        <T v="caption" color="#FFFFFFD9" style={{ lineHeight: 17, marginTop: 2, maxWidth: 230 }}>
-          Satu tempat untuk melihat sisa masa aktif, memperpanjang paket, dan membuka semua riwayat tagihan.
+        <T v="caption" color="#FFFFFFD9" style={{ lineHeight: 17, marginTop: 2, maxWidth: 230 }} numberOfLines={2}>
+          Sisa masa aktif, perpanjangan, dan riwayat tagihan — semua di sini.
         </T>
         <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
           <View style={{ backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 }}>
@@ -266,18 +266,17 @@ export default function SubscriptionScreen() {
         {/* HERO */}
         <BillingHero spent30={spent30} activeCount={activeCount} />
 
-        {/* METODE PEMBAYARAN */}
-        <Neu radius={R.xl} style={{ padding: 14, gap: 8 }}>
+        {/* METODE PEMBAYARAN — v29: susunan TUMPUK (dulu 3 kolom digencet badge →
+            judul patah "pembayara-n" + caption jadi 7 baris pendek jelek) */}
+        <Neu radius={R.xl} style={{ padding: 14, gap: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <View style={{ width: 40, height: 40, borderRadius: 13, backgroundColor: t.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+            <View style={{ width: 40, height: 40, borderRadius: 13, backgroundColor: t.accentSoft, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               <Ionicons name="card" size={20} color={t.accent} />
             </View>
-            <View style={{ flex: 1 }}>
-              <T v="h3" style={{ fontSize: 15 }}>Metode pembayaran</T>
-              <T v="caption" color={t.sub}>Hanya 2 metode resmi — DANA & QRIS. Konfirmasi manual oleh admin.</T>
-            </View>
+            <T v="h3" style={{ fontSize: 15, flex: 1 }} numberOfLines={1}>Metode pembayaran</T>
             <MethodBadges />
           </View>
+          <T v="caption" color={t.sub} numberOfLines={1}>DANA & QRIS saja — dikonfirmasi admin.</T>
         </Neu>
 
         {/* LANGGANAN AKTIF */}

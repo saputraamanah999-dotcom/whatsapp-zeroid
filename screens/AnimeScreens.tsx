@@ -425,17 +425,38 @@ export function AnimeDetailScreen() {
           try {
             const m = await animeInSearch(kw.slice(0, 70));
             if (m[0]?.id) { id = m[0].id; titleHint = m[0].title; posterHint = m[0].image_poster ?? posterHint; }
-          } catch {
+          } catch { /* kosong/error → lanjut fallback di bawah */ }
+          // v29 AKAR BUG "Judul tidak ditemukan di katalog": fallback dulu HANYA
+          // jalan bila animeinSearch MELEMPAR error — padahal kasus nyata ia
+          // SUKSES tapi balikin daftar KOSONG (katalog animein tidak punya
+          // judul tsb) → id tetap kosong → galat, tanpa mencoba Jikan/jere.
+          // Kini fallback jalan setiap kali id masih kosong.
+          if (!id) {
+            const kw2 = (titleHint || kw).slice(0, 70);
             try {
-              const jc = await jikanSearch(kw.slice(0, 70));
-              if (jc[0]?.slug) { nav.replace('AnimeDetail', { slug: jc[0].slug, title: jc[0].title, poster: jc[0].poster }); return; }
-            } catch {
-              const list = await jereSearch(kw.slice(0, 70));
-              if (list[0]?.slug) { nav.replace('AnimeDetail', { slug: list[0].slug, title: list[0].title, poster: list[0].poster }); return; }
-            }
+              const jc = await jikanSearch(kw2);
+              if (jc[0]?.slug) { nav.replace('AnimeDetail', { slug: jc[0].slug, title: jc[0].title || titleHint, poster: jc[0].poster ?? posterHint }); return; }
+            } catch { /* lanjut jere */ }
+            try {
+              const list = await jereSearch(kw2);
+              if (list[0]?.slug) { nav.replace('AnimeDetail', { slug: list[0].slug, title: list[0].title || titleHint, poster: list[0].poster ?? posterHint }); return; }
+            } catch { /* beri halaman bantu di bawah */ }
           }
         }
-        if (!id) throw new Error('Judul tidak ditemukan di katalog — coba cari manual.');
+        if (!id) {
+          // v29 JARING TERAKHIR: kartu pencarian SELALU membawa judul (+ poster).
+          // Alih-alih layar galat mati, buka halaman detail mini dari data kartu
+          // dengan tombol nonton YouTube — ketuk judul PASTI kebuka.
+          if (titleHint) {
+            setD({
+              movie: { id: slug, title: titleHint, synopsis: 'Detail katalog belum tersedia untuk judul ini — kamu tetap bisa menonton lewat YouTube di daftar episode di bawah.', image_poster: posterHint } as AnimeInMovie,
+              episodes: [],
+            });
+            setLoading(false);
+            return;
+          }
+          throw new Error('Judul tidak ditemukan di katalog — coba cari manual.');
+        }
         const info = await animeInInfo(id);
         if (!alive) return;
         setD({ movie: { ...info.movie, image_poster: info.movie.image_poster ?? posterHint, title: info.movie.title || titleHint }, episodes: info.episodes });
@@ -552,7 +573,11 @@ export function AnimeDetailScreen() {
               )}
             </View>
           ) : (
-            <T color={t.faint}>Daftar episode tidak tersedia.</T>
+            <View style={{ gap: 10 }}>
+              <T color={t.faint}>Daftar episode tidak tersedia di katalog.</T>
+              {/* v29: jaring terakhir — judul tetap BISA ditonton via YouTube */}
+              <Btn small icon="logo-youtube" title="Nonton di YouTube" onPress={() => nav.navigate('AnimeWatch', { epId: `yt:${title}`, title })} />
+            </View>
           )}
         </Card>
       </ScrollView>
@@ -623,6 +648,12 @@ export function AnimeWatchScreen() {
     let alive = true;
     (async () => {
       try {
+        if (epId.startsWith('yt:')) {
+          // v29: pintasan "Nonton di YouTube" dari detail tanpa episode katalog —
+          // tidak ada server langsung yang perlu dimuat, cukup pencarian YouTube.
+          if (alive) setLoading(false);
+          return;
+        }
         if (epId.startsWith('jikan:')) {
           // episode dari sumber Jikan (upstream utama mati) — tidak ada server langsung
           if (alive) { setErr('Pemutar langsung sedang tidak tersedia (sumber utama maintenance). Coba lagi nanti.'); setLoading(false); }

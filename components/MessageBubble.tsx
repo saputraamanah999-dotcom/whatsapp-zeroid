@@ -165,13 +165,14 @@ export default function MessageBubble({
             {mine && <Ticks status={status} />}
           </View>
           {Object.keys(grouped).length > 0 && (
-            <View style={{ flexDirection: 'row', gap: 2, marginTop: 2 }}>
-              {Object.entries(grouped).map(([e, n]) => (
-                <View key={e} style={{ flexDirection: 'row', alignItems: 'center', gap: 1 }}>
-                  <AppleEmoji e={e} size={13} />
-                  {n > 1 ? <T v="caption" style={{ fontSize: 11.5, opacity: 0.8 }}>{compactId(n)}</T> : null}
-                </View>
-              ))}
+            /* v29: emoji berdampingan dulu (❤️😂), SATU angka gabungan setelahnya */
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 2 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 1 }}>
+                {Object.entries(grouped).map(([e]) => <AppleEmoji key={e} e={e} size={13} />)}
+              </View>
+              {Object.values(grouped).reduce((a, b) => a + b, 0) > 1 ? (
+                <T v="caption" style={{ fontSize: 11.5, opacity: 0.8 }}>{compactId(Object.values(grouped).reduce((a, b) => a + b, 0))}</T>
+              ) : null}
             </View>
           )}
         </View>
@@ -530,23 +531,21 @@ export default function MessageBubble({
         </View>
       </Pressable>
       {Object.keys(grouped).length > 0 && (() => {
-        // v28: MAKS 3 jenis emoji terlihat — sisanya jadi chip "Reaksi lainnya"
-        // yang membuka rincian SEMUA reaksi (emoji + jumlah + nama pereaksi).
-        // Reaksi orang lain yg beda dgn punyamu tetap tampil emoji saja (tanpa
-        // angka bila cuma 1) — sesuai permintaan.
+        // v29 sesuai permintaan pemilik: SEMUA emoji tampil BERSEBELAHAN dulu
+        // (❤️😂 tertawa di samping emoji cinta — BUKAN di belakang angka),
+        // lalu SATU angka gabungan setelahnya (1rb/2rb/1jt). Jenis reaksi ke-4+
+        // masuk chip "Reaksi lainnya" yang membuka rincian lengkap per orang.
         const rxEntries = Object.entries(grouped).sort((a, b) => b[1] - a[1]);
         const visibleRx = rxEntries.slice(0, 3);
         const hiddenRx = rxEntries.slice(3);
+        const totalAll = rxEntries.reduce((s, [, n]) => s + n, 0);
         return (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 2, marginTop: -6, marginHorizontal: 10, backgroundColor: t.bg, borderRadius: R.pill, paddingHorizontal: 7, paddingVertical: 2, boxShadow: t.raisedSm, alignSelf: mine ? 'flex-end' : 'flex-start' } as any}>
-            {/* v26: reaksi RAPI — angka ringkas 1rb/2rb/1jt (compactId); emoji yang
-                cuma 1 tampil TANPA angka (cuma emojinya, langsung gabung rapi). */}
-            {visibleRx.map(([e, n]) => (
-              <View key={e} style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                <AppleEmoji e={e} size={15} />
-                {n > 1 ? <T v="caption" style={{ fontSize: 12.5, fontWeight: '700' }}>{compactId(n)}</T> : null}
-              </View>
-            ))}
+            {/* emoji-jenis berdampingan tanpa angka di antaranya */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 1 }}>
+              {visibleRx.map(([e, n]) => <AppleEmoji key={e} e={e} size={15} />)}
+            </View>
+            {totalAll > 1 ? <T v="caption" style={{ fontSize: 12.5, fontWeight: '700' }}>{compactId(totalAll)}</T> : null}
             {hiddenRx.length > 0 && (
               <Pressable
                 onPress={() => setRxOpen(true)}

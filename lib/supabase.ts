@@ -21,6 +21,11 @@ export const SB_BUCKET = 'zeroid';
 
 export const isSupabaseConfigured = /^https:\/\//.test(SB_URL) && SB_ANON.length > 20;
 
+/** v29: info untuk probe kesehatan live (lib/health) — tanpa membocorkan kunci. */
+export function sbProbeInfo(): { url: string; anon: string } {
+  return { url: isSupabaseConfigured ? SB_URL : '', anon: SB_ANON };
+}
+
 export type UploadDirectResult = { url: string; path: string; expiresAt?: number };
 
 /**

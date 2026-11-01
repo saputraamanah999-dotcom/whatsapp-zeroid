@@ -212,6 +212,19 @@ async function vexoYt3(videoId: string): Promise<string | null> {
   } catch { return null; }
 }
 
+/** v29: sylvatica ytmp3 — sumber ketiga milik pemilik (endpoint /api/download/ytmp3
+ *  TERBUKTI ADA live: balas 'API Key wajib' tanpa kunci → route hidup). Bila bentuk
+ *  balasan berbeda, fungsi aman gagal → rantai lanjut tanpa ganggu sumber lain. */
+async function sylvaticaYt3(videoId: string): Promise<string | null> {
+  const key = await apiKey('SYLVATICA_APIKEY');
+  if (!key) return null;
+  try {
+    const d = await j(`https://sylvatica.my.id/api/download/ytmp3?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&apikey=${encodeURIComponent(key)}`, {}, 45000);
+    const u = String(d?.result?.downloadUrl ?? d?.result?.url ?? d?.url ?? d?.download?.audio ?? d?.download?.url ?? '');
+    return u && /^https:\/\//.test(u) ? u : null;
+  } catch { return null; }
+}
+
 async function playable(url: string): Promise<boolean> {
   try {
     const ctl = new AbortController();
@@ -352,18 +365,20 @@ export default async function handler(req: any, res: any) {
     if (action === 'stream') {
       const id = String(req.query.id ?? '').replace(/[^A-Za-z0-9_-]/g, '');
       if (!id) return fail(res, 400, 'ID video wajib.');
-      // v26: sumber MP3 pemilik DULUAN (file mp3 asli, background OK) — SEMUA
+      // v26+v29: sumber MP3 pemilik DULUAN (file mp3 asli, background OK) — SEMUA
       // dijalankan PARALEL (budget waktu function 60 dtk) → pilih menurut
-      // prioritas: jerexd ytmp3 → vexo ytmp3 → invidious → piped → innertube.
+      // prioritas: jerexd ytmp3 → vexo ytmp3 → sylvatica ytmp3 → invidious →
+      // piped → innertube. Rapxz eu.cc terbukti MATI (DEPLOYMENT_NOT_FOUND live).
       const race = await Promise.allSettled([
         jerexdYt3(id),
         vexoYt3(id),
+        sylvaticaYt3(id),
         invidiousStream(id),
         pipedStream(id),
       ]);
       const val = (i: number) => (race[i].status === 'fulfilled' ? (race[i] as PromiseFulfilledResult<string | null>).value : null);
       const url =
-        val(0) ?? val(1) ?? val(2) ?? val(3) ?? (await innertubeStream(id));
+        val(0) ?? val(1) ?? val(2) ?? val(3) ?? val(4) ?? (await innertubeStream(id));
       if (!url) {
         // semua sumber gagal — klien beralih ke YouTube embed resmi (selalu jalan)
         return res.status(200).json({

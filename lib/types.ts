@@ -253,6 +253,16 @@ export type Order = {
   adminNote?: string | null;
 };
 
+/** v29: umpan pengumuman pembelian (marquee berjalan di layar utama).
+ *  Ditulis admin saat order dikonfirmasi — dibaca SEMUA user ter-login. */
+export type PurchaseFeed = {
+  id: string;
+  name: string;   // nama pembeli (dipublikasikan)
+  product: string; // judul produk yang dibeli
+  total: number;   // harga (Rp) — 0 = tidak ditampilkan
+  at: number;      // waktu konfirmasi (ms)
+};
+
 export type MediaMeta = {
   mime?: string;
   width?: number;
@@ -486,6 +496,7 @@ export type DB = {
   reports: Report[];
   stickers: Sticker[];
   orders: Order[];
+  purchases: PurchaseFeed[];
   announcements: Announcement[];
   audit: AuditLog[];
   animeFavs: AnimeFav[];

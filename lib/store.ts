@@ -36,7 +36,7 @@ import {
 } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { AppNotification, Call, Chat, ChatAppeal, DB, LeaderRow, Message, ModOffense, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav, Ban, Appeal, AiProfile } from './types';
+import { AppNotification, Call, Chat, ChatAppeal, DB, LeaderRow, Message, ModOffense, NotifKind, Story, User, Visibility, Sticker, Order, ProductKey, SpotifyTrack, PlatformConfig, AnimeFav, Ban, Appeal, AiProfile, PurchaseFeed } from './types';
 import { productOf, productSafe, rupiah, PAYMENT_METHODS, apiProductOf, API_PRODUCTS, applyPricingConfig, apiPriceOf, planPriceOf, unitPriceOf } from './products';
 import { vanzzDeliver } from './vanzz';
 import { proxyGet } from './proxy';
@@ -107,7 +107,7 @@ let deviceBan: DeviceBan | null = isWeb ? readDeviceBan() : null;
 
 const EMPTY: DB = {
   version: 2, users: {}, chats: {}, messages: {}, stories: [], calls: [], notifications: [],
-  reports: [], stickers: [], orders: [], announcements: [], audit: [], animeFavs: [], bans: [], appeals: [], config: null, aiProfile: null, payments: null, pricing: null,
+  reports: [], stickers: [], orders: [], purchases: [], announcements: [], audit: [], animeFavs: [], bans: [], appeals: [], config: null, aiProfile: null, payments: null, pricing: null,
   aiTyping: {},
 };
 
@@ -610,6 +610,15 @@ function attachUserSubs(fbUid: string) {
     db.announcements = s.docs.map(rawDoc) as any;
     bump();
   }, () => {}));
+  // v29 UMPAN PEMBELIAN (real-time): pengumuman pembelian terbaru untuk marquee
+  // berjalan di layar utama — semua user ter-login melihat feed yang sama.
+  miscSubs.push(onSnapshot(query(collection(fb.db, C.purchases), orderBy('at', 'desc'), fsLimit(12)), (s) => {
+    db.purchases = s.docs.filter((d) => d.id !== '_schema').map((d) => {
+      const v = rawDoc(d) as PurchaseFeed;
+      return { ...v, id: d.id, at: Number(v.at ?? 0), total: Number(v.total ?? 0) };
+    });
+    bump();
+  }, () => {}));
   miscSubs.push(onSnapshot(doc(fb.db, C.config, 'platform'), (s) => {
     db.config = s.exists() ? (s.data() as PlatformConfig) : null;
     bump();
@@ -981,15 +990,18 @@ async function recordUsermeta(who: string) {
 }
 
 export async function initStore() {
+  const { bootLog } = await import('./bootlog');
   const theme = isWeb ? window.localStorage.getItem(THEME_KEY) : await AsyncStorage.getItem(THEME_KEY);
   if (theme === 'light' || theme === 'dark' || theme === 'system') setThemeMode(theme);
   const unlockedVal = isWeb ? window.sessionStorage.getItem(LOCK_KEY) : await AsyncStorage.getItem(LOCK_KEY);
   locked = unlockedVal !== '1';
 
   if (!isFirebaseConfigured) {
+    bootLog('FIREBASE_INIT', 'LEWATI — config tidak lengkap');
     ready = true; bump();
     return;
   }
+  bootLog('FIREBASE_INIT');
   const fb = firebase()!;
 
   // Google redirect flow: tangkap error hasil redirect (domain belum diizinkan, dll.)
@@ -1007,6 +1019,7 @@ export async function initStore() {
    */
 
   // restore theme-persisted session is handled by Firebase persistence; just observe.
+  bootLog('AUTH_INIT', 'memasang listener onAuthStateChanged');
   onAuthStateChanged(fb.auth, async (u: FBUser | null) => {
     // v22 ANTI-MACET: galat apa pun di bootstrap TIDAK boleh membuat splash
     // berputar selamanya — ready SELALU true di akhir (finally).
@@ -3340,6 +3353,13 @@ export function adminDecideOrder(orderId: string, approve: boolean) {
   }
   batch.commit().catch(() => {});
   const buyer = db.users[o.userId]?.name ?? 'Seseorang';
+  // v29 UMPAN PEMBELIAN: order dikonfirmasi → pengumuman publik (marquee berjalan
+  // di layar utama). Nama pembeli + produk + harga; dibaca semua user ter-login.
+  if (approve) {
+    setDoc(doc(fb.db, C.purchases, orderId), {
+      name: buyer, product: p.title, total: o.price ?? 0, at: Date.now(),
+    }).catch(() => {});
+  }
   notifyFor(o.userId, 'admin', approve ? `${p.title} aktif` : 'Pesanan ditolak',
     approve ? `Pembayaran ${rupiah(o.price)} dikonfirmasi admin. Terima kasih.` : 'Pembayaran belum dapat diverifikasi. Hubungi admin di chat.', { chatId: o.chatId });
   sendMessage(o.chatId, {
@@ -3933,6 +3953,13 @@ export function adminUpdateOrder(orderId: string, patch: { status?: 'pending' | 
   if (patch.price != null && patch.price >= 0 && patch.price <= 200000) up.price = Math.ceil(patch.price);
   if (!Object.keys(up).length) return;
   updateDoc(doc(fb.db, C.orders, orderId), up).then(() => audit('order_edit', orderId, JSON.stringify(up).slice(0, 120))).catch((e) => pushBanner({ title: 'Gagal edit transaksi', body: fbError(e), icon: 'alert' }));
+  // v29: edit manual status → paid juga masuk umpan pembelian (marquee)
+  if (up.status === 'paid' && o.status !== 'paid') {
+    const p = productSafe(o.product);
+    setDoc(doc(fb.db, C.purchases, orderId), {
+      name: db.users[o.userId]?.name ?? 'Seseorang', product: p.title, total: o.price ?? 0, at: Date.now(),
+    }).catch(() => {});
+  }
 }
 
 // ============================ ADMIN: TUMBUHKAN SALURAN (massal) ============================

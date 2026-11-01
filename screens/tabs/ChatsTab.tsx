@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T, IconBtn, NeuInput, Empty, Btn } from '../../components/ui';
 import ChatRow from '../../components/ChatRow';
+import PurchaseTicker from '../../components/PurchaseTicker';
 import { Sheet, Confirm } from '../../components/Sheet';
 import { useTheme, R } from '../../lib/theme';
 import { useStore, isMember, lastMessage, chatLastMsg, unreadCount, chatTitle, toggleChatFlag, markRead, deleteChat, chatPeer, removeContact, toggleBlock } from '../../lib/store';
@@ -86,6 +87,9 @@ export default function ChatsTab() {
         ListHeaderComponent={
           <View style={{ paddingHorizontal: 18, paddingTop: 10, gap: 14, marginBottom: 6 }}>
             <NeuInput icon="search" placeholder="Cari chat atau pesan" value={q} onChangeText={setQ} returnKeyType="search" containerStyle={{ minHeight: 48 }} right={q ? <Ionicons name="close-circle" size={18} color={t.faint} onPress={() => setQ('')} /> : undefined} />
+            {/* v29: pengumuman pembelian BERJALAN ke kiri — di bawah pencarian,
+                terus tampil (bukan overlay paling atas yang bisa hilang) */}
+            {!archived && <PurchaseTicker />}
             <Pressable onPress={() => nav.navigate('Search')} style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 8, paddingVertical: 4, opacity: pressed ? 0.7 : 1, alignSelf: 'flex-start' })}>
               <Ionicons name="search-sharp" size={14} color={t.accent} />
               <T v="caption" color={t.accent} style={{ fontWeight: '700' }}>Cari di SEMUA pesan (seluruh chat) ›</T>

@@ -21,10 +21,12 @@ const {
   withGradleProperties,
   withAppBuildGradle,
   withMainApplication,
+  withMainActivity,
   AndroidConfig,
 } = require('@expo/config-plugins');
 
 const CRASH_MARKER = '// ZEROID-CRASH-REPORTER v21';
+const BOOT_WATCHDOG_MARKER = 'ZEROID-BOOT-WATCHDOG v29';
 
 const CRASH_REPORTER_KT = `
         ${CRASH_MARKER}
@@ -98,6 +100,69 @@ module.exports = function withZeroidAndroid(config) {
         /super\.onCreate\(\)/,
         `super.onCreate()\n${CRASH_REPORTER_KT}`
       );
+    }
+    return cfg;
+  });
+
+  // v29 ZEROID-BOOT-WATCHDOG — jaminan TERAKHIR splash tidak pernah nyangkut:
+  // 12 detik setelah Activity dibuat, native MEMAKSA splash hilang (API 31+:
+  // setKeepOnScreenCondition false; API lama: lepas view overlay 'Splash') +
+  // menulis laporan + Toast. Bekerja WALAU JavaScript mati total — kasus yang
+  // tidak pernah bisa ditangani timer JS mana pun.
+  config = withMainActivity(config, (cfg) => {
+    if (!cfg.modResults.contents.includes(BOOT_WATCHDOG_MARKER)) {
+      // pasang panggilan watchdog di onCreate
+      cfg.modResults.contents = cfg.modResults.contents.replace(
+        /super\.onCreate\(savedInstanceState\)/,
+        `super.onCreate(savedInstanceState)\n        zeroidBootWatchdog() // ${BOOT_WATCHDOG_MARKER}`
+      );
+      // sisipkan metode watchdog sebelum penutup kelas terakhir
+      const idx = cfg.modResults.contents.lastIndexOf('}');
+      const methods = `
+    // ==== ${BOOT_WATCHDOG_MARKER} ====
+    private fun zeroidBootWatchdog() {
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            try {
+                // 1) Android 12+: jangan lagi menahan splash sistem
+                try { splashScreen.setKeepOnScreenCondition { false } } catch (_: Throwable) {}
+                // 2) overlay legacy (API < 31): lepas view dgn nama kelas 'Splash'
+                var removed = 0
+                try {
+                    val decor = window.decorView
+                    if (decor is android.view.ViewGroup) removed = zeroidRemoveSplash(decor)
+                } catch (_: Throwable) {}
+                if (removed > 0) {
+                    try {
+                        java.io.File(filesDir, "zeroid-native-boot.txt").writeText(
+                            "at=" + java.lang.System.currentTimeMillis() + "\n" +
+                            "watchdog=splash_removed\n" + "removed=" + removed + "\n"
+                        )
+                    } catch (_: Throwable) {}
+                    android.widget.Toast.makeText(
+                        this,
+                        "[ZEROID_BOOT] WATCHDOG: " + removed + " overlay splash dilepas paksa",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
+            } catch (_: Throwable) {}
+        }, 12000)
+    }
+
+    private fun zeroidRemoveSplash(root: android.view.ViewGroup): Int {
+        var n = 0
+        var i = 0
+        while (i < root.childCount) {
+            val c = root.getChildAt(i)
+            if (c.javaClass.simpleName.lowercase().contains("splash")) {
+                root.removeViewAt(i); n++; continue
+            }
+            if (c is android.view.ViewGroup) n += zeroidRemoveSplash(c)
+            i++
+        }
+        return n
+    }
+`;      cfg.modResults.contents =
+        cfg.modResults.contents.slice(0, idx) + methods + cfg.modResults.contents.slice(idx);
     }
     return cfg;
   });
