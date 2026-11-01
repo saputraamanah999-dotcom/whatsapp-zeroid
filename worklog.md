@@ -27,7 +27,14 @@
   sylvatica/supabase semua true ✓.
 - APK 1.8.0 (versionCode 18): bump memicu build otomatis GitHub Actions → APK
   final berisi SEMUA perbaikan termasuk "Reaksi lainnya".
-- ZIP final dibangun ulang SETELAH v28 (zip lama masih v25.1 — kelewatan 3 ronde).
+- BUKTI APK 1.8.0: build CI sukses (±17 mnt) → GitHub Releases apk-latest
+  (83,9 MB, 2026-11-01T15:07Z) → diunduh & diverifikasi byte-level: 1671 entri,
+  classes.dex ✓, lib/arm64-v8a ✓, bundle memuat "Reaksi lainnya" + "Langganan &
+  tagihan" (kode TERBARU di dalam APK).
+- ZIP final v28 `ZEROID-WHATSAPP-FIXED-COMPLETE.zip` (84 MB, 592 file):
+  source + rules + indexes + functions + docs + .env.example + TEST-REPORT +
+  APK 1.8.0 di release/ — tanpa node_modules/.git/.env/kredensial
+  (sanity scan: 0 bocor).
 
 ## Ronde: v27 — SUBSCRIPTION BILLING + 8 MODEL AI MODERN (2026-11-01) — diuji LIVE produksi (01639e2 → 81626d3)
 
