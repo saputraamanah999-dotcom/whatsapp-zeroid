@@ -350,9 +350,18 @@ export default async function handler(req: any, res: any) {
     if (action === 'stream') {
       const id = String(req.query.id ?? '').replace(/[^A-Za-z0-9_-]/g, '');
       if (!id) return fail(res, 400, 'ID video wajib.');
-      // v26 URUTAN BARU: sumber MP3 pemilik DULUAN (file mp3 asli, background OK,
-      // tahan lama) → baru scraper publik → embed hanya sebagai jurus terakhir.
-      const url = (await jerexdYt3(id)) ?? (await vexoYt3(id)) ?? (await invidiousStream(id)) ?? (await pipedStream(id)) ?? (await innertubeStream(id));
+      // v26: sumber MP3 pemilik DULUAN (file mp3 asli, background OK) — SEMUA
+      // dijalankan PARALEL (budget waktu function 60 dtk) → pilih menurut
+      // prioritas: jerexd ytmp3 → vexo ytmp3 → invidious → piped → innertube.
+      const race = await Promise.allSettled([
+        jerexdYt3(id),
+        vexoYt3(id),
+        invidiousStream(id),
+        pipedStream(id),
+      ]);
+      const val = (i: number) => (race[i].status === 'fulfilled' ? (race[i] as PromiseFulfilledResult<string | null>).value : null);
+      const url =
+        val(0) ?? val(1) ?? val(2) ?? val(3) ?? (await innertubeStream(id));
       if (!url) {
         // semua sumber gagal — klien beralih ke YouTube embed resmi (selalu jalan)
         return res.status(200).json({
