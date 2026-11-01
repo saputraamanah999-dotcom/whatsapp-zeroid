@@ -472,12 +472,17 @@ function providerOrder(): ProviderId[] {
 async function chatFullPrompt(fullPrompt: string, model: string, budgetMs: number, sessionId = '', steps?: { provider: string; ok: boolean; ms: number }[]): Promise<{ text: string; provider: ProviderId } | null> {
   const t0 = Date.now();
   const slice = fullPrompt.slice(0, 3600);
-  // PRIORITAS: model modern EXAK pilihan pengguna (format vendor/nama)
+  // PRIORITAS: model modern EXAK pilihan pengguna (format vendor/nama).
+  // TERBUKTI LIVE: upstream Jerexd menolak prompt > ~1200 karakter utk sesi
+  // anonim (balik "Sign in to continue" / 429 ChatDay) → utk jalur ini kita
+  // kirim PROMPAD RINGKAS (persona 1 baris + konteks ekor ~850 karakter) supaya
+  // model pilihan pengguna BENAR-BENAR menjawab, bukan cuma jatuh ke fallback.
   if (isModernModel(model) || (model && model.includes('/')) ) {
     const per = Math.min(Math.max(budgetMs - 4000, 8000), 50000);
     const st0 = Date.now();
     try {
-      const r = await jerePost('/api/ai/aichat', { prompt: slice, model, session_id: `zw_${Math.random().toString(36).slice(2, 10)}` }, per);
+      const compact = `Kamu Zeroid AI, asisten WhatsApp ZEROID. Jawab ringkas, jelas, bahasa mengikuti pengguna. Jangan sebut penyedia/model lain.\n\n${fullPrompt.slice(-850)}`.slice(0, 1150);
+      const r = await jerePost('/api/ai/aichat', { prompt: compact, model, session_id: `zw_${Math.random().toString(36).slice(2, 10)}` }, per);
       const text = r.ok ? pickText(r.data) : '';
       steps?.push({ provider: `Jerexd·${model}`, ok: !!text.trim(), ms: Date.now() - st0 });
       if (text.trim()) { sticky = 'jerexd'; return { text: text.trim(), provider: 'jerexd' }; }
