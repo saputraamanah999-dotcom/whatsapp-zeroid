@@ -48,6 +48,14 @@
   "pembayara-n" + caption 7 baris digencet badge; kini 1 baris judul + caption
   singkat "DANA & QRIS saja — dikonfirmasi admin."), subtitle hero dipadatkan.
 - APK **1.9.0 (versionCode 19)** — bump memicu build CI (memuat watchdog native).
+- **v29.1 FIX BUILD APK**: build 1.9.0 GAGAL di Kotlin (template JS menghasilkan
+  newline nyata di string Kotlin + `setKeepOnScreenCondition` unresolved) →
+  diperbaiki: StringBuilder+lineSeparator, refleksi SplashScreen, javaClass.getMethod.
+  Build ulang sukses → **APK 1.9.1 (versionCode 20)** di GitHub Releases.
+  VERIFIKASI byte-level: 4 dex; **watchdog NATIVE ada di classes3.dex** ✓;
+  bundle memuat [ZEROID_BOOT]/NATIVE_READY ✓, "Reaksi lainnya" ✓, ticker ✓,
+  "Langganan & tagihan" ✓; sertifikat SHA-256 SAMA (91A6D699…C759) ✓ — identitas
+  & tanda tangan konsisten lintas versi.
 - tsc 0 error; expo export web sukses.
 
 ## Ronde: v28 — AUDIT PENUH 4 BATCH (64 butir) + "REAKSI LAINNYA" (2026-11-01)
